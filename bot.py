@@ -38,7 +38,19 @@ async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await update.message.reply_text("❌ Invalid code.")
     else:
-        await update.message.reply_text("Welcome! Send me a code like 445 to get a book.")
+        user_first = update.effective_user.first_name or "friend"
+        welcome = f"""
+👋 Assalomu alaykum, {user_first}!
+
+📘 I’m *Voxi*, your IELTS book assistant.
+Send me a code like `445` or `446` and I’ll deliver the e-book to you instantly.
+
+⏳ Files will self-destruct in 15 minutes for your privacy.
+
+Need help? Type `help` or contact Ogabek directly 😉
+"""
+        await update.message.reply_markdown_v2(welcome)
+
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
