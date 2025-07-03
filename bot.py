@@ -28,7 +28,7 @@ async def send_book(update: Update, context: ContextTypes.DEFAULT_TYPE, code: st
         except:
             pass
     else:
-        await update.message.reply_text("Sorry, file not found.")
+        await update.message.reply_text("❌ Sorry, file not found.")
 
 async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.args:
@@ -49,8 +49,7 @@ Send me a code like `445` or `446` and I’ll deliver the e-book to you instantl
 
 Need help? Type `help` or contact Ogabek directly 😉
 """
-        await update.message.reply_markdown_v2(welcome)
-
+        await update.message.reply_text(welcome, parse_mode="Markdown")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
