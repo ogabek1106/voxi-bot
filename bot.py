@@ -47,7 +47,7 @@ Send me the code of a e-book and I’ll deliver the e-book to you instantly.
 
 ⏳ Files will self-destruct in 15 minutes for your privacy.
 
-Need help? Type `/help` or [contact Ogabek](https://t.me/YOUR_USERNAME) directly 😉
+Need help? Type `/help` or [contact Ogabek](https://t.me/ogabek1106) directly 😉
 """
         await update.message.reply_text(welcome, parse_mode="Markdown")
 
