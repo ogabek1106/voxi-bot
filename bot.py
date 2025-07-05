@@ -14,22 +14,32 @@ BOOKS = {
 }
 
 FILENAMES = {
-    "1": "@ieltsforeverybody (400 must-have words for the TOEFL-MGH (2005)).pdf",
+    "1": "@ieltsforeverybody - 400 must-have words for the TOEFL-MGH 2005.pdf",
     "445": "445.pdf",
     "446": "446.pdf",
     "447": "447.pdf"
+}
+
+DESCRIPTIONS = {
+    "1": "📘 *400 Must-Have Words for the TOEFL* (McGraw-Hill, 2005)\nThis book is ideal for students preparing for the TOEFL test. It helps boost academic vocabulary and confidence.",
+    "445": "Basic IELTS book with practice tests.",
+    "446": "Intermediate level IELTS grammar guide.",
+    "447": "Advanced writing techniques for IELTS Task 2."
 }
 
 BOOKS_DIR = "books"
 
 async def send_book(update: Update, context: ContextTypes.DEFAULT_TYPE, code: str):
     file_path = os.path.join(BOOKS_DIR, BOOKS[code])
-    custom_name = FILENAMES.get(code, BOOKS[code])  # Use fancy name if exists
+    custom_name = FILENAMES.get(code, BOOKS[code])
+    caption = DESCRIPTIONS.get(code, "")
 
     if os.path.exists(file_path):
         sent_msg = await update.message.reply_document(
             document=open(file_path, "rb"),
-            filename=custom_name
+            filename=custom_name,
+            caption=caption,
+            parse_mode="Markdown"
         )
         await asyncio.sleep(900)
         try:
