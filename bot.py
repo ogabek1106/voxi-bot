@@ -1,19 +1,11 @@
 import os
 import asyncio
-import logging
 from telegram import Update
-from telegram.ext import (
-    ApplicationBuilder, MessageHandler, CommandHandler,
-    ContextTypes, filters
-)
+from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, ContextTypes, filters
 
-# Environment variables
-TOKEN = os.getenv("TOKEN")
-WEBHOOK_URL = os.getenv("WEBHOOK_URL")
-PORT = int(os.environ.get("PORT", 8443))
+# Book config
 BOOKS_DIR = "books"
 
-# Book mappings
 BOOKS = {
     "1": "1.pdf",
     "445": "445.pdf",
@@ -30,12 +22,12 @@ FILENAMES = {
 
 DESCRIPTIONS = {
     "1": "📘 *400 Must-Have Words for the TOEFL* (McGraw-Hill, 2005)\n\n⏰ File will be deleted after 15 minutes, so make sure that you've downloaded it.\n\n📚 For more -> @IELTSforeverybody",
-    "445": "Basic IELTS book with practice tests.",
-    "446": "Intermediate level IELTS grammar guide.",
-    "447": "Advanced writing techniques for IELTS Task 2."
+    "445": "📗 Basic IELTS book with practice tests.",
+    "446": "📙 Intermediate level IELTS grammar guide.",
+    "447": "📕 Advanced writing techniques for IELTS Task 2."
 }
 
-# Send book
+
 async def send_book(update: Update, context: ContextTypes.DEFAULT_TYPE, code: str):
     file_path = os.path.join(BOOKS_DIR, BOOKS[code])
     custom_name = FILENAMES.get(code, BOOKS[code])
@@ -56,7 +48,7 @@ async def send_book(update: Update, context: ContextTypes.DEFAULT_TYPE, code: st
     else:
         await update.message.reply_text("❌ Sorry, file not found.")
 
-# /start handler
+
 async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.args:
         code = context.args[0]
@@ -69,13 +61,13 @@ async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         welcome = (
             f"👋 Hi, {user_first}!\n\n"
             "🦊 I’m *Voxi*, your AI assistant.\n"
-            "Send me the code of a e-book and I’ll deliver the e-book to you instantly.\n\n"
+            "Send me the code of a book (like `445`) and I’ll deliver the e-book to you instantly.\n\n"
             "⏳ Files will self-destruct in 15 minutes for your privacy.\n\n"
             "Need help? Type `/help` or [contact Ogabek](https://t.me/ogabek1106) directly 😉"
         )
         await update.message.reply_text(welcome, parse_mode="Markdown")
 
-# Handle normal messages
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
     if text.isdigit() and text in BOOKS:
@@ -85,17 +77,31 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("🔍 Please send a valid book code (like 445).")
 
-# Main
+
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
+    import logging
+    import sys
+
+    logging.basicConfig(stream=sys.stdout, level=logging.INFO)
+
+    TOKEN = os.getenv("TOKEN")  # 🔒 safer for deployment
     app = ApplicationBuilder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", handle_start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    print("✅ Voxi Bot is live with webhook on Railway!")
-    app.run_webhook(
-        listen="0.0.0.0",
-        port=PORT,
-        webhook_url=WEBHOOK_URL
-    )
+    print("✅ Voxi Bot is running...")
+
+    if "RENDER" in os.environ or "RAILWAY" in os.environ:
+        # 🛰 Webhook hosting (Railway)
+        PORT = int(os.environ.get("PORT", 8443))
+        HOSTNAME = os.environ.get("WEBHOOK_URL")  # Set this in Railway
+
+        app.run_webhook(
+            listen="0.0.0.0",
+            port=PORT,
+            webhook_url=f"{HOSTNAME}/webhook"
+        )
+    else:
+        # 🧪 Local dev (Polling)
+        app.run_polling()
