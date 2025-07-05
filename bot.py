@@ -1,13 +1,22 @@
 import os
 import asyncio
+import logging
 from telegram import Update
 from telegram.ext import (
-    ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
+    ApplicationBuilder,
+    ContextTypes,
+    CommandHandler,
+    MessageHandler,
+    filters
 )
 
+# Bot Token (Keep secret!)
 TOKEN = "7687239994:AAGRHu3GE0HehgnmcwdrJQnwQvNCXE4t7Mo"
+
+# Folder where your PDF files are stored
 BOOKS_DIR = "books"
 
+# Code to file mappings
 BOOKS = {
     "1": "1.pdf",
     "445": "445.pdf",
@@ -24,9 +33,9 @@ FILENAMES = {
 
 DESCRIPTIONS = {
     "1": "📘 *400 Must-Have Words for the TOEFL* (McGraw-Hill, 2005)\n\n⏰ File will be deleted after 15 minutes, so make sure that you've downloaded it.\n\n📚 For more -> @IELTSforeverybody",
-    "445": "📘 Basic IELTS book with practice tests.",
-    "446": "📘 Intermediate level IELTS grammar guide.",
-    "447": "📘 Advanced writing techniques for IELTS Task 2."
+    "445": "Basic IELTS book with practice tests.",
+    "446": "Intermediate level IELTS grammar guide.",
+    "447": "Advanced writing techniques for IELTS Task 2."
 }
 
 
@@ -52,22 +61,6 @@ async def send_book(update: Update, context: ContextTypes.DEFAULT_TYPE, code: st
 
 
 async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = str(update.effective_user.id)
-
-    # Save user if not already tracked
-    try:
-        if not os.path.exists("users.txt"):
-            open("users.txt", "w").close()
-
-        with open("users.txt", "r") as f:
-            users = f.read().splitlines()
-
-        if user_id not in users:
-            with open("users.txt", "a") as f:
-                f.write(user_id + "\n")
-    except Exception as e:
-        print("User tracking failed:", e)
-
     if context.args:
         code = context.args[0]
         if code in BOOKS:
@@ -76,61 +69,45 @@ async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ Invalid code.")
     else:
         user_first = update.effective_user.first_name or "friend"
-        welcome = f"""👋 Hi, {user_first}!
-
-🦊 I’m *Voxi*, your AI assistant.
-Send me the code of a e-book and I’ll deliver the e-book to you instantly.
-
-⏳ Files will self-destruct in 15 minutes for your privacy.
-
-Need help? Type /help or contact [Ogabek](https://t.me/ogabek1106) 😉
-"""
+        welcome = (
+            f"👋 Hi, {user_first}!\n\n"
+            "🦊 I’m *Voxi*, your AI assistant.\n"
+            "Send me the code of an e-book and I’ll deliver it instantly.\n\n"
+            "⏳ Files will self-destruct in 15 minutes for your privacy.\n\n"
+            "Need help? Type /help or [contact Ogabek](https://t.me/ogabek1106) 😉"
+        )
         await update.message.reply_text(welcome, parse_mode="Markdown")
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
-    if text.isdigit() and text in BOOKS:
-        await send_book(update, context, text)
-    elif text == "ping":
+
+    if text.lower() == "ping":
         await update.message.reply_text("pong 🏓")
+    elif text.isdigit() and text in BOOKS:
+        await send_book(update, context, text)
     elif text.isdigit():
         await update.message.reply_text("❌ This code is not available.")
     else:
         await update.message.reply_text("🔍 Please send a valid book code (like 445).")
 
 
-async def handle_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        with open("users.txt", "r") as f:
-            users = f.read().splitlines()
-        count = len(set(users))
-        await update.message.reply_text(f"👥 Total users: {count}")
-    except:
-        await update.message.reply_text("Couldn't count users.")
-
-
 if __name__ == "__main__":
-    import logging
-    import sys
-
-    logging.basicConfig(stream=sys.stdout, level=logging.INFO)
+    logging.basicConfig(level=logging.INFO)
 
     app = ApplicationBuilder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", handle_start))
-    app.add_handler(CommandHandler("stats", handle_stats))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     print("✅ Voxi Bot is running...")
 
-    if "RAILWAY_STATIC_URL" in os.environ:
-        PORT = int(os.environ.get("PORT", 8443))
-        WEBHOOK_URL = f"https://{os.environ['RAILWAY_STATIC_URL']}/webhook"
-        app.run_webhook(
-            listen="0.0.0.0",
-            port=PORT,
-            webhook_url=WEBHOOK_URL
-        )
-    else:
-        app.run_polling()
+    # Webhook setup for Railway
+    PORT = int(os.environ.get("PORT", 8443))
+    WEBHOOK_URL = f"https://{os.environ['RAILWAY_STATIC_URL']}/webhook"
+
+    app.run_webhook(
+        listen="0.0.0.0",
+        port=PORT,
+        webhook_url=WEBHOOK_URL
+    )
