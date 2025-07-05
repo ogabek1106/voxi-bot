@@ -10,13 +10,9 @@ from telegram.ext import (
     filters
 )
 
-# ✅ Bot Token
 TOKEN = "7687239994:AAGRHu3GE0HehgnmcwdrJQnwQvNCXE4t7Mo"
-
-# ✅ Folder with PDF books
 BOOKS_DIR = "books"
 
-# ✅ Code to file mapping
 BOOKS = {
     "1": "1.pdf",
     "445": "445.pdf",
@@ -51,7 +47,6 @@ async def send_book(update: Update, context: ContextTypes.DEFAULT_TYPE, code: st
             caption=caption,
             parse_mode="Markdown"
         )
-        # 🕒 File will auto-delete after 15 mins
         await asyncio.sleep(900)
         try:
             await context.bot.delete_message(chat_id=sent_msg.chat_id, message_id=sent_msg.message_id)
@@ -95,20 +90,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-
     app = ApplicationBuilder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", handle_start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    print("✅ Voxi Bot is running...")
-
-    # ✅ Railway webhook (already set)
-    WEBHOOK_URL = "https://voxi-aibot-production.up.railway.app/webhook"
-    PORT = int(os.environ.get("PORT", 8443))
-
-    app.run_webhook(
-        listen="0.0.0.0",
-        port=PORT,
-        webhook_url=WEBHOOK_URL
-    )
+    print("✅ Voxi Bot is running... Using polling...")
+    app.run_polling()
