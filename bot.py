@@ -14,7 +14,7 @@ BOOKS = {
 }
 
 FILENAMES = {
-    "1": "[@ieltsforeverybody] 400 must-have words for the TOEFL-MGH (2005).pdf",
+    "1": "@ieltsforeverybody (400 must-have words for the TOEFL-MGH (2005)).pdf",
     "445": "445.pdf",
     "446": "446.pdf",
     "447": "447.pdf"
