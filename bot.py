@@ -35,7 +35,7 @@ DESCRIPTIONS = {
     "447": "Advanced writing techniques for IELTS Task 2."
 }
 
-# Send book by code
+# Send book
 async def send_book(update: Update, context: ContextTypes.DEFAULT_TYPE, code: str):
     file_path = os.path.join(BOOKS_DIR, BOOKS[code])
     custom_name = FILENAMES.get(code, BOOKS[code])
@@ -66,12 +66,36 @@ async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ Invalid code.")
     else:
         user_first = update.effective_user.first_name or "friend"
-        welcome = f"""
-👋 Hi, {user_first}!
+        welcome = (
+            f"👋 Hi, {user_first}!\n\n"
+            "🦊 I’m *Voxi*, your AI assistant.\n"
+            "Send me the code of a e-book and I’ll deliver the e-book to you instantly.\n\n"
+            "⏳ Files will self-destruct in 15 minutes for your privacy.\n\n"
+            "Need help? Type `/help` or [contact Ogabek](https://t.me/ogabek1106) directly 😉"
+        )
+        await update.message.reply_text(welcome, parse_mode="Markdown")
 
-🦊 I’m *Voxi*, your AI assistant.
-Send me the code of a e-book and I’ll deliver the e-book to you instantly.
+# Handle normal messages
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.strip()
+    if text.isdigit() and text in BOOKS:
+        await send_book(update, context, text)
+    elif text.isdigit():
+        await update.message.reply_text("❌ This code is not available.")
+    else:
+        await update.message.reply_text("🔍 Please send a valid book code (like 445).")
 
-⏳ Files will self-destruct in 15 minutes for your privacy.
+# Main
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
+    app = ApplicationBuilder().token(TOKEN).build()
 
-Need help? Type `/help` or [contact Ogabek]
+    app.add_handler(CommandHandler("start", handle_start))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+
+    print("✅ Voxi Bot is live with webhook on Railway!")
+    app.run_webhook(
+        listen="0.0.0.0",
+        port=PORT,
+        webhook_url=WEBHOOK_URL
+    )
