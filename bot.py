@@ -21,7 +21,7 @@ FILENAMES = {
 }
 
 DESCRIPTIONS = {
-    "1": "📘 *400 Must-Have Words for the TOEFL* (McGraw-Hill, 2005)\nThis book is ideal for students preparing for the TOEFL test. It helps boost academic vocabulary and confidence.",
+    "1": "📘 *400 Must-Have Words for the TOEFL* (McGraw-Hill, 2005)\n n\File will be deleted after 15 minutes, so make sure that you've downloaded it.",
     "445": "Basic IELTS book with practice tests.",
     "446": "Intermediate level IELTS grammar guide.",
     "447": "Advanced writing techniques for IELTS Task 2."
