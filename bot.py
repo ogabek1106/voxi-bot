@@ -7,6 +7,13 @@ TOKEN = "7687239994:AAFAD9tHc3bJWOgOx6G5SB82CWboveKmKko"
 
 # Dictionary of code: filename
 BOOKS = {
+    "1": "1.pdf",
+    "445": "445.pdf",
+    "446": "446.pdf",
+    "447": "447.pdf"
+}
+
+FILENAMES = {
     "1": "[@ieltsforeverybody] 400 must-have words for the TOEFL-MGH (2005).pdf",
     "445": "445.pdf",
     "446": "446.pdf",
@@ -17,12 +24,13 @@ BOOKS_DIR = "books"
 
 async def send_book(update: Update, context: ContextTypes.DEFAULT_TYPE, code: str):
     file_path = os.path.join(BOOKS_DIR, BOOKS[code])
+    custom_name = FILENAMES.get(code, BOOKS[code])  # Use fancy name if exists
+
     if os.path.exists(file_path):
         sent_msg = await update.message.reply_document(
             document=open(file_path, "rb"),
-            filename=BOOKS[code]
+            filename=custom_name
         )
-        # Delete after 15 minutes
         await asyncio.sleep(900)
         try:
             await context.bot.delete_message(chat_id=sent_msg.chat_id, message_id=sent_msg.message_id)
