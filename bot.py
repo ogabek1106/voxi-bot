@@ -4,8 +4,8 @@ from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, ContextTypes, filters
 
 TOKEN = "7687239994:AAFAD9tHc3bJWOgOx6G5SB82CWboveKmKko"
+BOOKS_DIR = "books"
 
-# Dictionary of code: filename
 BOOKS = {
     "1": "1.pdf",
     "445": "445.pdf",
@@ -27,7 +27,6 @@ DESCRIPTIONS = {
     "447": "Advanced writing techniques for IELTS Task 2."
 }
 
-BOOKS_DIR = "books"
 
 async def send_book(update: Update, context: ContextTypes.DEFAULT_TYPE, code: str):
     file_path = os.path.join(BOOKS_DIR, BOOKS[code])
@@ -48,6 +47,7 @@ async def send_book(update: Update, context: ContextTypes.DEFAULT_TYPE, code: st
             pass
     else:
         await update.message.reply_text("❌ Sorry, file not found.")
+
 
 async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.args:
@@ -70,6 +70,7 @@ Need help? Type `/help` or [contact Ogabek](https://t.me/ogabek1106) directly �
 """
         await update.message.reply_text(welcome, parse_mode="Markdown")
 
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
     if text.isdigit() and text in BOOKS:
@@ -79,11 +80,29 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("🔍 Please send a valid book code (like 445).")
 
+
 if __name__ == "__main__":
+    import asyncio
+    import logging
+    import sys
+
+    logging.basicConfig(stream=sys.stdout, level=logging.INFO)
+
     app = ApplicationBuilder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", handle_start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     print("✅ Voxi Bot is running... Waiting for codes...")
-    app.run_polling()
+
+    if "RENDER" in os.environ:  # on Render
+        PORT = int(os.environ.get("PORT", 8443))
+        WEBHOOK_URL = f"https://{os.environ['RENDER_EXTERNAL_HOSTNAME']}/webhook"
+
+        app.run_webhook(
+            listen="0.0.0.0",
+            port=PORT,
+            webhook_url=WEBHOOK_URL
+        )
+    else:  # local run
+        app.run_polling()
