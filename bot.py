@@ -70,10 +70,16 @@ async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
-    if text.isdigit() and text in BOOKS:
+
+    if text == "ping":
+        await update.message.reply_text("pong 🏓")
+
+    elif text.isdigit() and text in BOOKS:
         await send_book(update, context, text)
+
     elif text.isdigit():
         await update.message.reply_text("❌ This code is not available.")
+
     else:
         await update.message.reply_text("🔍 Please send a valid book code (like 445).")
 
