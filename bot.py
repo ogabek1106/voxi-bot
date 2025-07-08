@@ -22,6 +22,13 @@ logger.info(f"Webhook URL will be: {WEBHOOK_URL}")
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("I hear you 👂")
 
+from telegram.ext import MessageHandler, filters
+
+async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("📩 I received your message!")
+
+app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, echo))
+
 # 🚀 Set up application
 app = ApplicationBuilder().token(BOT_TOKEN).build()
 app.add_handler(CommandHandler("start", start))
