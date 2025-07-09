@@ -9,14 +9,14 @@ from telegram.ext import (
     filters,
 )
 
-# ✅ Logging
+# ✅ Logging setup
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# 🔐 Load bot token from Railway env
+# 🔐 Bot token from Railway
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
-# 📘 Book info
+# 📘 Available books
 BOOKS = {
     "1": {
         "file_path": "books/1.pdf",
@@ -32,8 +32,9 @@ BOOKS = {
 # ✅ /start command
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    args = context.args  # e.g., ['1']
+    args = context.args
 
+    # 🎯 If a code is provided (e.g., /start 1)
     if args and args[0] in BOOKS:
         book = BOOKS[args[0]]
         if os.path.exists(book["file_path"]):
@@ -49,10 +50,19 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("🚫 Book not found.")
         return
 
+    # 👋 Welcome message if no code is given
+    first_name = user.first_name or "there"
+    welcome = (
+        f"👋 Hi, {first_name}!\n\n"
+        "🦊 I’m *Voxi*, your AI assistant.\n"
+        "Send me the code of an e-book and I’ll deliver it instantly.\n\n"
+        "⏳ Files will self-destruct in 15 minutes for your privacy.\n\n"
+        "Need help? Type /help or contact [Ogabek](https://t.me/ogabek1106) 😉"
+    )
     logger.info(f"/start (no args) from {user.id}")
-    await update.message.reply_text("I hear you 👂")
+    await update.message.reply_text(welcome, parse_mode="Markdown")
 
-# ✅ Text message handler
+# ✅ Echo text messages
 async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     msg = update.message.text.strip()
@@ -75,7 +85,7 @@ async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info(f"Text from {user.id}: {msg}")
     await update.message.reply_text("📩 I received your message!")
 
-# ✅ Set up and run the bot (polling)
+# ✅ Initialize bot
 app = ApplicationBuilder().token(BOT_TOKEN).build()
 app.add_handler(CommandHandler("start", start))
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, echo))
