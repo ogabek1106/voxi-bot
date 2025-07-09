@@ -27,8 +27,7 @@ BOOKS = {
             "⏰ File will be deleted after 15 minutes, so make sure that you've downloaded it.\n\n"
             "📚 For more -> @IELTSforeverybody"
         )
-    }
-
+    },
     "2": {
         "file_path": "books/print (58).pdf",
         "file_name": "test2",
