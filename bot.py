@@ -28,6 +28,16 @@ BOOKS = {
             "📚 For more -> @IELTSforeverybody"
         )
     }
+
+    "2": {
+        "file_path": "books/2.pdf",
+        "file_name": "tes2",
+        "caption": (
+            "📘 *test2\n\n"
+            "⏰ File will be deleted after 15 minutes, so make sure that you've downloaded it.\n\n"
+            "📚 For more -> @IELTSforeverybody"
+        )
+    }
 }
 
 # ✅ Save user ID to file
