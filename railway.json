@@ -1,8 +1,0 @@
-{
-  "build": {
-    "env": {
-      "PYTHONUNBUFFERED": "1"
-    }
-  },
-  "start": "python bot.py"
-}
