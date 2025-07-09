@@ -30,8 +30,8 @@ BOOKS = {
     }
 
     "2": {
-        "file_path": "books/2.pdf",
-        "file_name": "tes2",
+        "file_path": "books/print (58).pdf",
+        "file_name": "test2",
         "caption": (
             "📘 *test2\n\n"
             "⏰ File will be deleted after 15 minutes, so make sure that you've downloaded it.\n\n"
