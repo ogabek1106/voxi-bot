@@ -29,7 +29,7 @@ BOOKS = {
         )
     },
     "2": {
-        "file_path": "books/print (58).pdf",
+        "file_path": "books/2.pdf",
         "file_name": "test2",
         "caption": (
             "📘 *test2\n\n"
