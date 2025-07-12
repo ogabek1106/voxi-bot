@@ -1,17 +1,16 @@
 #!/bin/bash
 
-# ✅ Clean up and clone the repo
-rm -rf /app/code
-git clone https://github.com/ogabek1106/voxi-bot.git /app/code
-
-# ✅ Move into the cloned repo
-cd /app/code
-
-# ✅ Install Git LFS and pull actual files
-apt-get update
+# ✅ Install Git LFS
+curl -s https://packagecloud.io/install/repositories/github/git-lfs/script.deb.sh | bash
 apt-get install git-lfs -y
 git lfs install
+
+# ✅ Clone the full repo to get real LFS files
+cd /app
+rm -rf code
+git clone https://github.com/ogabek1106/voxi-bot.git code
+cd code
 git lfs pull
 
-# ✅ Run the bot
+# ✅ Start the bot
 python bot.py
