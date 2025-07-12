@@ -5,7 +5,10 @@ curl -s https://packagecloud.io/install/repositories/github/git-lfs/script.deb.s
 apt-get install git-lfs -y
 git lfs install
 
-# ✅ Pull the real LFS files
+# ✅ Re-clone the repo with LFS support
+cd /tmp
+git clone https://github.com/ogabek1106/voxi-bot.git
+cd voxi-bot
 git lfs pull
 
 # ✅ Start the bot
