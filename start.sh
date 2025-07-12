@@ -1,15 +1,17 @@
 #!/bin/bash
 
-# ✅ Install Git LFS inside the Railway container
-curl -s https://packagecloud.io/install/repositories/github/git-lfs/script.deb.sh | bash
+# ✅ Clean up and clone the repo
+rm -rf /app/code
+git clone https://github.com/ogabek1106/voxi-bot.git /app/code
+
+# ✅ Move into the cloned repo
+cd /app/code
+
+# ✅ Install Git LFS and pull actual files
+apt-get update
 apt-get install git-lfs -y
 git lfs install
-
-# ✅ Re-clone the repo with LFS support
-cd /tmp
-git clone https://github.com/ogabek1106/voxi-bot.git
-cd voxi-bot
 git lfs pull
 
-# ✅ Start the bot
+# ✅ Run the bot
 python bot.py
