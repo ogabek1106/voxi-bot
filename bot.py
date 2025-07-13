@@ -1,5 +1,6 @@
 import os
 import logging
+import asyncio
 from telegram import Update
 from telegram.ext import (
     ApplicationBuilder,
@@ -8,12 +9,11 @@ from telegram.ext import (
     ContextTypes,
     filters,
 )
-from asyncio import sleep
 
-# 🔐 Bot token from Railway environment
+# 🔐 Load bot token from environment
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 
-# ✅ Logging setup
+# ✅ Logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -24,7 +24,7 @@ BOOKS = {
         "filename": "400 Must-Have Words for the TOEFL.pdf",
         "caption": "📘 *400 Must-Have Words for the TOEFL*\n\n⏰ File will delete in 15 minutes.\n\nMore 👉 @IELTSforeverybody"
     },
-    # Add more entries like this
+    # Add more if needed
 }
 
 # ✅ /start command
@@ -39,7 +39,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Need help? Contact @ogabek1106"
         )
 
-# ✅ Send book by code
+# ✅ Book sender with background deletion
 async def send_book(update: Update, context: ContextTypes.DEFAULT_TYPE, code: str):
     book = BOOKS.get(code)
     if book:
@@ -49,15 +49,20 @@ async def send_book(update: Update, context: ContextTypes.DEFAULT_TYPE, code: st
             caption=book["caption"],
             parse_mode="Markdown"
         )
-        await sleep(900)  # 15 minutes = 900 seconds
-        try:
-            await context.bot.delete_message(chat_id=msg.chat.id, message_id=msg.message_id)
-        except Exception as e:
-            logger.warning(f"Failed to delete message: {e}")
+
+        async def delete_later():
+            await asyncio.sleep(900)
+            try:
+                await context.bot.delete_message(chat_id=msg.chat.id, message_id=msg.message_id)
+                logger.info(f"Deleted message {msg.message_id} from chat {msg.chat.id}")
+            except Exception as e:
+                logger.warning(f"Failed to delete message: {e}")
+
+        asyncio.create_task(delete_later())
     else:
         await update.message.reply_text("🚫 Book not found.")
 
-# ✅ Handle codes and unknown text
+# ✅ Handle general messages
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message.text.strip()
     if msg.isdigit():
@@ -65,7 +70,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("Huh?🤔")
 
-# ✅ Start bot
+# ✅ Run the bot
 if __name__ == "__main__":
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
