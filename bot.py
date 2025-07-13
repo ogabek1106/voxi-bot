@@ -8,28 +8,23 @@ from telegram.ext import (
     filters,
 )
 
-# 🔐 Bot Token
+# 🔐 Telegram Bot Token
 BOT_TOKEN = "7687239994:AAECEOwpI4LcoxmTmPenit8By-KgwGffang"
 
-# ✅ Logging setup
-logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
-)
+# ✅ Logging
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# 📚 Your books mapped by code
+# 📚 Books stored by code with Telegram file_id
 BOOKS = {
     "1": {
-        "file_id": "BQACAgIAAyEFAAShxLgyAAMEaHOF-3v-VPSIAyQRR29W55mC6pAAAjV3AAJbeaFLtR5EyjrCEkE2BA",
+        "file_id": "BQACAgIAAyEFAAShxLgyAAMGaHOSqauACG3rUDbW-TXDoNBrp70AAoV_AALlEZhLDIyFa-vyqIc2BA",
         "caption": "📘 *400 Must-Have Words for the TOEFL*\n⏰ File will delete in 15 minutes.\nMore 👉 @IELTSforeverybody"
     },
-    "2": {
-        "file_id": "YOUR_SECOND_FILE_ID_HERE",
-        "caption": "📘 *Test Book 2*\n⏰ File will delete in 15 minutes.\nMore 👉 @IELTSforeverybody"
-    }
+    # Add more codes and file_ids below as needed
 }
 
-# ✅ /start command
+# 🔰 /start command
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "🦊 Welcome to Voxi Bot!\n\n"
@@ -37,30 +32,25 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Need help? Contact @ogabek1106"
     )
 
-# ✅ Handle book codes safely
+# 📦 Book code handler
 async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message.text.strip()
     logger.info(f"Received message: {msg}")
 
-    try:
-        if msg in BOOKS:
-            book = BOOKS[msg]
-            await update.message.reply_document(
-                document=book["file_id"],
-                caption=book["caption"],
-                parse_mode="Markdown"
-            )
-        else:
-            await update.message.reply_text("🚫 Book not found.")
-    except Exception as e:
-        logger.error(f"❌ Error while handling message '{msg}': {e}")
-        await update.message.reply_text("⚠️ Internal error. Please try again later.")
+    if msg in BOOKS:
+        book = BOOKS[msg]
+        await update.message.reply_document(
+            document=book["file_id"],
+            caption=book["caption"],
+            parse_mode="Markdown"
+        )
+    else:
+        await update.message.reply_text("🚫 Book not found.")
 
-# ✅ Start bot
-if __name__ == "__main__":
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_code))
+# 🚀 Start the bot
+app = ApplicationBuilder().token(BOT_TOKEN).build()
+app.add_handler(CommandHandler("start", start))
+app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_code))
 
-    logger.info("Bot started.")
-    app.run_polling()
+logger.info("Bot started.")
+app.run_polling()
