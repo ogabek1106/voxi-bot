@@ -10,8 +10,8 @@ from telegram.ext import (
     filters,
 )
 
-# 🔐 Load bot token from environment
-BOT_TOKEN = os.environ["BOT_TOKEN"]
+# 🔐 Bot Token
+BOT_TOKEN = os.environ.get("BOT_TOKEN")
 
 # ✅ Logging
 logging.basicConfig(level=logging.INFO)
@@ -24,56 +24,54 @@ BOOKS = {
         "filename": "400 Must-Have Words for the TOEFL.pdf",
         "caption": "📘 *400 Must-Have Words for the TOEFL*\n\n⏰ File will delete in 15 minutes.\n\nMore 👉 @IELTSforeverybody"
     },
-    # Add more if needed
+    # Add more books like "2": {...}
 }
+
+# 📊 Stats
+user_ids = set()
 
 # ✅ /start command
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    args = context.args
-    if args and args[0] in BOOKS:
-        await send_book(update, context, args[0])
-    else:
-        await update.message.reply_text(
-            "🦊 Welcome to Voxi Bot!\n\n"
-            "Send me a book code (like 1, 2, etc.) and I’ll send the file.\n\n"
-            "Need help? Contact @ogabek1106"
-        )
+    user_ids.add(update.effective_user.id)
+    await update.message.reply_text(
+        "🦊 Welcome to Voxi Bot!\n\n"
+        "Send me a number (1, 2, etc.) and I’ll send you the file.\n\n"
+        "Need help? Contact @ogabek1106"
+    )
 
-# ✅ Book sender with background deletion
-async def send_book(update: Update, context: ContextTypes.DEFAULT_TYPE, code: str):
-    book = BOOKS.get(code)
-    if book:
-        msg = await update.message.reply_document(
+# ✅ /stats command
+async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(f"📊 Total users: {len(user_ids)}")
+
+# ✅ Handle code message
+async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_ids.add(update.effective_user.id)
+    msg = update.message.text.strip()
+    if msg in BOOKS:
+        book = BOOKS[msg]
+        sent = await update.message.reply_document(
             document=book["file_id"],
             filename=book["filename"],
             caption=book["caption"],
             parse_mode="Markdown"
         )
-
-        async def delete_later():
-            await asyncio.sleep(900)
-            try:
-                await context.bot.delete_message(chat_id=msg.chat.id, message_id=msg.message_id)
-                logger.info(f"Deleted message {msg.message_id} from chat {msg.chat.id}")
-            except Exception as e:
-                logger.warning(f"Failed to delete message: {e}")
-
-        asyncio.create_task(delete_later())
-    else:
+        # ⏳ Schedule deletion after 15 minutes
+        await asyncio.sleep(900)
+        try:
+            await context.bot.delete_message(chat_id=sent.chat.id, message_id=sent.message_id)
+        except Exception as e:
+            logger.warning(f"Couldn't delete message: {e}")
+    elif msg.isdigit():
         await update.message.reply_text("🚫 Book not found.")
-
-# ✅ Handle general messages
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    msg = update.message.text.strip()
-    if msg.isdigit():
-        await send_book(update, context, msg)
     else:
         await update.message.reply_text("Huh?🤔")
 
-# ✅ Run the bot
-if __name__ == "__main__":
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    logger.info("Bot started.")
-    app.run_polling()
+# ✅ Start the bot
+app = ApplicationBuilder().token(BOT_TOKEN).build()
+
+app.add_handler(CommandHandler("start", start))
+app.add_handler(CommandHandler("stats", stats))
+app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_code))
+
+logger.info("Bot started.")
+app.run_polling()
