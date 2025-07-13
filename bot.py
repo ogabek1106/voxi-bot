@@ -57,11 +57,16 @@ async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE, overri
             caption=book["caption"],
             parse_mode="Markdown"
         )
-        await asyncio.sleep(900)
-        try:
-            await context.bot.delete_message(chat_id=sent.chat.id, message_id=sent.message_id)
-        except Exception as e:
-            logger.warning(f"Couldn't delete message: {e}")
+        # ✅ Schedule delete without blocking
+        async def delete_later(bot, chat_id, message_id):
+            await asyncio.sleep(900)
+            try:
+                await bot.delete_message(chat_id=chat_id, message_id=message_id)
+            except Exception as e:
+                logger.warning(f"Couldn't delete message: {e}")
+
+        context.application.create_task(delete_later(context.bot, sent.chat.id, sent.message_id))
+
     elif msg.isdigit():
         await update.message.reply_text("🚫 Book not found.")
     else:
