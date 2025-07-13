@@ -7,47 +7,70 @@ from telegram.ext import (
     ContextTypes,
     filters,
 )
+import os
 
-# 🔐 Telegram Bot Token
-BOT_TOKEN = "7687239994:AAECEOwpI4LcoxmTmPenit8By-KgwGffang"
+# 🔐 Bot Token from Railway variables
+BOT_TOKEN = os.getenv("BOT_TOKEN")
 
-# ✅ Logging
+# ✅ Logging setup
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# 📚 Books stored by code with Telegram file_id
+# 📚 Book data
 BOOKS = {
     "1": {
         "file_id": "BQACAgIAAyEFAAShxLgyAAMGaHOSqauACG3rUDbW-TXDoNBrp70AAoV_AALlEZhLDIyFa-vyqIc2BA",
-        "caption": "📘 *400 Must-Have Words for the TOEFL*\n\n⏰ File will delete in 15 minutes.\n\nMore 👉 @IELTSforeverybody"
+        "filename": "400 Must-Have Words for the TOEFL.pdf",
+        "caption": "📘 *400 Must-Have Words for the TOEFL*\n⏰ File will delete in 15 minutes.\nMore 👉 @IELTSforeverybody"
     },
-    # Add more codes and file_ids below as needed
+    # Add more if needed
 }
 
-# 🔰 /start command
+# ✅ /start handler
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    args = context.args
+
+    if args and args[0].isdigit():
+        code = args[0]
+        if code in BOOKS:
+            book = BOOKS[code]
+            await update.message.reply_document(
+                document=book["file_id"],
+                filename=book["filename"],
+                caption=book["caption"],
+                parse_mode="Markdown"
+            )
+        else:
+            await update.message.reply_text("🚫 Book not found.")
+        return
+
     await update.message.reply_text(
         "🦊 Welcome to Voxi Bot!\n\n"
         "Send me a book code (like 1, 2, etc.) and I’ll send the file.\n\n"
         "Need help? Contact @ogabek1106"
     )
 
-# 📦 Book code handler
+# ✅ Message handler for codes or text
 async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message.text.strip()
     logger.info(f"Received message: {msg}")
 
-    if msg in BOOKS:
-        book = BOOKS[msg]
-        await update.message.reply_document(
-            document=book["file_id"],
-            caption=book["caption"],
-            parse_mode="Markdown"
-        )
+    if msg.isdigit():
+        if msg in BOOKS:
+            book = BOOKS[msg]
+            await update.message.reply_document(
+                document=book["file_id"],
+                filename=book["filename"],
+                caption=book["caption"],
+                parse_mode="Markdown"
+            )
+        else:
+            await update.message.reply_text("🚫 Book not found.")
     else:
-        await update.message.reply_text("🚫 Book not found.")
+        await update.message.reply_text("Huh? 🤔")
 
-# 🚀 Start the bot
+# ✅ Run bot
 app = ApplicationBuilder().token(BOT_TOKEN).build()
 app.add_handler(CommandHandler("start", start))
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_code))
