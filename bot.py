@@ -1,3 +1,4 @@
+# 📦 Section 1: Imports
 import os
 import logging
 import asyncio
@@ -10,50 +11,30 @@ from telegram.ext import (
     filters,
 )
 
-# 🔐 Bot Token from Railway variable
-BOT_TOKEN = os.environ.get("BOT_TOKEN")
-
-# ✅ Logging
+# 🛡️ Section 2: Config and Logging
+BOT_TOKEN = os.environ.get("BOT_TOKEN")  # Set this in Railway Variables
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# 📚 Book data
+# 📚 Section 3: Book Data
 BOOKS = {
     "1": {
         "file_id": "BQACAgIAAyEFAAShxLgyAAMHaHOY0YvtH2OCcLR0ZAxKbt9JIGIAAtp_AALlEZhLhfS_vbLV6oY2BA",
         "filename": "400 Must-Have Words for the TOEFL.pdf",
         "caption": "📘 *400 Must-Have Words for the TOEFL*\n\n⏰ File will delete in 15 minutes.\n\nMore 👉 @IELTSforeverybody"
     },
-    # Add more like "2": {...}
+    # You can add more books like "2": {...}
 }
 
-# 📊 Stats memory
+# 📊 Section 4: Stats Storage
 user_ids = set()
 
-# 🕒 Delete message after 15 minutes
-async def delete_after_delay(bot, chat_id, message_id):
-    await asyncio.sleep(900)
-    try:
-        await bot.delete_message(chat_id=chat_id, message_id=message_id)
-    except Exception as e:
-        logger.warning(f"Couldn't delete message: {e}")
-
-# ✅ /start command
+# 🧠 Section 5: Handlers
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_ids.add(update.effective_user.id)
-    args = context.args
-
-    if args and args[0] in BOOKS:
-        book = BOOKS[args[0]]
-        sent = await update.message.reply_document(
-            document=book["file_id"],
-            filename=book["filename"],
-            caption=book["caption"],
-            parse_mode="Markdown"
-        )
-        asyncio.create_task(delete_after_delay(context.bot, sent.chat.id, sent.message_id))
-    elif args:
-        await update.message.reply_text("🚫 Book not found.")
+    arg = context.args[0] if context.args else None
+    if arg and arg in BOOKS:
+        await handle_code(update, context, override_code=arg)
     else:
         await update.message.reply_text(
             "🦊 Welcome to Voxi Bot!\n\n"
@@ -61,14 +42,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Need help? Contact @ogabek1106"
         )
 
-# ✅ /stats command
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"📊 Total users: {len(user_ids)}")
 
-# ✅ Handle message
-async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE, override_code=None):
     user_ids.add(update.effective_user.id)
-    msg = update.message.text.strip()
+    msg = override_code or update.message.text.strip()
 
     if msg in BOOKS:
         book = BOOKS[msg]
@@ -78,13 +57,17 @@ async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
             caption=book["caption"],
             parse_mode="Markdown"
         )
-        asyncio.create_task(delete_after_delay(context.bot, sent.chat.id, sent.message_id))
+        await asyncio.sleep(900)  # ⏳ 15 minutes
+        try:
+            await context.bot.delete_message(chat_id=sent.chat.id, message_id=sent.message_id)
+        except Exception as e:
+            logger.warning(f"Couldn't delete message: {e}")
     elif msg.isdigit():
         await update.message.reply_text("🚫 Book not found.")
     else:
         await update.message.reply_text("Huh?🤔")
 
-# ✅ App start
+# 🚀 Section 6: Launch Bot
 app = ApplicationBuilder().token(BOT_TOKEN).build()
 app.add_handler(CommandHandler("start", start))
 app.add_handler(CommandHandler("stats", stats))
