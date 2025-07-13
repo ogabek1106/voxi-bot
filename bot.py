@@ -1,4 +1,5 @@
 import logging
+import os
 from telegram import Update
 from telegram.ext import (
     ApplicationBuilder,
@@ -7,14 +8,12 @@ from telegram.ext import (
     ContextTypes,
     filters,
 )
-import os
 
-# 🔐 Bot Token from Railway variables
+# 🔐 Bot Token
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
-# ✅ Logging setup
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# 📁 User data file
+USERS_FILE = "users.txt"
 
 # 📚 Book data
 BOOKS = {
@@ -26,23 +25,42 @@ BOOKS = {
     # Add more if needed
 }
 
-# ✅ /start handler
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    args = context.args
+# ✅ Logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-    if args and args[0].isdigit():
-        code = args[0]
-        if code in BOOKS:
-            book = BOOKS[code]
-            await update.message.reply_document(
-                document=book["file_id"],
-                filename=book["filename"],
-                caption=book["caption"],
-                parse_mode="Markdown"
-            )
-        else:
-            await update.message.reply_text("🚫 Book not found.")
+# ✅ Save user ID
+def save_user(user_id: int):
+    if not os.path.exists(USERS_FILE):
+        with open(USERS_FILE, "w") as f:
+            f.write(f"{user_id}\n")
+    else:
+        with open(USERS_FILE, "r") as f:
+            users = f.read().splitlines()
+        if str(user_id) not in users:
+            with open(USERS_FILE, "a") as f:
+                f.write(f"{user_id}\n")
+
+# ✅ Get user count
+def get_user_count() -> int:
+    if not os.path.exists(USERS_FILE):
+        return 0
+    with open(USERS_FILE, "r") as f:
+        return len(f.read().splitlines())
+
+# ✅ /start command
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    save_user(user_id)
+
+    args = context.args
+    if args and args[0] in BOOKS:
+        book = BOOKS[args[0]]
+        await update.message.reply_document(
+            document=book["file_id"],
+            caption=book["caption"],
+            parse_mode="Markdown"
+        )
         return
 
     await update.message.reply_text(
@@ -51,17 +69,18 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Need help? Contact @ogabek1106"
     )
 
-# ✅ Message handler for codes or text
-async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# ✅ Handle codes & unknown messages
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    save_user(user_id)
+
     msg = update.message.text.strip()
-    logger.info(f"Received message: {msg}")
 
     if msg.isdigit():
         if msg in BOOKS:
             book = BOOKS[msg]
             await update.message.reply_document(
                 document=book["file_id"],
-                filename=book["filename"],
                 caption=book["caption"],
                 parse_mode="Markdown"
             )
@@ -70,10 +89,16 @@ async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("Huh? 🤔")
 
-# ✅ Run bot
+# ✅ /stats command
+async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    count = get_user_count()
+    await update.message.reply_text(f"📊 Total unique users: {count}")
+
+# ✅ Start app
 app = ApplicationBuilder().token(BOT_TOKEN).build()
 app.add_handler(CommandHandler("start", start))
-app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_code))
+app.add_handler(CommandHandler("stats", stats))
+app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
 logger.info("Bot started.")
 app.run_polling()
