@@ -10,7 +10,7 @@ from telegram.ext import (
     filters,
 )
 
-# 🔐 Token from Railway variable
+# 🔐 Token from environment
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 
 # 📚 Book data
@@ -20,18 +20,16 @@ BOOKS = {
         "filename": "400 Must-Have Words for the TOEFL.pdf",
         "caption": "📘 *400 Must-Have Words for the TOEFL*\n\n⏰ File will delete in 15 minutes.\n\nMore 👉 @IELTSforeverybody"
     },
-    # Add more books like:
-    # "2": { "file_id": "...", "filename": "...", "caption": "..." }
 }
 
-# 📊 In-memory user count
+# 📊 User tracking
 user_ids = set()
 
 # ✅ Logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# ✅ /start
+# ✅ /start command
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_ids.add(update.effective_user.id)
     await update.message.reply_text(
@@ -40,11 +38,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Need help? Contact @ogabek1106"
     )
 
-# ✅ /stats
+# ✅ /stats command
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"📊 Total users: {len(user_ids)}")
 
-# ✅ Code handler
+# ✅ Book code handler
 async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_ids.add(update.effective_user.id)
     msg = update.message.text.strip()
@@ -57,31 +55,34 @@ async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
             caption=book["caption"],
             parse_mode="Markdown"
         )
-        # Delete after 15 minutes (900 sec)
-        await asyncio.sleep(900)
-        try:
-            await context.bot.delete_message(chat_id=sent.chat.id, message_id=sent.message_id)
-        except Exception as e:
-            logger.warning(f"Couldn't delete message: {e}")
+        # ⏳ Schedule deletion
+        asyncio.create_task(delete_later(context, sent.chat.id, sent.message_id))
     elif msg.isdigit():
         await update.message.reply_text("🚫 Book not found.")
     else:
         await update.message.reply_text("Huh?🤔")
 
-# ✅ Main
-async def main():
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
-    
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("stats", stats))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_code))
+# ✅ Delete after 15 mins
+async def delete_later(context, chat_id, message_id):
+    await asyncio.sleep(900)
+    try:
+        await context.bot.delete_message(chat_id=chat_id, message_id=message_id)
+    except Exception as e:
+        logger.warning(f"Couldn't delete message: {e}")
 
-    logger.info("Bot started.")
+# ✅ Create app
+app = ApplicationBuilder().token(BOT_TOKEN).build()
 
-    # 👇 Fix for polling conflict
+app.add_handler(CommandHandler("start", start))
+app.add_handler(CommandHandler("stats", stats))
+app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_code))
+
+logger.info("Bot started.")
+
+# ✅ Fix conflict by removing webhook before polling
+async def run_bot():
     await app.bot.delete_webhook(drop_pending_updates=True)
     await app.run_polling()
 
-# ✅ Entry point
-if __name__ == "__main__":
-    asyncio.run(main())
+asyncio.get_event_loop().create_task(run_bot())
+asyncio.get_event_loop().run_forever()
