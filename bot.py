@@ -12,7 +12,7 @@ from telegram.ext import (
 )
 
 # 🛡️ Section 2: Config and Logging
-BOT_TOKEN = os.environ.get("BOT_TOKEN")  # Set this in Railway Variables
+BOT_TOKEN = os.environ.get("BOT_TOKEN")
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -23,10 +23,10 @@ BOOKS = {
         "filename": "400 Must-Have Words for the TOEFL.pdf",
         "caption": "📘 *400 Must-Have Words for the TOEFL*\n\n⏰ File will delete in 15 minutes.\n\nMore 👉 @IELTSforeverybody"
     },
-    # You can add more books like "2": {...}
+    # Add more books like "2": {...}
 }
 
-# 📊 Section 4: Stats Storage
+# 📊 Section 4: Stats Memory
 user_ids = set()
 
 # 🧠 Section 5: Handlers
@@ -57,7 +57,7 @@ async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE, overri
             caption=book["caption"],
             parse_mode="Markdown"
         )
-        await asyncio.sleep(900)  # ⏳ 15 minutes
+        await asyncio.sleep(900)
         try:
             await context.bot.delete_message(chat_id=sent.chat.id, message_id=sent.message_id)
         except Exception as e:
@@ -67,11 +67,11 @@ async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE, overri
     else:
         await update.message.reply_text("Huh?🤔")
 
-# 🚀 Section 6: Launch Bot
+# 🚀 Section 6: App Setup & Run
 app = ApplicationBuilder().token(BOT_TOKEN).build()
 app.add_handler(CommandHandler("start", start))
 app.add_handler(CommandHandler("stats", stats))
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_code))
 
 logger.info("Bot started.")
-app.run_polling()
+app.run_polling()  # ✅ DO NOT WRAP THIS IN async or asyncio.run()
