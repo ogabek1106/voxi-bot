@@ -10,12 +10,8 @@ from telegram.ext import (
     filters,
 )
 
-# 🔐 Bot Token
+# 🔐 Token from Railway variable
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
-
-# ✅ Logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
 # 📚 Book data
 BOOKS = {
@@ -24,13 +20,18 @@ BOOKS = {
         "filename": "400 Must-Have Words for the TOEFL.pdf",
         "caption": "📘 *400 Must-Have Words for the TOEFL*\n\n⏰ File will delete in 15 minutes.\n\nMore 👉 @IELTSforeverybody"
     },
-    # Add more books like "2": {...}
+    # Add more books like:
+    # "2": { "file_id": "...", "filename": "...", "caption": "..." }
 }
 
-# 📊 Stats
+# 📊 In-memory user count
 user_ids = set()
 
-# ✅ /start command
+# ✅ Logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# ✅ /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_ids.add(update.effective_user.id)
     await update.message.reply_text(
@@ -39,14 +40,15 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Need help? Contact @ogabek1106"
     )
 
-# ✅ /stats command
+# ✅ /stats
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"📊 Total users: {len(user_ids)}")
 
-# ✅ Handle code message
+# ✅ Code handler
 async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_ids.add(update.effective_user.id)
     msg = update.message.text.strip()
+
     if msg in BOOKS:
         book = BOOKS[msg]
         sent = await update.message.reply_document(
@@ -55,7 +57,7 @@ async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
             caption=book["caption"],
             parse_mode="Markdown"
         )
-        # ⏳ Schedule deletion after 15 minutes
+        # Delete after 15 minutes (900 sec)
         await asyncio.sleep(900)
         try:
             await context.bot.delete_message(chat_id=sent.chat.id, message_id=sent.message_id)
@@ -66,12 +68,20 @@ async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("Huh?🤔")
 
-# ✅ Start the bot
-app = ApplicationBuilder().token(BOT_TOKEN).build()
+# ✅ Main
+async def main():
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
+    
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("stats", stats))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_code))
 
-app.add_handler(CommandHandler("start", start))
-app.add_handler(CommandHandler("stats", stats))
-app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_code))
+    logger.info("Bot started.")
 
-logger.info("Bot started.")
-app.run_polling()
+    # 👇 Fix for polling conflict
+    await app.bot.delete_webhook(drop_pending_updates=True)
+    await app.run_polling()
+
+# ✅ Entry point
+if __name__ == "__main__":
+    asyncio.run(main())
