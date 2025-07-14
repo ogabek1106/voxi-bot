@@ -21,7 +21,13 @@ BOOKS = {
     "1": {
         "file_id": "BQACAgIAAyEFAAShxLgyAAMHaHOY0YvtH2OCcLR0ZAxKbt9JIGIAAtp_AALlEZhLhfS_vbLV6oY2BA",
         "filename": "400 Must-Have Words for the TOEFL.pdf",
-        "caption": "📘 *400 Must-Have Words for the TOEFL*\n\n⏰ File will delete in 15 minutes.\n\nMore 👉 @IELTSforeverybody"
+        "caption": "📘 *400 Must-Have Words for the TOEFL*\n\n⏰ File will be deleted in 15 minutes.\n\nMore 👉 @IELTSforeverybody"
+    },
+
+    "2": {
+        "file_id": "BQACAgIAAyEFAAShxLgyAAMIaHTLj1ymrZu1diD984RuvlAj_koAAiJ4AAIqialLGblaFusMwbE2BA",
+        "filename": "English for Everyone - English Vocabulary Builder.pdf",
+        "caption": "📔 *English for Everyone - English Vocabulary Builder*\n\n⏰ File will be deleted in 15 minutes.\n\nMore 👉 @IELTSforeverybody"
     },
     # Add more books like "2": {...}
 }
