@@ -2,6 +2,7 @@
 import os
 import logging
 import asyncio
+import json
 from telegram import Update
 from telegram.ext import (
     ApplicationBuilder,
@@ -16,45 +17,60 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN")
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# 📚 Section 3: Book Data
+# 👮 Section 3: Admin Setup
+ADMIN_IDS = {1150875355}  # Replace with your Telegram user ID
+USER_FILE = "user_ids.json"
+
+# 📚 Section 4: Book Data
 BOOKS = {
     "1": {
         "file_id": "BQACAgIAAyEFAAShxLgyAAMHaHOY0YvtH2OCcLR0ZAxKbt9JIGIAAtp_AALlEZhLhfS_vbLV6oY2BA",
         "filename": "400 Must-Have Words for the TOEFL.pdf",
         "caption": "📘 *400 Must-Have Words for the TOEFL*\n\n⏰ File will be deleted in 15 minutes.\n\nMore 👉 @IELTSforeverybody"
     },
-
     "2": {
         "file_id": "BQACAgIAAyEFAAShxLgyAAMIaHTLj1ymrZu1diD984RuvlAj_koAAiJ4AAIqialLGblaFusMwbE2BA",
         "filename": "English for Everyone - English Vocabulary Builder.pdf",
         "caption": "📔 *English for Everyone - English Vocabulary Builder*\n\n⏰ File will be deleted in 15 minutes.\n\nMore 👉 @IELTSforeverybody"
-    },
-    # Add more books like "2": {...}
+    }
 }
 
-# 📊 Section 4: Stats Memory
-user_ids = set()
+# 📊 Section 5: Persistent User Memory
+if os.path.exists(USER_FILE):
+    with open(USER_FILE, "r") as f:
+        user_ids = set(json.load(f))
+else:
+    user_ids = set()
 
-# 🧠 Section 5: Handlers
+# 🧠 Section 6: Handlers
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_ids.add(update.effective_user.id)
+    with open(USER_FILE, "w") as f:
+        json.dump(list(user_ids), f)
+
     arg = context.args[0] if context.args else None
     if arg and arg in BOOKS:
         await handle_code(update, context, override_code=arg)
     else:
         await update.message.reply_text(
-            "🦊 Welcome to Voxi Bot!\n\n"
+            "🦧 Welcome to Voxi Bot!\n\n"
             "Send me a number (1, 2, etc.) and I’ll send you the file.\n\n"
             "Need help? Contact @ogabek1106"
         )
 
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(f"📊 Total users: {len(user_ids)}")
+    user_id = update.effective_user.id
+    if user_id in ADMIN_IDS:
+        await update.message.reply_text(f"📊 Total users: {len(user_ids)}")
+    else:
+        await update.message.reply_text("Darling, you are not an admin🤪")
 
 async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE, override_code=None):
     user_ids.add(update.effective_user.id)
-    msg = override_code or update.message.text.strip()
+    with open(USER_FILE, "w") as f:
+        json.dump(list(user_ids), f)
 
+    msg = override_code or update.message.text.strip()
     if msg in BOOKS:
         book = BOOKS[msg]
         sent = await update.message.reply_document(
@@ -72,17 +88,16 @@ async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE, overri
                 logger.warning(f"Couldn't delete message: {e}")
 
         context.application.create_task(delete_later(context.bot, sent.chat.id, sent.message_id))
-
     elif msg.isdigit():
-        await update.message.reply_text("🚫 Book not found.")
+        await update.message.reply_text("❌ Book not found.")
     else:
         await update.message.reply_text("Huh?🤔")
 
-# 🚀 Section 6: App Setup & Run
+# 🚀 Section 7: App Setup & Run
 app = ApplicationBuilder().token(BOT_TOKEN).build()
 app.add_handler(CommandHandler("start", start))
 app.add_handler(CommandHandler("stats", stats))
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_code))
 
 logger.info("Bot started.")
-app.run_polling()  # ✅ DO NOT WRAP THIS IN async or asyncio.run()
+app.run_polling()
