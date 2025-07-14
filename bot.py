@@ -18,7 +18,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # 👮 Section 3: Admin Setup
-ADMIN_IDS = {1150875355}  # Replace with your Telegram user ID
+ADMIN_IDS = {1150875355}
 USER_FILE = "user_ids.json"
 
 # 📚 Section 4: Book Data
@@ -47,19 +47,7 @@ if os.path.exists(USER_FILE):
 else:
     user_ids = set()
 
-async def all_books(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not BOOKS:
-        await update.message.reply_text("😕 No books are currently available.")
-        return
-
-    message = "📚 *Available Books:*\n\n"
-    for code, data in BOOKS.items():
-        title_line = data["caption"].split('\n')[0]  # first line of caption (book title)
-        message += f"{code}. {title_line}\n"
-    
-    await update.message.reply_text(message, parse_mode="Markdown")
-
-# 🧠 Section 6: Handlers
+# 📖 Section 6: Command Handlers
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_ids.add(update.effective_user.id)
     with open(USER_FILE, "w") as f:
@@ -82,6 +70,18 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("Darling, you are not an admin🤪")
 
+async def all_books(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not BOOKS:
+        await update.message.reply_text("😕 No books are currently available.")
+        return
+
+    message = "📚 *Available Books:*\n\n"
+    for code, data in BOOKS.items():
+        title_line = data["caption"].split('\n')[0]
+        message += f"{code}. {title_line}\n"
+
+    await update.message.reply_text(message, parse_mode="Markdown")
+
 async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE, override_code=None):
     user_ids.add(update.effective_user.id)
     with open(USER_FILE, "w") as f:
@@ -96,7 +96,6 @@ async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE, overri
             caption=book["caption"],
             parse_mode="Markdown"
         )
-        # ✅ Schedule delete without blocking
         async def delete_later(bot, chat_id, message_id):
             await asyncio.sleep(900)
             try:
@@ -110,12 +109,11 @@ async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE, overri
     else:
         await update.message.reply_text("Huh?🤔")
 
-app.add_handler(CommandHandler("all_books", all_books))
-
-# 🚀 Section 7: App Setup & Run
+# 🚀 Section 7: Bot Setup and Run
 app = ApplicationBuilder().token(BOT_TOKEN).build()
 app.add_handler(CommandHandler("start", start))
 app.add_handler(CommandHandler("stats", stats))
+app.add_handler(CommandHandler("all_books", all_books))
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_code))
 
 logger.info("Bot started.")
