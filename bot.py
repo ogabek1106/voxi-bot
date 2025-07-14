@@ -110,6 +110,8 @@ async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE, overri
     else:
         await update.message.reply_text("Huh?🤔")
 
+app.add_handler(CommandHandler("all_books", all_books))
+
 # 🚀 Section 7: App Setup & Run
 app = ApplicationBuilder().token(BOT_TOKEN).build()
 app.add_handler(CommandHandler("start", start))
