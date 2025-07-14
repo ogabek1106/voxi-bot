@@ -47,6 +47,18 @@ if os.path.exists(USER_FILE):
 else:
     user_ids = set()
 
+async def all_books(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not BOOKS:
+        await update.message.reply_text("😕 No books are currently available.")
+        return
+
+    message = "📚 *Available Books:*\n\n"
+    for code, data in BOOKS.items():
+        title_line = data["caption"].split('\n')[0]  # first line of caption (book title)
+        message += f"{code}. {title_line}\n"
+    
+    await update.message.reply_text(message, parse_mode="Markdown")
+
 # 🧠 Section 6: Handlers
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_ids.add(update.effective_user.id)
