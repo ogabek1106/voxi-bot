@@ -32,6 +32,11 @@ BOOKS = {
         "file_id": "BQACAgIAAyEFAAShxLgyAAMIaHTLj1ymrZu1diD984RuvlAj_koAAiJ4AAIqialLGblaFusMwbE2BA",
         "filename": "English for Everyone - English Vocabulary Builder.pdf",
         "caption": "📔 *English for Everyone - English Vocabulary Builder*\n\n⏰ File will be deleted in 15 minutes.\n\nMore 👉 @IELTSforeverybody"
+    },
+    "3": {
+        "file_id": "BQACAgIAAyEFAAShxLgyAAMJaHTV90bucYoT77gYbOqvQDBaAzQAArl4AAIqialLGRvupb7SoTw2BA",
+        "filename": "179 IELTS Speaking Part 2 Samples.pdf",
+        "caption": "📔 *179 IELTS Speaking Part 2 Samples*\n\n⏰ File will be deleted in 15 minutes.\n\nMore 👉 @IELTSforeverybody"
     }
 }
 
