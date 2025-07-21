@@ -51,17 +51,19 @@ BOOKS = {
 }
 
 # 📊 Section 5: Persistent User Memory
-if os.path.exists(USER_FILE):
+try:
     with open(USER_FILE, "r") as f:
         user_ids = set(json.load(f))
-else:
+except (FileNotFoundError, json.JSONDecodeError):
     user_ids = set()
 
 # 📖 Section 6: Command Handlers
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_ids.add(update.effective_user.id)
-    with open(USER_FILE, "w") as f:
-        json.dump(list(user_ids), f)
+    user_id = update.effective_user.id
+    if user_id not in user_ids:
+        user_ids.add(user_id)
+        with open(USER_FILE, "w") as f:
+            json.dump(list(user_ids), f)
 
     arg = context.args[0] if context.args else None
     if arg and arg in BOOKS:
@@ -93,9 +95,11 @@ async def all_books(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(message, parse_mode="Markdown")
 
 async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE, override_code=None):
-    user_ids.add(update.effective_user.id)
-    with open(USER_FILE, "w") as f:
-        json.dump(list(user_ids), f)
+    user_id = update.effective_user.id
+    if user_id not in user_ids:
+        user_ids.add(user_id)
+        with open(USER_FILE, "w") as f:
+            json.dump(list(user_ids), f)
 
     msg = override_code or update.message.text.strip()
     if msg in BOOKS:
