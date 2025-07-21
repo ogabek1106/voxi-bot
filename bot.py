@@ -42,6 +42,11 @@ BOOKS = {
         "file_id": "BQACAgIAAyEFAAShxLgyAAMKaHuTV-6UuvFfsN2IoBBZOPhBL1IAArF7AAII39lLZcNcwPuNh0c2BA",
         "filename": "IELTS the vocabulary fies.pdf",
         "caption": "📘 *IELTS the vocabulary fies*\n\n⏰ File will be deleted in 15 minutes.\n\nMore 👉 @IELTSforeverybody"
+    },
+    "5": {
+        "file_id": "BQACAgIAAyEFAAShxLgyAAMLaH5BmPsEv1jcuRSJ9psgugurCMUAAoR1AAJXF_BLF9jUggPZszU2BA",
+        "filename": "📕 The Big Book of Words You Should Know.pdf",
+        "caption": "📕 *The Big Book of Words You Should Know*\n\n⏰ File will be deleted in 15 minutes.\n\nMore 👉 @IELTSforeverybody"
     }
 }
 
