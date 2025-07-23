@@ -51,7 +51,6 @@ BOOKS = {
 }
 
 # 📊 Section 5: Persistent User Memory
-# 📊 Section 5: Persistent User Memory
 try:
     with open(USER_FILE, "r") as f:
         user_ids = set(json.load(f))
@@ -97,10 +96,10 @@ async def all_books(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE, override_code=None):
     user_id = update.effective_user.id
-if user_id not in user_ids:
-    user_ids.add(user_id)
-    with open(USER_FILE, "w") as f:
-        json.dump(list(user_ids), f)
+    if user_id not in user_ids:
+        user_ids.add(user_id)
+        with open(USER_FILE, "w") as f:
+            json.dump(list(user_ids), f)
 
     msg = override_code or update.message.text.strip()
     if msg in BOOKS:
@@ -111,6 +110,7 @@ if user_id not in user_ids:
             caption=book["caption"],
             parse_mode="Markdown"
         )
+
         async def delete_later(bot, chat_id, message_id):
             await asyncio.sleep(900)
             try:
@@ -119,6 +119,7 @@ if user_id not in user_ids:
                 logger.warning(f"Couldn't delete message: {e}")
 
         context.application.create_task(delete_later(context.bot, sent.chat.id, sent.message_id))
+
     elif msg.isdigit():
         await update.message.reply_text("❌ Book not found.")
     else:
