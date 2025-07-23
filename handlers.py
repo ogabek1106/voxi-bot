@@ -4,7 +4,8 @@ import asyncio
 import logging
 from telegram import Update
 from telegram.ext import ContextTypes
-from config import ADMIN_IDS, BOOKS, USER_FILE, STORAGE_CHANNEL_ID
+from config import ADMIN_IDS, USER_FILE, STORAGE_CHANNEL_ID
+from books import BOOKS
 from user_data import load_users, add_user
 from utils import delete_after_delay
 
