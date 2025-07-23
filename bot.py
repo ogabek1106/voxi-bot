@@ -14,6 +14,7 @@ from telegram.ext import (
 
 # 🛡️ Section 2: Config and Logging
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
+STORAGE_CHANNEL_ID = -1002714023986
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -125,19 +126,30 @@ async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE, overri
     else:
         await update.message.reply_text("Huh?🤔")
 
-# 🧪 Section 6.5: Temporary File ID Extractor Handler
-async def get_file_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message.document:
-        file_id = update.message.document.file_id
+# 🧪 Section 7: Temporary Upload Handler for Admin
+async def save_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id not in ADMIN_IDS:
+        return
+    doc = update.message.document
+    if doc:
+        file_id = doc.file_id
+        file_name = doc.file_name or "Untitled.pdf"
+
+        await context.bot.send_document(
+            chat_id=STORAGE_CHANNEL_ID,
+            document=file_id,
+            caption=f"📚 *{file_name}*",
+            parse_mode="Markdown"
+        )
         await update.message.reply_text(f"`{file_id}`", parse_mode="Markdown")
 
-# 🚀 Section 7: Bot Setup and Run
+# 🚀 Section 8: Bot Setup and Run
 app = ApplicationBuilder().token(BOT_TOKEN).build()
 app.add_handler(CommandHandler("start", start))
 app.add_handler(CommandHandler("stats", stats))
 app.add_handler(CommandHandler("all_books", all_books))
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_code))
-app.add_handler(MessageHandler(filters.Document.ALL, get_file_id))  # Temporary handler for extracting file IDs
+app.add_handler(MessageHandler(filters.Document.ALL, save_pdf))  # Upload handler
 
 logger.info("Bot started.")
 app.run_polling()
