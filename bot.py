@@ -51,17 +51,22 @@ BOOKS = {
     }
 }
 
-# 📊 Section 5: Persistent User Memory
-try:
-    with open(USER_FILE, "r") as f:
-        user_ids = set(json.load(f))
-except (FileNotFoundError, json.JSONDecodeError):
-    user_ids = set()
+# 📊 Section 5: Persistent User Memory (safe load-only)
+user_ids = set()
+user_file_exists = os.path.exists(USER_FILE)
+
+if user_file_exists:
+    try:
+        with open(USER_FILE, "r") as f:
+            user_ids = set(json.load(f))
+    except json.JSONDecodeError:
+        logger.warning("user_ids.json is invalid. Starting empty.")
+        user_file_exists = False
 
 # 📖 Section 6: Command Handlers
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    if user_id not in user_ids:
+    if user_file_exists and user_id not in user_ids:
         user_ids.add(user_id)
         with open(USER_FILE, "w") as f:
             json.dump(list(user_ids), f)
@@ -79,7 +84,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id in ADMIN_IDS:
-        await update.message.reply_text(f"📊 Total users: {len(user_ids)}")
+        if not user_file_exists:
+            await update.message.reply_text("❌ user_ids.json not found")
+        else:
+            await update.message.reply_text(f"📊 Total users: {len(user_ids)}")
     else:
         await update.message.reply_text("Darling, you are not an admin🤪")
 
@@ -97,7 +105,7 @@ async def all_books(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE, override_code=None):
     user_id = update.effective_user.id
-    if user_id not in user_ids:
+    if user_file_exists and user_id not in user_ids:
         user_ids.add(user_id)
         with open(USER_FILE, "w") as f:
             json.dump(list(user_ids), f)
