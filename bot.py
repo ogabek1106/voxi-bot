@@ -15,12 +15,16 @@ from telegram.ext import (
 # 🛡️ Section 2: Config and Logging
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 STORAGE_CHANNEL_ID = -1002714023986
+USER_FILE = "user_ids.json"
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+print("📁 Current working dir:", os.getcwd())
+print("📄 user_ids.json exists:", os.path.isfile(USER_FILE))
+
 # 👮 Section 3: Admin Setup
 ADMIN_IDS = {1150875355}
-USER_FILE = "user_ids.json"
 
 # 📚 Section 4: Book Data
 BOOKS = {
@@ -51,25 +55,30 @@ BOOKS = {
     }
 }
 
-# 📊 Section 5: Persistent User Memory (safe load-only)
-user_ids = set()
-user_file_exists = os.path.exists(USER_FILE)
-
-if user_file_exists:
+# 📊 Section 5: Persistent User Memory
+if os.path.isfile(USER_FILE):
     try:
         with open(USER_FILE, "r") as f:
             user_ids = set(json.load(f))
     except json.JSONDecodeError:
-        logger.warning("user_ids.json is invalid. Starting empty.")
-        user_file_exists = False
+        print("❌ Error decoding user_ids.json.")
+        user_ids = set()
+else:
+    print("❌ user_ids.json not found.")
+    user_ids = set()
 
 # 📖 Section 6: Command Handlers
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    if user_file_exists and user_id not in user_ids:
-        user_ids.add(user_id)
-        with open(USER_FILE, "w") as f:
-            json.dump(list(user_ids), f)
+
+    if user_id not in user_ids:
+        if os.path.isfile(USER_FILE):
+            user_ids.add(user_id)
+            with open(USER_FILE, "w") as f:
+                json.dump(list(user_ids), f)
+        else:
+            await update.message.reply_text("❌ user_ids.json not found.")
+            return
 
     arg = context.args[0] if context.args else None
     if arg and arg in BOOKS:
@@ -82,12 +91,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    if user_id in ADMIN_IDS:
-        if not user_file_exists:
-            await update.message.reply_text("❌ user_ids.json not found")
-        else:
+    if update.effective_user.id in ADMIN_IDS:
+        if os.path.isfile(USER_FILE):
             await update.message.reply_text(f"📊 Total users: {len(user_ids)}")
+        else:
+            await update.message.reply_text("❌ user_ids.json not found.")
     else:
         await update.message.reply_text("Darling, you are not an admin🤪")
 
@@ -105,7 +113,8 @@ async def all_books(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE, override_code=None):
     user_id = update.effective_user.id
-    if user_file_exists and user_id not in user_ids:
+
+    if user_id not in user_ids and os.path.isfile(USER_FILE):
         user_ids.add(user_id)
         with open(USER_FILE, "w") as f:
             json.dump(list(user_ids), f)
@@ -121,7 +130,7 @@ async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE, overri
         )
 
         async def delete_later(bot, chat_id, message_id):
-            await asyncio.sleep(900)
+            await asyncio.sleep(900)  # 15 minutes
             try:
                 await bot.delete_message(chat_id=chat_id, message_id=message_id)
             except Exception as e:
@@ -134,10 +143,11 @@ async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE, overri
     else:
         await update.message.reply_text("Huh?🤔")
 
-# 🧪 Section 7: Temporary Upload Handler for Admin
+# 🧪 Section 7: Upload Handler (Admin only)
 async def save_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ADMIN_IDS:
         return
+
     doc = update.message.document
     if doc:
         file_id = doc.file_id
@@ -151,13 +161,13 @@ async def save_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         await update.message.reply_text(f"`{file_id}`", parse_mode="Markdown")
 
-# 🚀 Section 8: Bot Setup and Run
+# 🚀 Section 8: Bot Initialization
 app = ApplicationBuilder().token(BOT_TOKEN).build()
 app.add_handler(CommandHandler("start", start))
 app.add_handler(CommandHandler("stats", stats))
 app.add_handler(CommandHandler("all_books", all_books))
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_code))
-app.add_handler(MessageHandler(filters.Document.ALL, save_pdf))  # Upload handler
+app.add_handler(MessageHandler(filters.Document.ALL, save_pdf))
 
 logger.info("Bot started.")
 app.run_polling()
