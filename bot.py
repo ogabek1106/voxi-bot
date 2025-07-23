@@ -29,7 +29,26 @@ BOOKS = {
         "filename": "400 Must-Have Words for the TOEFL.pdf",
         "caption": "📘 *400 Must-Have Words for the TOEFL*\n\n⏰ File will be deleted in 15 minutes.\n\nMore 👉 @IELTSforeverybody"
     },
-    # Add more books here...
+    "2": {
+        "file_id": "BQACAgIAAxkBAAIFqmiAolq8qZDLfFQCLWSU_Df06txyAAIieAACKompS9wWKnaV4VzcNgQ",
+        "filename": "English Vocabulary Builder.pdf",
+        "caption": "📔 *English for Everyone - English Vocabulary Builder*\n\n⏰ File will be deleted in 15 minutes.\n\nMore 👉 @IELTSforeverybody"
+    },
+    "3": {
+        "file_id": "BQACAgIAAxkBAAIFrGiAol2RyKBF29x2NQK3nuQfbjJfAAK5eAACKompS7kZD-2dwmYJNgQ",
+        "filename": "179 IELTS Speaking Part 2 Samples.pdf",
+        "caption": "📔 *179 IELTS Speaking Part 2 Samples*\n\n⏰ File will be deleted in 15 minutes.\n\nMore 👉 @IELTSforeverybody"
+    },
+    "4": {
+        "file_id": "BQACAgIAAxkBAAIFrmiAomAEAvg_gvmJM6ngPiyVUgSKAAKxewACCN_ZS9XyeIaFm_kvNgQ",
+        "filename": "IELTS the vocabulary files.pdf",
+        "caption": "📘 *IELTS the Vocabulary Files*\n\n⏰ File will be deleted in 15 minutes.\n\nMore 👉 @IELTSforeverybody"
+    },
+    "5": {
+        "file_id": "BQACAgIAAxkBAAIFxGiApe0xjlauq_vgcQABGAUCXpt5pQAC8XkAAq2ECUgut_tCHkHV3zYE",
+        "filename": "Big Words.pdf",
+        "caption": "📕 *The Big Book of Words You Should Know*\n\n⏰ File will be deleted in 15 minutes.\n\nMore 👉 @IELTSforeverybody"
+    }
 }
 
 # 📊 Section 5: Persistent User Memory
@@ -37,7 +56,7 @@ try:
     with open(USER_FILE, "r") as f:
         user_ids = set(json.load(f))
 except FileNotFoundError:
-    user_ids = None  # Will trigger warning
+    user_ids = None
 except json.JSONDecodeError:
     user_ids = set()
 
