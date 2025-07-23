@@ -3,7 +3,7 @@
 import asyncio
 import logging
 from telegram import Update
-from telegram.ext import ContextTypes
+from telegram.ext import ContextTypes, CommandHandler, MessageHandler, filters
 from config import ADMIN_IDS, USER_FILE, STORAGE_CHANNEL_ID
 from books import BOOKS
 from user_data import load_users, add_user
@@ -21,7 +21,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ user_ids.json not found.")
         return
 
-    added = add_user(user_ids, user_id)
+    add_user(user_ids, user_id)
 
     arg = context.args[0] if context.args else None
     if arg and arg in BOOKS:
@@ -54,7 +54,7 @@ async def all_books(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(message, parse_mode="Markdown")
 
-# Handles numbers (like 1, 2...) to send books
+# Handle book codes
 async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE, override_code=None):
     user_id = update.effective_user.id
 
@@ -62,7 +62,7 @@ async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE, overri
         await update.message.reply_text("❌ user_ids.json not found.")
         return
 
-    add_user(user_ids, user_id)  # Ensure user is added (only once)
+    add_user(user_ids, user_id)
 
     msg = override_code or update.message.text.strip()
     if msg in BOOKS:
@@ -81,7 +81,7 @@ async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE, overri
     else:
         await update.message.reply_text("Huh?🤔")
 
-# Admin uploads PDF -> gets file_id + forwards to channel
+# Admin uploads file
 async def save_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ADMIN_IDS:
         return
@@ -99,7 +99,7 @@ async def save_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         await update.message.reply_text(f"`{file_id}`", parse_mode="Markdown")
 
-# Admin broadcasts a new book
+# Broadcast new book to all users
 async def broadcast_new(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ADMIN_IDS:
         return
@@ -135,3 +135,12 @@ async def broadcast_new(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.warning(f"Couldn't message {uid}: {e}")
 
     await update.message.reply_text(f"✅ Sent to {success} users.\n❌ Failed for {fail}.")
+
+# Registers all handlers
+def register_handlers(app):
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("stats", stats))
+    app.add_handler(CommandHandler("all_books", all_books))
+    app.add_handler(CommandHandler("broadcast_new", broadcast_new))
+    app.add_handler(MessageHandler(filters.Document.PDF, save_pdf))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_code))
