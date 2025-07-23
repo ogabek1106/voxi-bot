@@ -97,10 +97,10 @@ async def all_books(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE, override_code=None):
     user_id = update.effective_user.id
-    if user_id not in user_ids:
-        user_ids.add(user_id)
-        with open(USER_FILE, "w") as f:
-            json.dump(list(user_ids), f)
+if user_id not in user_ids:
+    user_ids.add(user_id)
+    with open(USER_FILE, "w") as f:
+        json.dump(list(user_ids), f)
 
     msg = override_code or update.message.text.strip()
     if msg in BOOKS:
