@@ -25,5 +25,10 @@ BOOKS = {
         "file_id": "BQACAgIAAxkBAAIFxGiApe0xjlauq_vgcQABGAUCXpt5pQAC8XkAAq2ECUgut_tCHkHV3zYE",
         "filename": "Big Words.pdf",
         "caption": "📕 *The Big Book of Words You Should Know*\n\n⏰ File will be deleted in 15 minutes.\n\nMore 👉 @IELTSforeverybody"
+    },
+    "6": {
+        "file_id": "BQACAgIAAxkBAAIGMWiBGeY83--q3ByZPn4OQW34ftpjAAJWlQACLpURSMF8gX8XQvvCNgQ",
+        "filename": "📘 Vocabulary Builder.pdf (Course I)",
+        "caption": "📘 *Vocabulary Builder.pdf (Course I)*\n\n⏰ File will be deleted in 15 minutes.\n\nMore 👉 @IELTSforeverybody"
     }
 }
