@@ -15,16 +15,12 @@ from telegram.ext import (
 # 🛡️ Section 2: Config and Logging
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 STORAGE_CHANNEL_ID = -1002714023986
-USER_FILE = "user_ids.json"
-
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-print("📁 Current working dir:", os.getcwd())
-print("📄 user_ids.json exists:", os.path.isfile(USER_FILE))
-
 # 👮 Section 3: Admin Setup
 ADMIN_IDS = {1150875355}
+USER_FILE = "user_ids.json"
 
 # 📚 Section 4: Book Data
 BOOKS = {
@@ -33,52 +29,31 @@ BOOKS = {
         "filename": "400 Must-Have Words for the TOEFL.pdf",
         "caption": "📘 *400 Must-Have Words for the TOEFL*\n\n⏰ File will be deleted in 15 minutes.\n\nMore 👉 @IELTSforeverybody"
     },
-    "2": {
-        "file_id": "BQACAgIAAxkBAAIFqmiAolq8qZDLfFQCLWSU_Df06txyAAIieAACKompS9wWKnaV4VzcNgQ",
-        "filename": "English Vocabulary Builder.pdf",
-        "caption": "📔 *English for Everyone - English Vocabulary Builder*\n\n⏰ File will be deleted in 15 minutes.\n\nMore 👉 @IELTSforeverybody"
-    },
-    "3": {
-        "file_id": "BQACAgIAAxkBAAIFrGiAol2RyKBF29x2NQK3nuQfbjJfAAK5eAACKompS7kZD-2dwmYJNgQ",
-        "filename": "179 IELTS Speaking Part 2 Samples.pdf",
-        "caption": "📔 *179 IELTS Speaking Part 2 Samples*\n\n⏰ File will be deleted in 15 minutes.\n\nMore 👉 @IELTSforeverybody"
-    },
-    "4": {
-        "file_id": "BQACAgIAAxkBAAIFrmiAomAEAvg_gvmJM6ngPiyVUgSKAAKxewACCN_ZS9XyeIaFm_kvNgQ",
-        "filename": "IELTS the vocabulary files.pdf",
-        "caption": "📘 *IELTS the Vocabulary Files*\n\n⏰ File will be deleted in 15 minutes.\n\nMore 👉 @IELTSforeverybody"
-    },
-    "5": {
-        "file_id": "BQACAgIAAxkBAAIFxGiApe0xjlauq_vgcQABGAUCXpt5pQAC8XkAAq2ECUgut_tCHkHV3zYE",
-        "filename": "Big Words.pdf",
-        "caption": "📕 *The Big Book of Words You Should Know*\n\n⏰ File will be deleted in 15 minutes.\n\nMore 👉 @IELTSforeverybody"
-    }
+    # Add more books here...
 }
 
 # 📊 Section 5: Persistent User Memory
-if os.path.isfile(USER_FILE):
-    try:
-        with open(USER_FILE, "r") as f:
-            user_ids = set(json.load(f))
-    except json.JSONDecodeError:
-        print("❌ Error decoding user_ids.json.")
-        user_ids = set()
-else:
-    print("❌ user_ids.json not found.")
+try:
+    with open(USER_FILE, "r") as f:
+        user_ids = set(json.load(f))
+except FileNotFoundError:
+    user_ids = None  # Will trigger warning
+except json.JSONDecodeError:
     user_ids = set()
 
 # 📖 Section 6: Command Handlers
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global user_ids
     user_id = update.effective_user.id
 
+    if user_ids is None:
+        await update.message.reply_text("❌ user_ids.json not found.")
+        return
+
     if user_id not in user_ids:
-        if os.path.isfile(USER_FILE):
-            user_ids.add(user_id)
-            with open(USER_FILE, "w") as f:
-                json.dump(list(user_ids), f)
-        else:
-            await update.message.reply_text("❌ user_ids.json not found.")
-            return
+        user_ids.add(user_id)
+        with open(USER_FILE, "w") as f:
+            json.dump(list(user_ids), f)
 
     arg = context.args[0] if context.args else None
     if arg and arg in BOOKS:
@@ -92,10 +67,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id in ADMIN_IDS:
-        if os.path.isfile(USER_FILE):
-            await update.message.reply_text(f"📊 Total users: {len(user_ids)}")
-        else:
-            await update.message.reply_text("❌ user_ids.json not found.")
+        count = len(user_ids) if user_ids else 0
+        await update.message.reply_text(f"📊 Total users: {count}")
     else:
         await update.message.reply_text("Darling, you are not an admin🤪")
 
@@ -114,7 +87,11 @@ async def all_books(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE, override_code=None):
     user_id = update.effective_user.id
 
-    if user_id not in user_ids and os.path.isfile(USER_FILE):
+    if user_ids is None:
+        await update.message.reply_text("❌ user_ids.json not found.")
+        return
+
+    if user_id not in user_ids:
         user_ids.add(user_id)
         with open(USER_FILE, "w") as f:
             json.dump(list(user_ids), f)
@@ -130,7 +107,7 @@ async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE, overri
         )
 
         async def delete_later(bot, chat_id, message_id):
-            await asyncio.sleep(900)  # 15 minutes
+            await asyncio.sleep(900)
             try:
                 await bot.delete_message(chat_id=chat_id, message_id=message_id)
             except Exception as e:
@@ -143,7 +120,7 @@ async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE, overri
     else:
         await update.message.reply_text("Huh?🤔")
 
-# 🧪 Section 7: Upload Handler (Admin only)
+# 🧪 Section 7: Admin PDF Upload Handler
 async def save_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ADMIN_IDS:
         return
@@ -161,11 +138,49 @@ async def save_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         await update.message.reply_text(f"`{file_id}`", parse_mode="Markdown")
 
-# 🚀 Section 8: Bot Initialization
+# 📢 Section 8: Broadcast New Book
+async def broadcast_new(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id not in ADMIN_IDS:
+        return
+
+    if user_ids is None:
+        await update.message.reply_text("❌ user_ids.json not found.")
+        return
+
+    if not context.args:
+        await update.message.reply_text("❗ Usage: /broadcast_new <book_code>")
+        return
+
+    code = context.args[0]
+    if code not in BOOKS:
+        await update.message.reply_text("❌ No such book code.")
+        return
+
+    book = BOOKS[code]
+    msg = (
+        f"📚 *New Book Uploaded!*\n\n"
+        f"{book['caption'].splitlines()[0]}\n"
+        f"🆔 Code: `{code}`\n\n"
+        f"Send this number to get the file!"
+    )
+
+    success, fail = 0, 0
+    for uid in user_ids:
+        try:
+            await context.bot.send_message(chat_id=uid, text=msg, parse_mode="Markdown")
+            success += 1
+        except Exception as e:
+            fail += 1
+            logger.warning(f"Couldn't message {uid}: {e}")
+
+    await update.message.reply_text(f"✅ Sent to {success} users.\n❌ Failed for {fail}.")
+
+# 🚀 Section 9: Bot Setup and Run
 app = ApplicationBuilder().token(BOT_TOKEN).build()
 app.add_handler(CommandHandler("start", start))
 app.add_handler(CommandHandler("stats", stats))
 app.add_handler(CommandHandler("all_books", all_books))
+app.add_handler(CommandHandler("broadcast_new", broadcast_new))
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_code))
 app.add_handler(MessageHandler(filters.Document.ALL, save_pdf))
 
