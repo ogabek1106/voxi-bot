@@ -24,11 +24,30 @@ USER_FILE = "user_ids.json"
 # 📚 Section 4: Book Data
 BOOKS = {
     "1": {
-        "file_id": "YOUR_FILE_ID_HERE",
+        "file_id": "BQACAgIAAyEFAAShxLgyAAMHaHOY0YvtH2OCcLR0ZAxKbt9JIGIAAtp_AALlEZhLhfS_vbLV6oY2BA",
         "filename": "400 Must-Have Words for the TOEFL.pdf",
         "caption": "📘 *400 Must-Have Words for the TOEFL*\n\n⏰ File will be deleted in 15 minutes.\n\nMore 👉 @IELTSforeverybody"
+    },
+    "2": {
+        "file_id": "BQACAgIAAyEFAAShxLgyAAMIaHTLj1ymrZu1diD984RuvlAj_koAAiJ4AAIqialLGblaFusMwbE2BA",
+        "filename": "English for Everyone - English Vocabulary Builder.pdf",
+        "caption": "📔 *English for Everyone - English Vocabulary Builder*\n\n⏰ File will be deleted in 15 minutes.\n\nMore 👉 @IELTSforeverybody"
+    },
+    "3": {
+        "file_id": "BQACAgIAAyEFAAShxLgyAAMJaHTV90bucYoT77gYbOqvQDBaAzQAArl4AAIqialLGRvupb7SoTw2BA",
+        "filename": "179 IELTS Speaking Part 2 Samples.pdf",
+        "caption": "📔 *179 IELTS Speaking Part 2 Samples*\n\n⏰ File will be deleted in 15 minutes.\n\nMore 👉 @IELTSforeverybody"
+    },
+    "4": {
+        "file_id": "BQACAgIAAyEFAAShxLgyAAMKaHuTV-6UuvFfsN2IoBBZOPhBL1IAArF7AAII39lLZcNcwPuNh0c2BA",
+        "filename": "IELTS the vocabulary fies.pdf",
+        "caption": "📘 *IELTS the vocabulary fies*\n\n⏰ File will be deleted in 15 minutes.\n\nMore 👉 @IELTSforeverybody"
+    },
+    "5": {
+        "file_id": "BQACAgIAAyEFAAShxLgyAAMLaH5BmPsEv1jcuRSJ9psgugurCMUAAoR1AAJXF_BLF9jUggPZszU2BA",
+        "filename": "📕 The Big Book of Words You Should Know.pdf",
+        "caption": "📕 *The Big Book of Words You Should Know*\n\n⏰ File will be deleted in 15 minutes.\n\nMore 👉 @IELTSforeverybody"
     }
-    # Add more books after testing
 }
 
 # 📊 Section 5: Persistent User Memory
@@ -106,7 +125,7 @@ async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE, overri
     else:
         await update.message.reply_text("Huh?🤔")
 
-# 🧪 Section 6.5: Temporary File ID Extractor
+# 🧪 Section 6.5: Temporary File ID Extractor Handler
 async def get_file_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message.document:
         file_id = update.message.document.file_id
@@ -118,7 +137,7 @@ app.add_handler(CommandHandler("start", start))
 app.add_handler(CommandHandler("stats", stats))
 app.add_handler(CommandHandler("all_books", all_books))
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_code))
-app.add_handler(MessageHandler(filters.Document.ALL, get_file_id))  # TEMPORARY HANDLER
+app.add_handler(MessageHandler(filters.Document.ALL, get_file_id))  # Temporary handler for extracting file IDs
 
 logger.info("Bot started.")
 app.run_polling()
