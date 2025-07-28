@@ -1,14 +1,42 @@
-# user_data.py
-from tinydb import TinyDB, Query
+import json
+import os
 
-db = TinyDB("user_data.json")
-users_table = db.table("users")
+# File paths
+USER_FILE = "user_ids.json"
+STATS_FILE = "book_stats.json"
+
+# ------------------ USER TRACKING ------------------
 
 def load_users():
-    return set(user["id"] for user in users_table.all())
+    if os.path.exists(USER_FILE):
+        with open(USER_FILE, "r") as f:
+            return json.load(f)
+    return []
 
-def add_user(user_ids_set, user_id):
-    if user_id not in user_ids_set:
-        users_table.insert({"id": user_id})
-        user_ids_set.add(user_id)
-    return True
+def save_users(user_ids):
+    with open(USER_FILE, "w") as f:
+        json.dump(user_ids, f)
+
+def add_user(user_ids, user_id):
+    if user_id not in user_ids:
+        user_ids.append(user_id)
+        save_users(user_ids)
+        return True
+    return False
+
+# ------------------ BOOK REQUEST COUNTING ------------------
+
+def load_stats():
+    if os.path.exists(STATS_FILE):
+        with open(STATS_FILE, "r") as f:
+            return json.load(f)
+    return {}
+
+def save_stats(stats):
+    with open(STATS_FILE, "w") as f:
+        json.dump(stats, f)
+
+def increment_book_count(code):
+    stats = load_stats()
+    stats[code] = stats.get(code, 0) + 1
+    save_stats(stats)
