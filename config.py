@@ -1,10 +1,15 @@
 # config.py
 
-# Admin user IDs who can use /stats or /broadcast_new
+import os
+
+# 🛡️ Admin users
 ADMIN_IDS = {1150875355}
 
-# Storage channel to save forwarded PDF files
-STORAGE_CHANNEL_ID = -1001002714023986  # replace with your real one
+# 📤 Storage channel
+STORAGE_CHANNEL_ID = -1001002714023986  # change if needed
 
-# File reference (not used directly in TinyDB but retained for legacy support)
+# 🧠 User file for legacy compatibility
 USER_FILE = "user_data.json"
+
+# 🔐 Bot token from environment
+BOT_TOKEN = os.environ.get("BOT_TOKEN")
