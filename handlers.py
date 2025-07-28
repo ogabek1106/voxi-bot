@@ -68,9 +68,9 @@ async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE, overri
         )
 
         countdown_msg = await update.message.reply_text("⏳ [██████████] 15:00 remaining")
+        print(f"⏳ Countdown started for user {user_id}")
 
-        # ✅ Use context.application.create_task for countdown
-        context.application.create_task(
+        await asyncio.create_task(
             countdown_timer(
                 context.bot,
                 countdown_msg.chat.id,
@@ -80,7 +80,7 @@ async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE, overri
             )
         )
 
-        context.application.create_task(
+        await asyncio.create_task(
             delete_after_delay(context.bot, sent.chat.id, sent.message_id, 900)
         )
 
