@@ -67,11 +67,10 @@ async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE, overri
             parse_mode="Markdown"
         )
 
-        # ⏳ Countdown message under the file in a separate message
         countdown_msg = await update.message.reply_text("⏳ [██████████] 15:00 remaining")
 
-        # Real-time updating countdown timer
-        asyncio.create_task(
+        # ✅ Use context.application.create_task for countdown
+        context.application.create_task(
             countdown_timer(
                 context.bot,
                 countdown_msg.chat.id,
@@ -81,8 +80,7 @@ async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE, overri
             )
         )
 
-        # Auto-delete file after 15 minutes
-        asyncio.create_task(
+        context.application.create_task(
             delete_after_delay(context.bot, sent.chat.id, sent.message_id, 900)
         )
 
