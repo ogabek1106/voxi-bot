@@ -1,12 +1,12 @@
-
 # handlers.py
+
 import asyncio
 import logging
 from telegram import Update
 from telegram.ext import ContextTypes, CommandHandler, MessageHandler, filters
 from config import ADMIN_IDS, USER_FILE, STORAGE_CHANNEL_ID
 from books import BOOKS
-from user_data import load_users, add_user, increment_download_count, get_download_count
+from user_data import load_users, add_user, increment_book_count
 from utils import delete_after_delay, countdown_timer
 
 logger = logging.getLogger(__name__)
@@ -25,20 +25,15 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await handle_code(update, context, override_code=arg)
     else:
         await update.message.reply_text(
-            "🦧 Welcome to Voxi Bot!
-
-Send me a number (1, 2, etc.) and I’ll send you the file.
-
-Need help? Contact @ogabek1106"
+            "🦧 Welcome to Voxi Bot!\n\n"
+            "Send me a number (1, 2, etc.) and I’ll send you the file.\n\n"
+            "Need help? Contact @ogabek1106"
         )
 
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id in ADMIN_IDS:
-        count = len(user_ids) if user_ids else 0
-        stats_msg = f"📊 Total users: {count}\n"
-        for code in BOOKS:
-            stats_msg += f"📘 Book {code}: {get_download_count(code)} downloads\n"
-        await update.message.reply_text(stats_msg.strip())
+        total_users = len(user_ids) if user_ids else 0
+        await update.message.reply_text(f"📊 Total users: {total_users}")
     else:
         await update.message.reply_text("Darling, you are not an admin🤪")
 
@@ -63,7 +58,8 @@ async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE, overri
 
     if msg in BOOKS:
         book = BOOKS[msg]
-        increment_download_count(msg)
+        increment_book_count(msg)
+
         sent = await update.message.reply_document(
             document=book["file_id"],
             filename=book["filename"],
@@ -73,13 +69,16 @@ async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE, overri
 
         countdown_msg = await update.message.reply_text("⏳ [██████████] 15:00 remaining")
         context.application.create_task(
-            countdown_timer(context.bot, countdown_msg.chat.id, countdown_msg.message_id, 900, book_code=msg)
+            countdown_timer(
+                context.bot,
+                countdown_msg.chat.id,
+                countdown_msg.message_id,
+                900,
+                final_text=f"♻️ File was deleted for your privacy.\nTo see it again, type `{msg}`.",
+            )
         )
         context.application.create_task(
             delete_after_delay(context.bot, sent.chat.id, sent.message_id, 900)
-        )
-        context.application.create_task(
-            delete_after_delay(context.bot, countdown_msg.chat.id, countdown_msg.message_id, 900)
         )
 
     elif msg.isdigit():
