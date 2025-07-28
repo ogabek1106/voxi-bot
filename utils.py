@@ -7,7 +7,7 @@ def get_progress_bar(current, total, length=12):
     bar = "█" * filled + "-" * (length - filled)
     return bar
 
-async def countdown_timer(bot, chat_id, message_id, duration):
+async def countdown_timer(bot, chat_id, message_id, duration, final_text=None):
     for remaining in range(duration, 0, -1):
         minutes = remaining // 60
         seconds = remaining % 60
@@ -19,13 +19,14 @@ async def countdown_timer(bot, chat_id, message_id, duration):
             break
         await asyncio.sleep(1)
 
-    # Final replacement message after countdown ends
-    final_msg = (
-        "♻️ This file was deleted for your privacy.\n"
-        "To get it again, send the *code of the book*."
-    )
+    if final_text is None:
+        final_text = (
+            "♻️ This file was deleted for your privacy.\n"
+            "To get it again, send the *code of the book*."
+        )
+
     try:
-        await bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=final_msg, parse_mode="Markdown")
+        await bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=final_text, parse_mode="Markdown")
     except:
         pass
 
