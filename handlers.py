@@ -1,11 +1,16 @@
+# Generating the full handlers.py code with book request counting and /top_books command
+
+handlers_code = '''\
 # handlers.py
+
 import asyncio
 import logging
+import json
 from telegram import Update
 from telegram.ext import ContextTypes, CommandHandler, MessageHandler, filters
 from config import ADMIN_IDS, USER_FILE, STORAGE_CHANNEL_ID
 from books import BOOKS
-from user_data import load_users, add_user
+from user_data import load_users, add_user, increment_book_request
 from utils import delete_after_delay, countdown_timer
 
 logger = logging.getLogger(__name__)
@@ -40,9 +45,30 @@ async def all_books(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     message = "📚 *Available Books:*\n\n"
     for code, data in BOOKS.items():
-        title_line = data["caption"].split('\n')[0]
-        message += f"{code}. {title_line}\n"
+        title_line = data["caption"].split('\\n')[0]
+        message += f"{code}. {title_line}\\n"
     await update.message.reply_text(message, parse_mode="Markdown")
+
+async def top_books(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        with open("book_stats.json", "r") as f:
+            stats = json.load(f)
+    except FileNotFoundError:
+        await update.message.reply_text("📊 No data available.")
+        return
+
+    if not stats:
+        await update.message.reply_text("📊 No books have been requested yet.")
+        return
+
+    sorted_stats = sorted(stats.items(), key=lambda x: x[1], reverse=True)[:5]
+
+    msg = "🏆 *Top Requested Books:*\\n\\n"
+    for code, count in sorted_stats:
+        title = BOOKS.get(code, {}).get("caption", "").split('\\n')[0]
+        msg += f"{code}. {title} — {count} requests\\n"
+
+    await update.message.reply_text(msg, parse_mode="Markdown")
 
 async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE, override_code=None):
     user_id = update.effective_user.id
@@ -55,6 +81,8 @@ async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE, overri
 
     if msg in BOOKS:
         book = BOOKS[msg]
+        increment_book_request(msg)
+
         sent = await update.message.reply_document(
             document=book["file_id"],
             filename=book["filename"],
@@ -110,9 +138,9 @@ async def broadcast_new(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     book = BOOKS[code]
     msg = (
-        f"📚 *New Book Uploaded!*\n\n"
-        f"{book['caption'].splitlines()[0]}\n"
-        f"🆔 Code: `{code}`\n\n"
+        f"📚 *New Book Uploaded!*\\n\\n"
+        f"{book['caption'].splitlines()[0]}\\n"
+        f"🆔 Code: `{code}`\\n\\n"
         f"Send this number to get the file!"
     )
 
@@ -124,12 +152,21 @@ async def broadcast_new(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             fail += 1
             logger.warning(f"Couldn't message {uid}: {e}")
-    await update.message.reply_text(f"✅ Sent to {success} users.\n❌ Failed for {fail}.")
+    await update.message.reply_text(f"✅ Sent to {success} users.\\n♻️ Failed for {fail}.")
 
 def register_handlers(app):
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("stats", stats))
     app.add_handler(CommandHandler("all_books", all_books))
+    app.add_handler(CommandHandler("top_books", top_books))
     app.add_handler(CommandHandler("broadcast_new", broadcast_new))
     app.add_handler(MessageHandler(filters.Document.PDF, save_pdf))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_code))
+'''
+
+import os
+with open("/mnt/data/handlers.py", "w") as f:
+    f.write(handlers_code)
+
+"/mnt/data/handlers.py"
+
