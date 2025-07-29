@@ -142,19 +142,27 @@ async def book_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ You’re not allowed to see the stats 😎")
         return
 
-    stats = load_stats()
-    if not stats:
-        await update.message.reply_text("📉 No book requests have been recorded yet.")
-        return
+    try:
+        stats = load_stats()
+        if not stats:
+            await update.message.reply_text("📉 No book requests have been recorded yet.")
+            return
 
-    message = "📊 *Book Request Stats:*\n\n"
-    for code, count in stats.items():
-        book = BOOKS.get(code)
-        if book:
-            title = book['caption'].splitlines()[0]
+        if not isinstance(stats, dict):
+            await update.message.reply_text("⚠️ Stats file is corrupted. Please reset it.")
+            return
+
+        message = "📊 *Book Request Stats:*\n\n"
+        for code, count in stats.items():
+            book = BOOKS.get(code)
+            title = book['caption'].splitlines()[0] if book else f"(deleted or missing code: {code})"
             message += f"{code}. {title} — {count} requests\n"
 
-    await update.message.reply_text(message, parse_mode="Markdown")
+        await update.message.reply_text(message, parse_mode="Markdown")
+
+    except Exception as e:
+        print(f"[book_stats ERROR] {e}")
+        await update.message.reply_text("❌ Something went wrong while showing stats.")
 
 def register_handlers(app):
     app.add_handler(CommandHandler("start", start))
