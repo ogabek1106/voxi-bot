@@ -70,7 +70,7 @@ async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE, overri
         countdown_msg = await update.message.reply_text("⏳ [██████████] 15:00 remaining")
         print(f"⏳ Countdown started for user {user_id}")
 
-        # Run countdown in background (no await)
+        # ✅ Run in background without blocking the bot
         asyncio.create_task(
             countdown_timer(
                 context.bot,
@@ -81,8 +81,7 @@ async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE, overri
             )
         )
 
-        # Wait for deletion (this one should block)
-        await asyncio.create_task(
+        asyncio.create_task(
             delete_after_delay(context.bot, sent.chat.id, sent.message_id, 900)
         )
 
