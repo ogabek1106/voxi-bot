@@ -1,33 +1,39 @@
-import os
+# ratings.py
+
 import json
+import os
 
 RATINGS_FILE = "book_ratings.json"
 
 def load_ratings():
-    if os.path.exists(RATINGS_FILE):
-        try:
-            with open(RATINGS_FILE, "r") as f:
-                data = json.load(f)
-                return data if isinstance(data, dict) else {}
-        except:
-            return {}
-    return {}
+    if not os.path.exists(RATINGS_FILE):
+        return {}
+    try:
+        with open(RATINGS_FILE, "r") as f:
+            return json.load(f)
+    except Exception:
+        return {}
 
 def save_ratings(data):
     with open(RATINGS_FILE, "w") as f:
-        json.dump(data, f)
+        json.dump(data, f, indent=2)
 
-def add_rating(book_code, score):
-    data = load_ratings()
-    if book_code not in data:
-        data[book_code] = []
-    data[book_code].append(score)
-    save_ratings(data)
+def add_rating(book_code, user_id, score):
+    ratings = load_ratings()
+    if book_code not in ratings:
+        ratings[book_code] = {}
+    ratings[book_code][str(user_id)] = score
+    save_ratings(ratings)
+
+def has_rated(book_code, user_id):
+    ratings = load_ratings()
+    return str(user_id) in ratings.get(book_code, {})
 
 def get_average_rating(book_code):
-    data = load_ratings()
-    ratings = data.get(book_code, [])
-    if ratings:
-        avg = sum(ratings) / len(ratings)
-        return round(avg, 2), len(ratings)
-    return None, 0
+    ratings = load_ratings()
+    book_ratings = ratings.get(book_code, {})
+    if not book_ratings:
+        return (0, 0)
+    scores = list(book_ratings.values())
+    avg = round(sum(scores) / len(scores), 2)
+    return (avg, len(scores))
