@@ -6,7 +6,7 @@ from telegram import Update
 from telegram.ext import ContextTypes, CommandHandler, MessageHandler, filters
 from config import ADMIN_IDS, USER_FILE, STORAGE_CHANNEL_ID
 from books import BOOKS
-from user_data import load_users, add_user, increment_book_count
+from user_data import load_users, add_user, increment_book_count, load_stats
 from utils import delete_after_delay, countdown_timer
 
 logger = logging.getLogger(__name__)
@@ -137,10 +137,30 @@ async def broadcast_new(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.warning(f"Couldn't message {uid}: {e}")
     await update.message.reply_text(f"✅ Sent to {success} users.\n❌ Failed for {fail}.")
 
+async def book_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id not in ADMIN_IDS:
+        await update.message.reply_text("❌ You’re not allowed to see the stats 😎")
+        return
+
+    stats = load_stats()
+    if not stats:
+        await update.message.reply_text("📉 No book requests have been recorded yet.")
+        return
+
+    message = "📊 *Book Request Stats:*\n\n"
+    for code, count in stats.items():
+        book = BOOKS.get(code)
+        if book:
+            title = book['caption'].splitlines()[0]
+            message += f"{code}. {title} — {count} requests\n"
+
+    await update.message.reply_text(message, parse_mode="Markdown")
+
 def register_handlers(app):
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("stats", stats))
     app.add_handler(CommandHandler("all_books", all_books))
     app.add_handler(CommandHandler("broadcast_new", broadcast_new))
+    app.add_handler(CommandHandler("book_stats", book_stats))
     app.add_handler(MessageHandler(filters.Document.PDF, save_pdf))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_code))
