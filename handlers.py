@@ -138,31 +138,37 @@ async def broadcast_new(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"✅ Sent to {success} users.\n❌ Failed for {fail}.")
 
 async def book_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id not in ADMIN_IDS:
-        await update.message.reply_text("❌ You’re not allowed to see the stats 😎")
-        return
-
     try:
+        user_id = update.effective_user.id
+        if user_id not in ADMIN_IDS:
+            await update.message.reply_text("❌ You’re not allowed to see the stats 😎")
+            return
+
         stats = load_stats()
+        print(f"📂 Loaded book_stats: {stats}")
+
         if not stats:
             await update.message.reply_text("📉 No book requests have been recorded yet.")
             return
 
         if not isinstance(stats, dict):
-            await update.message.reply_text("⚠️ Stats file is corrupted. Please reset it.")
+            await update.message.reply_text("⚠️ Stats file is invalid. Resetting.")
             return
 
         message = "📊 *Book Request Stats:*\n\n"
         for code, count in stats.items():
             book = BOOKS.get(code)
-            title = book['caption'].splitlines()[0] if book else f"(deleted or missing code: {code})"
+            if not book:
+                title = f"❓ Unknown Book (code: {code})"
+            else:
+                title = book['caption'].splitlines()[0]
             message += f"{code}. {title} — {count} requests\n"
 
         await update.message.reply_text(message, parse_mode="Markdown")
 
     except Exception as e:
         print(f"[book_stats ERROR] {e}")
-        await update.message.reply_text("❌ Something went wrong while showing stats.")
+        await update.message.reply_text("❌ An unexpected error occurred while showing stats.")
 
 def register_handlers(app):
     app.add_handler(CommandHandler("start", start))
