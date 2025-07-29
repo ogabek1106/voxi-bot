@@ -28,15 +28,11 @@ def add_user(user_ids, user_id):
 
 def load_stats():
     if os.path.exists(STATS_FILE):
-        with open(STATS_FILE, "r") as f:
-            return json.load(f)
+        try:
+            with open(STATS_FILE, "r") as f:
+                data = json.load(f)
+                if isinstance(data, dict):
+                    return data
+        except Exception as e:
+            print(f"[load_stats ERROR] {e}")
     return {}
-
-def save_stats(stats):
-    with open(STATS_FILE, "w") as f:
-        json.dump(stats, f)
-
-def increment_book_count(code):
-    stats = load_stats()
-    stats[code] = stats.get(code, 0) + 1
-    save_stats(stats)
