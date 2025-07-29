@@ -36,3 +36,12 @@ def load_stats():
         except Exception as e:
             print(f"[load_stats ERROR] {e}")
     return {}
+
+def save_stats(stats):
+    with open(STATS_FILE, "w") as f:
+        json.dump(stats, f)
+
+def increment_book_count(code):
+    stats = load_stats()
+    stats[code] = stats.get(code, 0) + 1
+    save_stats(stats)
