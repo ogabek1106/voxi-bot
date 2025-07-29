@@ -2,12 +2,24 @@
 
 import asyncio
 import logging
-from telegram import Update
-from telegram.ext import ContextTypes, CommandHandler, MessageHandler, filters
+from telegram import (
+    Update,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+)
+from telegram.ext import (
+    ContextTypes,
+    CommandHandler,
+    MessageHandler,
+    CallbackQueryHandler,
+    filters,
+)
+
 from config import ADMIN_IDS, USER_FILE, STORAGE_CHANNEL_ID
 from books import BOOKS
 from user_data import load_users, add_user, increment_book_count, load_stats
 from utils import delete_after_delay, countdown_timer
+from ratings import add_rating, get_average_rating
 
 logger = logging.getLogger(__name__)
 user_ids = load_users()
@@ -67,11 +79,28 @@ async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE, overri
             parse_mode="Markdown"
         )
 
+        # Rating section
+        avg, total = get_average_rating(msg)
+        rating_line = f"\n⭐️ Average rating: {avg} ({total} votes)" if total else ""
+        keyboard = [
+            [
+                InlineKeyboardButton("1⭐️", callback_data=f"rate|{msg}|1"),
+                InlineKeyboardButton("2⭐️", callback_data=f"rate|{msg}|2"),
+                InlineKeyboardButton("3⭐️", callback_data=f"rate|{msg}|3"),
+                InlineKeyboardButton("4⭐️", callback_data=f"rate|{msg}|4"),
+                InlineKeyboardButton("5⭐️", callback_data=f"rate|{msg}|5"),
+            ]
+        ]
+        markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_text(
+            f"How would you rate this book?{rating_line}",
+            reply_markup=markup
+        )
+
         countdown_msg = await update.message.reply_text("⏳ [██████████] 15:00 remaining")
         print(f"⏳ Countdown started for user {user_id}")
 
-        # ✅ Run in background without blocking the bot
-        asyncio.create_task(
+        await asyncio.create_task(
             countdown_timer(
                 context.bot,
                 countdown_msg.chat.id,
@@ -81,7 +110,7 @@ async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE, overri
             )
         )
 
-        asyncio.create_task(
+        await asyncio.create_task(
             delete_after_delay(context.bot, sent.chat.id, sent.message_id, 900)
         )
 
@@ -89,6 +118,23 @@ async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE, overri
         await update.message.reply_text("❌ Book not found.")
     else:
         await update.message.reply_text("Huh?🤔")
+
+async def handle_rating(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    try:
+        _, code, score_str = query.data.split("|")
+        score = int(score_str)
+    except:
+        await query.edit_message_text("❌ Invalid rating data.")
+        return
+
+    add_rating(code, score)
+    avg, total = get_average_rating(code)
+    await query.edit_message_text(
+        f"✅ Thank you for rating!\n\n⭐️ Average rating: {avg} ({total} votes)"
+    )
 
 async def save_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ADMIN_IDS:
@@ -139,37 +185,23 @@ async def broadcast_new(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"✅ Sent to {success} users.\n❌ Failed for {fail}.")
 
 async def book_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        user_id = update.effective_user.id
-        if user_id not in ADMIN_IDS:
-            await update.message.reply_text("❌ You’re not allowed to see the stats 😎")
-            return
+    if update.effective_user.id not in ADMIN_IDS:
+        await update.message.reply_text("❌ You’re not allowed to see the stats 😎")
+        return
 
-        stats = load_stats()
-        print(f"📂 Loaded book_stats: {stats}")
+    stats = load_stats()
+    if not stats:
+        await update.message.reply_text("📉 No book requests have been recorded yet.")
+        return
 
-        if not stats:
-            await update.message.reply_text("📉 No book requests have been recorded yet.")
-            return
-
-        if not isinstance(stats, dict):
-            await update.message.reply_text("⚠️ Stats file is invalid. Resetting.")
-            return
-
-        message = "📊 *Book Request Stats:*\n\n"
-        for code, count in stats.items():
-            book = BOOKS.get(code)
-            if not book:
-                title = f"❓ Unknown Book (code: {code})"
-            else:
-                title = book['caption'].splitlines()[0]
+    message = "📊 *Book Request Stats:*\n\n"
+    for code, count in stats.items():
+        book = BOOKS.get(code)
+        if book:
+            title = book['caption'].splitlines()[0]
             message += f"{code}. {title} — {count} requests\n"
 
-        await update.message.reply_text(message, parse_mode="Markdown")
-
-    except Exception as e:
-        print(f"[book_stats ERROR] {e}")
-        await update.message.reply_text("❌ An unexpected error occurred while showing stats.")
+    await update.message.reply_text(message, parse_mode="Markdown")
 
 def register_handlers(app):
     app.add_handler(CommandHandler("start", start))
@@ -177,5 +209,6 @@ def register_handlers(app):
     app.add_handler(CommandHandler("all_books", all_books))
     app.add_handler(CommandHandler("broadcast_new", broadcast_new))
     app.add_handler(CommandHandler("book_stats", book_stats))
+    app.add_handler(CallbackQueryHandler(handle_rating))
     app.add_handler(MessageHandler(filters.Document.PDF, save_pdf))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_code))
