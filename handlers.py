@@ -2,28 +2,19 @@
 
 import asyncio
 import logging
-from telegram import (
-    Update,
-    InlineKeyboardButton,
-    InlineKeyboardMarkup,
-)
-from telegram.ext import (
-    ContextTypes,
-    CommandHandler,
-    MessageHandler,
-    CallbackQueryHandler,
-    filters,
-)
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import ContextTypes, CommandHandler, MessageHandler, CallbackQueryHandler, filters
 
 from config import ADMIN_IDS, USER_FILE, STORAGE_CHANNEL_ID
 from books import BOOKS
 from user_data import load_users, add_user, increment_book_count, load_stats
 from utils import delete_after_delay, countdown_timer
-from ratings import add_rating, get_average_rating
+from ratings import add_rating, has_rated, get_average_rating
 
 logger = logging.getLogger(__name__)
 user_ids = load_users()
 
+# ✅ /start command
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global user_ids
     user_id = update.effective_user.id
@@ -42,6 +33,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Need help? Contact @ogabek1106"
         )
 
+# ✅ /stats command
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id in ADMIN_IDS:
         total_users = len(user_ids) if user_ids else 0
@@ -49,6 +41,7 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("Darling, you are not an admin🤪")
 
+# ✅ /all_books command
 async def all_books(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not BOOKS:
         await update.message.reply_text("😕 No books are currently available.")
@@ -59,6 +52,27 @@ async def all_books(update: Update, context: ContextTypes.DEFAULT_TYPE):
         message += f"{code}. {title_line}\n"
     await update.message.reply_text(message, parse_mode="Markdown")
 
+# ✅ Book stats (rating counts)
+async def book_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id not in ADMIN_IDS:
+        await update.message.reply_text("❌ You’re not allowed to see the stats 😎")
+        return
+
+    stats = load_stats()
+    if not stats:
+        await update.message.reply_text("📉 No book requests have been recorded yet.")
+        return
+
+    message = "📊 *Book Request Stats:*\n\n"
+    for code, count in stats.items():
+        book = BOOKS.get(code)
+        if book:
+            title = book['caption'].splitlines()[0]
+            message += f"{code}. {title} — {count} requests\n"
+
+    await update.message.reply_text(message, parse_mode="Markdown")
+
+# ✅ Handle book download
 async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE, override_code=None):
     user_id = update.effective_user.id
     if user_ids is None:
@@ -79,22 +93,15 @@ async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE, overri
             parse_mode="Markdown"
         )
 
-        # Rating section
-        avg, total = get_average_rating(msg)
-        rating_line = f"\n⭐️ Average rating: {avg} ({total} votes)" if total else ""
-        keyboard = [
-            [
-                InlineKeyboardButton("1⭐️", callback_data=f"rate|{msg}|1"),
-                InlineKeyboardButton("2⭐️", callback_data=f"rate|{msg}|2"),
-                InlineKeyboardButton("3⭐️", callback_data=f"rate|{msg}|3"),
-                InlineKeyboardButton("4⭐️", callback_data=f"rate|{msg}|4"),
-                InlineKeyboardButton("5⭐️", callback_data=f"rate|{msg}|5"),
-            ]
+        # Rating buttons
+        rating_buttons = [
+            InlineKeyboardButton(f"{i}⭐️", callback_data=f"rate|{msg}|{i}")
+            for i in range(1, 6)
         ]
-        markup = InlineKeyboardMarkup(keyboard)
+        reply_markup = InlineKeyboardMarkup([rating_buttons])
+
         await update.message.reply_text(
-            f"How would you rate this book?{rating_line}",
-            reply_markup=markup
+            "⭐️ Rate this book:", reply_markup=reply_markup
         )
 
         countdown_msg = await update.message.reply_text("⏳ [██████████] 15:00 remaining")
@@ -119,23 +126,7 @@ async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE, overri
     else:
         await update.message.reply_text("Huh?🤔")
 
-async def handle_rating(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-
-    try:
-        _, code, score_str = query.data.split("|")
-        score = int(score_str)
-    except:
-        await query.edit_message_text("❌ Invalid rating data.")
-        return
-
-    add_rating(code, score)
-    avg, total = get_average_rating(code)
-    await query.edit_message_text(
-        f"✅ Thank you for rating!\n\n⭐️ Average rating: {avg} ({total} votes)"
-    )
-
+# ✅ Save PDFs to storage channel
 async def save_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ADMIN_IDS:
         return
@@ -151,6 +142,7 @@ async def save_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         await update.message.reply_text(f"`{file_id}`", parse_mode="Markdown")
 
+# ✅ Broadcast new book
 async def broadcast_new(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ADMIN_IDS:
         return
@@ -184,31 +176,35 @@ async def broadcast_new(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.warning(f"Couldn't message {uid}: {e}")
     await update.message.reply_text(f"✅ Sent to {success} users.\n❌ Failed for {fail}.")
 
-async def book_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id not in ADMIN_IDS:
-        await update.message.reply_text("❌ You’re not allowed to see the stats 😎")
+# ✅ Handle star rating
+async def handle_rating(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer("Feedback sent!", show_alert=False)
+
+    try:
+        _, book_code, score = query.data.split("|")
+        user_id = query.from_user.id
+        score = int(score)
+    except:
         return
 
-    stats = load_stats()
-    if not stats:
-        await update.message.reply_text("📉 No book requests have been recorded yet.")
-        return
+    if has_rated(book_code, user_id):
+        return  # Already rated
 
-    message = "📊 *Book Request Stats:*\n\n"
-    for code, count in stats.items():
-        book = BOOKS.get(code)
-        if book:
-            title = book['caption'].splitlines()[0]
-            message += f"{code}. {title} — {count} requests\n"
+    add_rating(book_code, user_id, score)
+    avg, total = get_average_rating(book_code)
 
-    await update.message.reply_text(message, parse_mode="Markdown")
+    await query.edit_message_text(
+        f"✅ Thanks for rating!\n⭐️ Average rating: {avg} ({total} votes)"
+    )
 
+# ✅ Register all handlers
 def register_handlers(app):
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("stats", stats))
     app.add_handler(CommandHandler("all_books", all_books))
     app.add_handler(CommandHandler("broadcast_new", broadcast_new))
     app.add_handler(CommandHandler("book_stats", book_stats))
-    app.add_handler(CallbackQueryHandler(handle_rating))
+    app.add_handler(CallbackQueryHandler(handle_rating, pattern=r"^rate\|"))
     app.add_handler(MessageHandler(filters.Document.PDF, save_pdf))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_code))
