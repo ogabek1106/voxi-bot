@@ -19,7 +19,7 @@ async def countdown_timer(bot, chat_id, message_id, duration, final_text=None, u
             await bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=text)
             await asyncio.sleep(update_interval)
 
-        # Final message
+        # Final message instead of deleting
         if final_text is None:
             final_text = (
                 "♻️ This file was deleted for your privacy.\n"
