@@ -24,8 +24,13 @@ async def countdown_timer(bot, chat_id, message_id, duration, final_text=None):
                 "To get it again, send the *code of the book*."
             )
 
-        await bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=final_text, parse_mode="Markdown")
-        print(f"Countdown ended and message {message_id} updated to final text")
+        await bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=message_id,
+            text=final_text,
+            parse_mode="Markdown"
+        )
+        print(f"✅ Countdown ended. Final message updated for message {message_id}")
 
     except Exception as e:
         print(f"[countdown_timer ERROR] {e}")
