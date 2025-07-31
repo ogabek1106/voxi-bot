@@ -10,15 +10,14 @@ def get_progress_bar(current, total, length=12):
 async def countdown_timer(bot, chat_id, message_id, duration, final_text=None, update_interval=30):
     print(f"Starting countdown: {duration} seconds for message {message_id}")
     try:
-        interval = 30  # Update every 30 seconds
-        interval = update_interval  # Use provided interval
+        for remaining in range(duration, 0, -update_interval):
             current = max(remaining, 0)
             minutes = current // 60
             seconds = current % 60
             bar = get_progress_bar(current, duration)
             text = f"⏳ [{bar}] {minutes:02}:{seconds:02} remaining"
             await bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=text)
-            await asyncio.sleep(interval)
+            await asyncio.sleep(update_interval)
 
         # Final message
         if final_text is None:
