@@ -140,7 +140,7 @@ async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE, overri
                 reply_markup=InlineKeyboardMarkup(rating_buttons)
             )
 
-        countdown_msg = await update.message.reply_text("⏳ [██████████] 15:00 remaining")
+        countdown_msg = await update.message.reply_text("⏳ [██████████] 10:00 remaining")
         print(f"⏳ Countdown started for user {user_id}")
 
         await asyncio.create_task(
@@ -148,13 +148,13 @@ async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE, overri
                 context.bot,
                 countdown_msg.chat.id,
                 countdown_msg.message_id,
-                900,
+                600,
                 final_text=f"♻️ File was deleted for your privacy.\nTo see it again, type `{msg}`.",
             )
         )
 
         await asyncio.create_task(
-            delete_after_delay(context.bot, sent.chat.id, sent.message_id, 900)
+            delete_after_delay(context.bot, sent.chat.id, sent.message_id, 600)
         )
 
     elif msg.isdigit():
