@@ -181,13 +181,22 @@ async def save_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ------------------ Callback for ratings ------------------
 async def rating_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer("Feedback sent!", show_alert=False)
-    _, book_code, rating = query.data.split("|")
-    user_id = str(query.from_user.id)
+    try:
+        await query.answer("Feedback sent!", show_alert=False)
+        data = query.data.split("|")
+        if len(data) != 3:
+            return  # Ignore malformed callback
 
-    if not has_rated(user_id, book_code):
-        save_rating(user_id, book_code, int(rating))
-    await query.edit_message_text("✅ Thanks for your rating!")
+        _, book_code, rating = data
+        user_id = str(query.from_user.id)
+
+        if not has_rated(user_id, book_code):
+            save_rating(user_id, book_code, int(rating))
+            await query.edit_message_text("✅ Thanks for your rating!")
+        else:
+            await query.edit_message_text("📌 You've already rated this book.")
+    except Exception as e:
+        print(f"[rating_callback ERROR] {e}")
 
 # ------------------ Register Handlers ------------------
 def register_handlers(app):
