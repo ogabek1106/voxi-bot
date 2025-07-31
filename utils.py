@@ -7,11 +7,11 @@ def get_progress_bar(current, total, length=12):
     bar = "█" * filled + "-" * (length - filled)
     return bar
 
-async def countdown_timer(bot, chat_id, message_id, duration, final_text=None):
+async def countdown_timer(bot, chat_id, message_id, duration, final_text=None, update_interval=30):
     print(f"Starting countdown: {duration} seconds for message {message_id}")
     try:
         interval = 30  # Update every 30 seconds
-        for remaining in range(duration, 0, -interval):
+        interval = update_interval  # Use provided interval
             current = max(remaining, 0)
             minutes = current // 60
             seconds = current % 60
