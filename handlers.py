@@ -1,39 +1,19 @@
 # handlers.py
 
 import asyncio
-from telegram import (
-    Update,
-    InlineKeyboardButton,
-    InlineKeyboardMarkup,
-)
-from telegram.ext import (
-    ContextTypes,
-    CommandHandler,
-    MessageHandler,
-    CallbackQueryHandler,
-    filters,
-)
+import logging
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import ContextTypes, CommandHandler, MessageHandler, CallbackQueryHandler, filters
+from config import ADMIN_IDS, USER_FILE, STORAGE_CHANNEL_ID
 from books import BOOKS
-from config import ADMIN_IDS
 from user_data import (
-    load_users,
-    add_user,
-    increment_book_count,
-    load_stats,
-    save_rating,
-    has_rated,
+    load_users, add_user,
+    increment_book_count, load_stats,
+    has_rated, save_rating, load_rating_stats
 )
-from utils import countdown_timer, delete_after_delay
+from utils import delete_after_delay, countdown_timer
 
-
-# ------------------ REGISTER HANDLERS ------------------
-def register_handlers(app):
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("stats", stats))
-    app.add_handler(CommandHandler("book_stats", book_stats))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_code))
-    app.add_handler(CallbackQueryHandler(rate_book_callback, pattern=r"^rate_"))
-
+logger = logging.getLogger(__name__)
 
 # ------------------ /start ------------------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -42,7 +22,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     is_new = add_user(user_ids, user_id)
 
     arg = context.args[0] if context.args else None
-
     if arg and arg in BOOKS:
         await handle_code(update, context, override_code=arg)
         return
@@ -52,99 +31,171 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("📚 You're already in!\nSend a book code to get started.")
 
-
 # ------------------ /stats ------------------
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    if user_id not in ADMIN_IDS:
-        return
-    user_count = len(load_users())
-    await update.message.reply_text(f"👥 Total Users: {user_count}")
+    if update.effective_user.id in ADMIN_IDS:
+        total_users = len(load_users())
+        await update.message.reply_text(f"📊 Total users: {total_users}")
+    else:
+        await update.message.reply_text("Darling, you are not an admin 🤪")
 
+# ------------------ /all_books ------------------
+async def all_books(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not BOOKS:
+        await update.message.reply_text("😕 No books are currently available.")
+        return
+    message = "📚 *Available Books:*\n\n"
+    for code, data in BOOKS.items():
+        title_line = data["caption"].split('\n')[0]
+        message += f"{code}. {title_line}\n"
+    await update.message.reply_text(message, parse_mode="Markdown")
 
 # ------------------ /book_stats ------------------
 async def book_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    if user_id not in ADMIN_IDS:
+    if update.effective_user.id not in ADMIN_IDS:
+        await update.message.reply_text("❌ You’re not allowed to see the stats 😎")
         return
 
     stats = load_stats()
+    ratings = load_rating_stats()
+
     if not stats:
-        await update.message.reply_text("📊 No book stats yet.")
+        await update.message.reply_text("📉 No book requests have been recorded yet.")
         return
 
-    message = "📚 Book Request Stats:\n\n"
+    message = "📊 *Book Stats:*\n\n"
     for code, count in stats.items():
-        book = BOOKS.get(code, {})
-        name = book.get("filename", "Unknown")
-        message += f"🔢 Code {code} — {count} requests\n📘 {name}\n\n"
-    await update.message.reply_text(message.strip())
+        book = BOOKS.get(code)
+        if book:
+            title = book['caption'].splitlines()[0]
+            rating_info = ""
+            if code in ratings:
+                votes = ratings[code]
+                total_votes = sum(votes[str(i)] for i in range(1, 6))
+                avg = sum(int(star) * votes[str(star)] for star in votes) / total_votes if total_votes > 0 else 0
+                rating_info = f" — ⭐️ {avg:.1f}/5 ({total_votes} votes)"
+            message += f"{code}. {title} — {count} requests{rating_info}\n"
 
+    await update.message.reply_text(message, parse_mode="Markdown")
 
-# ------------------ Handle Book Request ------------------
-async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    code = update.message.text.strip()
-    if code not in BOOKS:
-        await update.message.reply_text("❌ Book not found. Try a valid code.")
+# ------------------ /broadcast_new ------------------
+async def broadcast_new(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id not in ADMIN_IDS:
+        return
+    user_ids = load_users()
+    if not context.args:
+        await update.message.reply_text("❗ Usage: /broadcast_new <book_code>")
         return
 
-    user_id = update.effective_user.id
-    increment_book_count(code)
+    code = context.args[0]
+    if code not in BOOKS:
+        await update.message.reply_text("❌ No such book code.")
+        return
 
     book = BOOKS[code]
-    file_id = book["file_id"]
-    caption = book["caption"]
-
-    sent = await update.message.reply_document(
-        file_id,
-        caption=caption,
-        parse_mode="Markdown"
+    msg = (
+        f"📚 *New Book Uploaded!*\n\n"
+        f"{book['caption'].splitlines()[0]}\n"
+        f"🆔 Code: `{code}`\n\n"
+        f"Send this number to get the file!"
     )
 
-    # Rating buttons
-    rating_buttons = [
-        [InlineKeyboardButton(f"{i} ⭐️", callback_data=f"rate_{code}_{i}") for i in range(1, 6)]
-    ]
-    await update.message.reply_text(
-        "⭐️ Rate this book:",
-        reply_markup=InlineKeyboardMarkup(rating_buttons)
-    )
+    success, fail = 0, 0
+    for uid in user_ids:
+        try:
+            await context.bot.send_message(chat_id=uid, text=msg, parse_mode="Markdown")
+            success += 1
+        except Exception as e:
+            fail += 1
+            logger.warning(f"Couldn't message {uid}: {e}")
+    await update.message.reply_text(f"✅ Sent to {success} users.\n❌ Failed for {fail}.")
 
-    # Countdown message
-    countdown_msg = await update.message.reply_text("⏳ [██████████] 15:00 remaining")
+# ------------------ Main handler ------------------
+async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE, override_code=None):
+    user_id = update.effective_user.id
+    user_ids = load_users()
+    add_user(user_ids, user_id)
 
-    # Start timer in background
-    asyncio.create_task(
-        countdown_timer(
-            context.bot,
-            countdown_msg.chat.id,
-            countdown_msg.message_id,
-            900,
-            final_text="❌ This file was deleted for your privacy."
+    msg = override_code or update.message.text.strip()
+
+    if msg in BOOKS:
+        book = BOOKS[msg]
+        increment_book_count(msg)
+
+        sent = await update.message.reply_document(
+            document=book["file_id"],
+            filename=book["filename"],
+            caption=book["caption"],
+            parse_mode="Markdown"
         )
-    )
 
-    # Auto delete file after 15 mins
-    asyncio.create_task(
-        delete_after_delay(
-            context.bot,
-            sent.chat.id,
-            sent.message_id,
-            900
+        # Show rating buttons
+        if not has_rated(str(user_id), msg):
+            rating_buttons = [
+                [InlineKeyboardButton(f"{i}⭐️", callback_data=f"rate|{msg}|{i}")]
+                for i in range(1, 6)
+            ]
+            await update.message.reply_text(
+                "How would you rate this book? 🤔",
+                reply_markup=InlineKeyboardMarkup(rating_buttons)
+            )
+
+        countdown_msg = await update.message.reply_text("⏳ [██████████] 15:00 remaining")
+        print(f"⏳ Countdown started for user {user_id}")
+
+        await asyncio.create_task(
+            countdown_timer(
+                context.bot,
+                countdown_msg.chat.id,
+                countdown_msg.message_id,
+                900,
+                final_text=f"♻️ File was deleted for your privacy.\nTo see it again, type `{msg}`.",
+            )
         )
-    )
 
+        await asyncio.create_task(
+            delete_after_delay(context.bot, sent.chat.id, sent.message_id, 900)
+        )
 
-# ------------------ Handle Rating ------------------
-async def rate_book_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    user_id = str(query.from_user.id)
-    data = query.data  # format: rate_{code}_{rating}
-    _, code, rating = data.split("_")
+    elif msg.isdigit():
+        await update.message.reply_text("❌ Book not found.")
+    else:
+        await update.message.reply_text("Huh? 🤔")
 
-    if has_rated(user_id, code):
-        await query.answer("You've already rated this book!", show_alert=True)
+# ------------------ Save PDF ------------------
+async def save_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id not in ADMIN_IDS:
         return
+    doc = update.message.document
+    if doc:
+        file_id = doc.file_id
+        file_name = doc.file_name or "Untitled.pdf"
+        await context.bot.send_document(
+            chat_id=STORAGE_CHANNEL_ID,
+            document=file_id,
+            caption=f"📚 *{file_name}*",
+            parse_mode="Markdown"
+        )
+        await update.message.reply_text(f"`{file_id}`", parse_mode="Markdown")
 
-    save_rating(user_id, code, int(rating))
-    await query.answer("✅ Feedback sent!", show_alert=False)
+# ------------------ Callback for ratings ------------------
+async def rating_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer("Feedback sent!", show_alert=False)
+    _, book_code, rating = query.data.split("|")
+    user_id = str(query.from_user.id)
+
+    if not has_rated(user_id, book_code):
+        save_rating(user_id, book_code, int(rating))
+    await query.edit_message_text("✅ Thanks for your rating!")
+
+# ------------------ Register Handlers ------------------
+def register_handlers(app):
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("stats", stats))
+    app.add_handler(CommandHandler("all_books", all_books))
+    app.add_handler(CommandHandler("book_stats", book_stats))
+    app.add_handler(CommandHandler("broadcast_new", broadcast_new))
+    app.add_handler(MessageHandler(filters.Document.PDF, save_pdf))
+    app.add_handler(CallbackQueryHandler(rating_callback, pattern=r"^rate\|"))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_code))
