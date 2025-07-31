@@ -48,8 +48,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.args = []  # Clear so handle_code doesn’t reuse it
 
         # Simulate code entry
-        update.message.text = code
-        await handle_code(update, context)
+        if arg and arg in BOOKS:
+    await handle_code(update, context, override_code=arg)
         return
 
     if is_new:
