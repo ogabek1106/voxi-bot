@@ -145,19 +145,20 @@ async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE, overri
         countdown_msg = await update.message.reply_text("⏳ [██████████] 10:00 remaining")
         print(f"⏳ Countdown started for user {user_id}")
 
-        await asyncio.gather(
+        asyncio.create_task(
             countdown_timer(
                 context.bot,
                 countdown_msg.chat.id,
                 countdown_msg.message_id,
                 600,
                 final_text=f"♻️ File was deleted for your privacy.\nTo see it again, type `{msg}`.",
-                update_interval=30
-            ),
-            delete_after_delay(context.bot, sent.chat.id, sent.message_id, 600),
-            delete_after_delay(context.bot, countdown_msg.chat.id, countdown_msg.message_id, 600),
-            delete_after_delay(context.bot, rating_msg.chat.id, rating_msg.message_id, 600) if rating_msg else asyncio.sleep(0)
+            )
         )
+
+        asyncio.create_task(delete_after_delay(context.bot, sent.chat.id, sent.message_id, 600))
+        asyncio.create_task(delete_after_delay(context.bot, countdown_msg.chat.id, countdown_msg.message_id, 600))
+        if rating_msg:
+            asyncio.create_task(delete_after_delay(context.bot, rating_msg.chat.id, rating_msg.message_id, 600))
 
     elif msg.isdigit():
         await update.message.reply_text("❌ Book not found.")
