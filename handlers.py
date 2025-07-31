@@ -40,6 +40,18 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     user_ids = load_users()
     is_new = add_user(user_ids, user_id)
+
+    # Deep link support: /start 6 or t.me/voxi_aibot?start=6
+    args = context.args
+    if args:
+        code = args[0]
+        context.args = []  # Clear so handle_code doesn’t reuse it
+
+        # Simulate code entry
+        update.message.text = code
+        await handle_code(update, context)
+        return
+
     if is_new:
         await update.message.reply_text("🦧 Welcome to Voxi Bot!\n\nSend a code like 1, 2, 3...")
     else:
