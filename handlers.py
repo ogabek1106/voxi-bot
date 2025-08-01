@@ -217,6 +217,86 @@ async def rating_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         print(f"[rating_callback ERROR] {e}")
 
+# ------------------ Upload New Book Flow ------------------
+from telegram.constants import ParseMode
+
+# Temporary storage during upload flow
+upload_state = {}
+
+async def handle_upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if user_id not in ADMIN_IDS:
+        return
+
+    doc = update.message.document
+    if not doc or not doc.file_name.endswith(".pdf"):
+        await update.message.reply_text("❌ Please send a valid PDF file.")
+        return
+
+    # Step 1: Forward to storage channel
+    forwarded = await context.bot.send_document(
+        chat_id=STORAGE_CHANNEL_ID,
+        document=doc.file_id,
+        caption=f"📚 *{doc.file_name}*",
+        parse_mode=ParseMode.MARKDOWN
+    )
+    file_id = doc.file_id
+    message_id = forwarded.message_id
+
+    # Step 2: Save partial state and ask for name
+    upload_state[user_id] = {
+        "file_id": file_id,
+        "filename": doc.file_name,
+        "message_id": message_id
+    }
+    await update.message.reply_text("📖 Please enter the *name of the book*", parse_mode=ParseMode.MARKDOWN)
+
+
+async def handle_upload_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if user_id not in upload_state or "name" in upload_state[user_id]:
+        return
+
+    upload_state[user_id]["name"] = update.message.text
+    await update.message.reply_text("🔢 Now send the *code* (number) for this book", parse_mode=ParseMode.MARKDOWN)
+
+
+async def handle_upload_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if user_id not in upload_state or "name" not in upload_state[user_id]:
+        return
+
+    code = update.message.text.strip()
+    if not code.isdigit():
+        await update.message.reply_text("❌ Code must be a number.")
+        return
+
+    if code in BOOKS:
+        await update.message.reply_text("⚠️ This code already exists. Choose a different one.")
+        return
+
+    state = upload_state.pop(user_id)
+    name = state["name"]
+    file_id = state["file_id"]
+    filename = state["filename"]
+
+    caption = f"📘 *{name}*\n\n⏰ File will be deleted in 15 minutes.\n\nMore 👉 @IELTSforeverybody"
+
+    # Save to JSON file
+    import json
+    from books import BOOKS_FILE_PATH, BOOKS
+
+    BOOKS[code] = {
+        "file_id": file_id,
+        "filename": filename,
+        "caption": caption
+    }
+
+    with open(BOOKS_FILE_PATH, "w", encoding="utf-8") as f:
+        json.dump(BOOKS, f, indent=4, ensure_ascii=False)
+
+    await update.message.reply_text("✅ Uploaded successfully and saved to BOOKS.")
+
 # ------------------ Register Handlers ------------------
 def register_handlers(app):
     app.add_handler(CommandHandler("start", start))
@@ -224,6 +304,11 @@ def register_handlers(app):
     app.add_handler(CommandHandler("all_books", all_books))
     app.add_handler(CommandHandler("book_stats", book_stats))
     app.add_handler(CommandHandler("broadcast_new", broadcast_new))
-    app.add_handler(MessageHandler(filters.Document.PDF, save_pdf))
+
+    app.add_handler(MessageHandler(filters.Document.PDF, handle_upload))  # only one PDF handler
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_upload_code))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_upload_name))
+
     app.add_handler(CallbackQueryHandler(rating_callback, pattern=r"^rate\|"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_code))
+
