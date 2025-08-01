@@ -1,11 +1,14 @@
-# handlers.py
-
 import asyncio
 import logging
+import json
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ContextTypes, CommandHandler, MessageHandler, CallbackQueryHandler, filters
+from telegram.constants import ParseMode
+from telegram.ext import (
+    ContextTypes, CommandHandler, MessageHandler,
+    CallbackQueryHandler, filters
+)
 from config import ADMIN_IDS, USER_FILE, STORAGE_CHANNEL_ID
-from books import BOOKS
+from books import BOOKS, BOOKS_FILE
 from user_data import (
     load_users, add_user,
     increment_book_count, load_stats,
@@ -14,6 +17,7 @@ from user_data import (
 from utils import delete_after_delay, countdown_timer
 
 logger = logging.getLogger(__name__)
+upload_state = {}
 
 # ------------------ /start ------------------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -110,18 +114,45 @@ async def broadcast_new(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.warning(f"Couldn't message {uid}: {e}")
     await update.message.reply_text(f"✅ Sent to {success} users.\n❌ Failed for {fail}.")
 
-# ------------------ Main handler ------------------
+# ------------------ Book request & Upload flow ------------------
 async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE, override_code=None):
     user_id = update.effective_user.id
     user_ids = load_users()
     add_user(user_ids, user_id)
-
     msg = override_code or update.message.text.strip()
+
+    # 👇 Upload flow step: enter name
+    if user_id in upload_state:
+        if "name" not in upload_state[user_id]:
+            upload_state[user_id]["name"] = msg
+            await update.message.reply_text("🔢 Now send the *code* (number) for this book", parse_mode=ParseMode.MARKDOWN)
+            return
+        elif "code" not in upload_state[user_id]:
+            if not msg.isdigit():
+                await update.message.reply_text("❌ Code must be a number.")
+                return
+            if msg in BOOKS:
+                await update.message.reply_text("⚠️ This code already exists. Choose a different one.")
+                return
+            state = upload_state.pop(user_id)
+            name = state["name"]
+            file_id = state["file_id"]
+            filename = state["filename"]
+
+            caption = f"📘 *{name}*\n\n⏰ File will be deleted in 15 minutes.\n\nMore 👉 @IELTSforeverybody"
+            BOOKS[msg] = {
+                "file_id": file_id,
+                "filename": filename,
+                "caption": caption
+            }
+            with open(BOOKS_FILE, "w", encoding="utf-8") as f:
+                json.dump(BOOKS, f, indent=4, ensure_ascii=False)
+            await update.message.reply_text("✅ Uploaded successfully and saved to BOOKS.")
+            return
 
     if msg in BOOKS:
         book = BOOKS[msg]
         increment_book_count(msg)
-
         sent = await update.message.reply_document(
             document=book["file_id"],
             filename=book["filename"],
@@ -142,62 +173,48 @@ async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE, overri
             rating_msg = None
 
         countdown_msg = await update.message.reply_text("⏳ [██████████] 10:00 remaining")
-        print(f"⏳ Countdown started for user {user_id}")
-
-        asyncio.create_task(
-            countdown_timer(
-                context.bot,
-                countdown_msg.chat.id,
-                countdown_msg.message_id,
-                600,
-                final_text=f"♻️ File was deleted for your privacy.\nTo see it again, type `{msg}`."
-            )
-        )
-
+        asyncio.create_task(countdown_timer(
+            context.bot,
+            countdown_msg.chat.id,
+            countdown_msg.message_id,
+            600,
+            final_text=f"♻️ File was deleted for your privacy.\nTo see it again, type `{msg}`."
+        ))
         asyncio.create_task(delete_after_delay(context.bot, sent.chat.id, sent.message_id, 600))
         asyncio.create_task(delete_after_delay(context.bot, countdown_msg.chat.id, countdown_msg.message_id, 600))
-
         if rating_msg:
             asyncio.create_task(delete_after_delay(context.bot, rating_msg.chat.id, rating_msg.message_id, 600))
-
     elif msg.isdigit():
         await update.message.reply_text("❌ Book not found.")
     else:
         await update.message.reply_text("Huh? 🤔")
 
-# ------------------ Save PDF ------------------
-async def save_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id not in ADMIN_IDS:
+# ------------------ Upload trigger ------------------
+async def handle_upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if user_id not in ADMIN_IDS:
         return
 
     doc = update.message.document
-    if not doc:
-        await update.message.reply_text("❌ No document found.")
+    if not doc or not doc.file_name.endswith(".pdf"):
+        await update.message.reply_text("❌ Please send a valid PDF file.")
         return
 
-    try:
-        # Forward to storage channel
-        sent = await context.bot.send_document(
-            chat_id=STORAGE_CHANNEL_ID,
-            document=doc.file_id,
-            caption=f"📚 *{doc.file_name or 'Untitled'}*",
-            parse_mode="Markdown"
-        )
+    forwarded = await context.bot.send_document(
+        chat_id=STORAGE_CHANNEL_ID,
+        document=doc.file_id,
+        caption=f"📚 *{doc.file_name}*",
+        parse_mode=ParseMode.MARKDOWN
+    )
 
-        file_id = doc.file_id
-        message_id = sent.message_id
+    upload_state[user_id] = {
+        "file_id": doc.file_id,
+        "filename": doc.file_name,
+        "message_id": forwarded.message_id
+    }
+    await update.message.reply_text("📖 Please enter the *name of the book*", parse_mode=ParseMode.MARKDOWN)
 
-        await update.message.reply_text(
-            f"✅ Saved to storage!\n\n"
-            f"`file_id`: `{file_id}`\n"
-            f"`message_id`: `{message_id}`",
-            parse_mode="Markdown"
-        )
-
-    except Exception as e:
-        await update.message.reply_text(f"⚠️ Failed to save PDF: {e}")
-
-# ------------------ Callback for ratings ------------------
+# ------------------ Rating Callback ------------------
 async def rating_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     try:
@@ -217,103 +234,13 @@ async def rating_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         print(f"[rating_callback ERROR] {e}")
 
-# ------------------ Upload New Book Flow ------------------
-from telegram.constants import ParseMode
-
-# Temporary storage during upload flow
-upload_state = {}
-
-async def handle_upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    if user_id not in ADMIN_IDS:
-        return
-
-    doc = update.message.document
-    if not doc or not doc.file_name.endswith(".pdf"):
-        await update.message.reply_text("❌ Please send a valid PDF file.")
-        return
-
-    # Step 1: Forward to storage channel
-    forwarded = await context.bot.send_document(
-        chat_id=STORAGE_CHANNEL_ID,
-        document=doc.file_id,
-        caption=f"📚 *{doc.file_name}*",
-        parse_mode=ParseMode.MARKDOWN
-    )
-    file_id = doc.file_id
-    message_id = forwarded.message_id
-
-    # Step 2: Save partial state and ask for name
-    upload_state[user_id] = {
-        "file_id": file_id,
-        "filename": doc.file_name,
-        "message_id": message_id
-    }
-    await update.message.reply_text("📖 Please enter the *name of the book*", parse_mode=ParseMode.MARKDOWN)
-
-
-async def handle_upload_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    if user_id not in upload_state or "name" in upload_state[user_id]:
-        return
-
-    upload_state[user_id]["name"] = update.message.text
-    await update.message.reply_text("🔢 Now send the *code* (number) for this book", parse_mode=ParseMode.MARKDOWN)
-
-
-async def handle_upload_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    if user_id not in upload_state or "name" not in upload_state[user_id]:
-        return
-
-    code = update.message.text.strip()
-    if not code.isdigit():
-        await update.message.reply_text("❌ Code must be a number.")
-        return
-
-    if code in BOOKS:
-        await update.message.reply_text("⚠️ This code already exists. Choose a different one.")
-        return
-
-    state = upload_state.pop(user_id)
-    name = state["name"]
-    file_id = state["file_id"]
-    filename = state["filename"]
-
-    caption = f"📘 *{name}*\n\n⏰ File will be deleted in 15 minutes.\n\nMore 👉 @IELTSforeverybody"
-
-    # Save to JSON file
-    import json
-    from books import BOOKS_FILE_PATH, BOOKS
-
-    BOOKS[code] = {
-        "file_id": file_id,
-        "filename": filename,
-        "caption": caption
-    }
-
-    with open(BOOKS_FILE_PATH, "w", encoding="utf-8") as f:
-        json.dump(BOOKS, f, indent=4, ensure_ascii=False)
-
-    await update.message.reply_text("✅ Uploaded successfully and saved to BOOKS.")
-
-# ------------------ Register Handlers ------------------
+# ------------------ Register ------------------
 def register_handlers(app):
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("stats", stats))
     app.add_handler(CommandHandler("all_books", all_books))
     app.add_handler(CommandHandler("book_stats", book_stats))
     app.add_handler(CommandHandler("broadcast_new", broadcast_new))
-
-    # Upload flow must come before handle_code
     app.add_handler(MessageHandler(filters.Document.PDF, handle_upload))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_upload_name))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_upload_code))
-
-    # Rating callback
     app.add_handler(CallbackQueryHandler(rating_callback, pattern=r"^rate\|"))
-
-    # Book code fallback should be last
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_code))
-
-
