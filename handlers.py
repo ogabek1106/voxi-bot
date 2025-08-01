@@ -20,7 +20,6 @@ from utils import delete_after_delay, countdown_timer
 
 logger = logging.getLogger(__name__)
 
-# 🔄 Upload session tracking
 upload_state = {}
 
 # ------------------ /start ------------------
@@ -118,14 +117,15 @@ async def broadcast_new(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.warning(f"Couldn't message {uid}: {e}")
     await update.message.reply_text(f"✅ Sent to {success} users.\n❌ Failed for {fail}.")
 
-# ------------------ Handle all text messages ------------------
+# ------------------ Handle all messages ------------------
 async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE, override_code=None):
+    print(f"📩 Received message: {update.message.text if update.message else update}")
+
     user_id = update.effective_user.id
     user_ids = load_users()
     add_user(user_ids, user_id)
     msg = override_code or update.message.text.strip()
 
-    # Step 1: Upload flow
     if user_id in upload_state:
         state = upload_state[user_id]
 
@@ -142,11 +142,10 @@ async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE, overri
                 await update.message.reply_text("⚠️ This code already exists. Choose a different one.")
                 return
 
-            # Save
             name = state["name"]
             file_id = state["file_id"]
             filename = state["filename"]
-            caption = f"📘 *{name}*\n\n⏰ File will be deleted in 15 minutes.\n\nMore 👉 @IELTSforeverybody"
+            caption = f"👘 *{name}*\n\n⏰ File will be deleted in 15 minutes.\n\nMore 👉 @IELTSforeverybody"
             BOOKS[msg] = {
                 "file_id": file_id,
                 "filename": filename,
@@ -159,7 +158,6 @@ async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE, overri
             await update.message.reply_text("✅ Uploaded successfully and saved to BOOKS.")
             return
 
-    # Step 2: Book request
     if msg in BOOKS:
         book = BOOKS[msg]
         increment_book_count(msg)
@@ -200,7 +198,7 @@ async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE, overri
     else:
         await update.message.reply_text("Huh? 🤔")
 
-# ------------------ Handle file uploads ------------------
+# ------------------ Handle PDF uploads ------------------
 async def handle_upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id not in ADMIN_IDS:
@@ -211,7 +209,6 @@ async def handle_upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Please send a valid PDF file.")
         return
 
-    # Forward to storage channel
     forwarded = await context.bot.send_document(
         chat_id=STORAGE_CHANNEL_ID,
         document=doc.file_id,
@@ -227,7 +224,7 @@ async def handle_upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text("📖 Please enter the *name of the book*", parse_mode=ParseMode.MARKDOWN)
 
-# ------------------ Handle rating button press ------------------
+# ------------------ Handle Rating ------------------
 async def rating_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     try:
@@ -248,18 +245,22 @@ async def rating_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"[rating_callback ERROR] {e}")
 
 # ------------------ Global Error Handler ------------------
+import traceback
+
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
-    logger.error(msg="❌ Exception caught:", exc_info=context.error)
+    error_text = "".join(traceback.format_exception(None, context.error, context.error.__traceback__))
+    logger.error(f"❌ Exception caught:\n{error_text}")
+
     try:
         await context.bot.send_message(
             chat_id=list(ADMIN_IDS)[0],
-            text=f"🚨 *Error occurred!*\n\n`{context.error}`",
+            text=f"🚨 *Exception in bot:*\n```{error_text[-4000:]}```",
             parse_mode="Markdown"
         )
-    except TelegramError as e:
+    except Exception as e:
         logger.warning(f"⚠️ Failed to notify admin: {e}")
 
-# ------------------ Register handlers ------------------
+# ------------------ Register Handlers ------------------
 def register_handlers(app):
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("stats", stats))
