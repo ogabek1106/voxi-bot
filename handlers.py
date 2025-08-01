@@ -305,10 +305,15 @@ def register_handlers(app):
     app.add_handler(CommandHandler("book_stats", book_stats))
     app.add_handler(CommandHandler("broadcast_new", broadcast_new))
 
-    app.add_handler(MessageHandler(filters.Document.PDF, handle_upload))  # only one PDF handler
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_upload_code))
+    # Upload flow must come before handle_code
+    app.add_handler(MessageHandler(filters.Document.PDF, handle_upload))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_upload_name))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_upload_code))
 
+    # Rating callback
     app.add_handler(CallbackQueryHandler(rating_callback, pattern=r"^rate\|"))
+
+    # Book code fallback should be last
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_code))
+
 
