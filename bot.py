@@ -14,20 +14,24 @@ PORT = int(os.environ.get("PORT", 8080))
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Create application
-app = ApplicationBuilder().token(BOT_TOKEN).build()
-register_handlers(app)
-
-# Set webhook and run app
-async def setup():
+async def setup_webhook(app):
     logger.info("🔗 Setting webhook...")
     await app.bot.set_webhook(WEBHOOK_URL)
 
-logger.info("🚀 Starting bot with webhook...")
+# Main execution
+if __name__ == "__main__":
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
+    register_handlers(app)
 
-app.run_webhook(
-    listen="0.0.0.0",
-    port=PORT,
-    webhook_url=WEBHOOK_URL,
-    on_startup=setup
-)
+    # Run webhook after setting it manually
+    async def run():
+        await setup_webhook(app)
+        logger.info("🚀 Starting bot with webhook...")
+        await app.run_webhook(
+            listen="0.0.0.0",
+            port=PORT,
+            webhook_url=WEBHOOK_URL,
+        )
+
+    import asyncio
+    asyncio.run(run())
