@@ -1,12 +1,14 @@
 import asyncio
-import logging
 import json
+import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode
+from telegram.error import TelegramError
 from telegram.ext import (
     ContextTypes, CommandHandler, MessageHandler,
     CallbackQueryHandler, filters
 )
+
 from config import ADMIN_IDS, USER_FILE, STORAGE_CHANNEL_ID
 from books import BOOKS, BOOKS_FILE
 from user_data import (
@@ -17,6 +19,8 @@ from user_data import (
 from utils import delete_after_delay, countdown_timer
 
 logger = logging.getLogger(__name__)
+
+# 🔄 Upload session tracking
 upload_state = {}
 
 # ------------------ /start ------------------
@@ -114,31 +118,34 @@ async def broadcast_new(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.warning(f"Couldn't message {uid}: {e}")
     await update.message.reply_text(f"✅ Sent to {success} users.\n❌ Failed for {fail}.")
 
-# ------------------ Book request & Upload flow ------------------
+# ------------------ Handle all text messages ------------------
 async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE, override_code=None):
     user_id = update.effective_user.id
     user_ids = load_users()
     add_user(user_ids, user_id)
     msg = override_code or update.message.text.strip()
 
-    # 👇 Upload flow step: enter name
+    # Step 1: Upload flow
     if user_id in upload_state:
-        if "name" not in upload_state[user_id]:
+        state = upload_state[user_id]
+
+        if "name" not in state:
             upload_state[user_id]["name"] = msg
             await update.message.reply_text("🔢 Now send the *code* (number) for this book", parse_mode=ParseMode.MARKDOWN)
             return
-        elif "code" not in upload_state[user_id]:
+
+        if "code" not in state:
             if not msg.isdigit():
                 await update.message.reply_text("❌ Code must be a number.")
                 return
             if msg in BOOKS:
                 await update.message.reply_text("⚠️ This code already exists. Choose a different one.")
                 return
-            state = upload_state.pop(user_id)
+
+            # Save
             name = state["name"]
             file_id = state["file_id"]
             filename = state["filename"]
-
             caption = f"📘 *{name}*\n\n⏰ File will be deleted in 15 minutes.\n\nMore 👉 @IELTSforeverybody"
             BOOKS[msg] = {
                 "file_id": file_id,
@@ -147,12 +154,16 @@ async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE, overri
             }
             with open(BOOKS_FILE, "w", encoding="utf-8") as f:
                 json.dump(BOOKS, f, indent=4, ensure_ascii=False)
+
+            upload_state.pop(user_id)
             await update.message.reply_text("✅ Uploaded successfully and saved to BOOKS.")
             return
 
+    # Step 2: Book request
     if msg in BOOKS:
         book = BOOKS[msg]
         increment_book_count(msg)
+
         sent = await update.message.reply_document(
             document=book["file_id"],
             filename=book["filename"],
@@ -160,6 +171,7 @@ async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE, overri
             parse_mode="Markdown"
         )
 
+        rating_msg = None
         if not has_rated(str(user_id), msg):
             rating_buttons = [
                 [InlineKeyboardButton(f"{i}⭐️", callback_data=f"rate|{msg}|{i}")]
@@ -169,8 +181,6 @@ async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE, overri
                 "How would you rate this book? 🤔",
                 reply_markup=InlineKeyboardMarkup(rating_buttons)
             )
-        else:
-            rating_msg = None
 
         countdown_msg = await update.message.reply_text("⏳ [██████████] 10:00 remaining")
         asyncio.create_task(countdown_timer(
@@ -184,12 +194,13 @@ async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE, overri
         asyncio.create_task(delete_after_delay(context.bot, countdown_msg.chat.id, countdown_msg.message_id, 600))
         if rating_msg:
             asyncio.create_task(delete_after_delay(context.bot, rating_msg.chat.id, rating_msg.message_id, 600))
+
     elif msg.isdigit():
         await update.message.reply_text("❌ Book not found.")
     else:
         await update.message.reply_text("Huh? 🤔")
 
-# ------------------ Upload trigger ------------------
+# ------------------ Handle file uploads ------------------
 async def handle_upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id not in ADMIN_IDS:
@@ -200,6 +211,7 @@ async def handle_upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Please send a valid PDF file.")
         return
 
+    # Forward to storage channel
     forwarded = await context.bot.send_document(
         chat_id=STORAGE_CHANNEL_ID,
         document=doc.file_id,
@@ -212,9 +224,10 @@ async def handle_upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "filename": doc.file_name,
         "message_id": forwarded.message_id
     }
+
     await update.message.reply_text("📖 Please enter the *name of the book*", parse_mode=ParseMode.MARKDOWN)
 
-# ------------------ Rating Callback ------------------
+# ------------------ Handle rating button press ------------------
 async def rating_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     try:
@@ -232,15 +245,30 @@ async def rating_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await query.edit_message_text("📌 You've already rated this book.")
     except Exception as e:
-        print(f"[rating_callback ERROR] {e}")
+        logger.error(f"[rating_callback ERROR] {e}")
 
-# ------------------ Register ------------------
+# ------------------ Global Error Handler ------------------
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
+    logger.error(msg="❌ Exception caught:", exc_info=context.error)
+    try:
+        await context.bot.send_message(
+            chat_id=list(ADMIN_IDS)[0],
+            text=f"🚨 *Error occurred!*\n\n`{context.error}`",
+            parse_mode="Markdown"
+        )
+    except TelegramError as e:
+        logger.warning(f"⚠️ Failed to notify admin: {e}")
+
+# ------------------ Register handlers ------------------
 def register_handlers(app):
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("stats", stats))
     app.add_handler(CommandHandler("all_books", all_books))
     app.add_handler(CommandHandler("book_stats", book_stats))
     app.add_handler(CommandHandler("broadcast_new", broadcast_new))
+
     app.add_handler(MessageHandler(filters.Document.PDF, handle_upload))
     app.add_handler(CallbackQueryHandler(rating_callback, pattern=r"^rate\|"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_code))
+
+    app.add_error_handler(error_handler)
