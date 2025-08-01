@@ -24,14 +24,11 @@ async def main():
     await app.bot.set_webhook(WEBHOOK_URL)
 
     logger.info("🚀 Starting bot with webhook...")
-    await app.initialize()
-    await app.start()
-    await app.updater.start_polling()  # Needed to trigger updates in webhook mode
     await app.run_webhook(
         listen="0.0.0.0",
         port=PORT,
         webhook_url=WEBHOOK_URL,
-        stop_signals=None  # Prevents Railway from messing with signals
+        stop_signals=None  # Prevents Railway from interrupting
     )
 
 if __name__ == "__main__":
