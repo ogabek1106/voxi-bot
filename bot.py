@@ -14,12 +14,12 @@ PORT = int(os.environ.get("PORT", 8080))
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# 🚀 Main function (no asyncio.run!)
+# 🚀 Main function (Railway-friendly, no asyncio.run)
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     register_handlers(app)
 
-    async def setup():
+    async def setup(app):
         logger.info("🔗 Setting webhook...")
         await app.bot.set_webhook(WEBHOOK_URL)
 
@@ -30,7 +30,7 @@ def main():
         listen="0.0.0.0",
         port=PORT,
         webhook_url=WEBHOOK_URL,
-        stop_signals=None  # Prevent Railway from messing with it
+        stop_signals=None
     )
 
 if __name__ == "__main__":
