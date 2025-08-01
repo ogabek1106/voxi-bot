@@ -169,17 +169,33 @@ async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE, overri
 async def save_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ADMIN_IDS:
         return
+
     doc = update.message.document
-    if doc:
-        file_id = doc.file_id
-        file_name = doc.file_name or "Untitled.pdf"
-        await context.bot.send_document(
+    if not doc:
+        await update.message.reply_text("❌ No document found.")
+        return
+
+    try:
+        # Forward to storage channel
+        sent = await context.bot.send_document(
             chat_id=STORAGE_CHANNEL_ID,
-            document=file_id,
-            caption=f"📚 *{file_name}*",
+            document=doc.file_id,
+            caption=f"📚 *{doc.file_name or 'Untitled'}*",
             parse_mode="Markdown"
         )
-        await update.message.reply_text(f"`{file_id}`", parse_mode="Markdown")
+
+        file_id = doc.file_id
+        message_id = sent.message_id
+
+        await update.message.reply_text(
+            f"✅ Saved to storage!\n\n"
+            f"`file_id`: `{file_id}`\n"
+            f"`message_id`: `{message_id}`",
+            parse_mode="Markdown"
+        )
+
+    except Exception as e:
+        await update.message.reply_text(f"⚠️ Failed to save PDF: {e}")
 
 # ------------------ Callback for ratings ------------------
 async def rating_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
