@@ -129,42 +129,41 @@ async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE, overri
             parse_mode="Markdown"
         )
 
-        # Show rating buttons
-if not has_rated(str(user_id), msg):
-    rating_buttons = [
-        [InlineKeyboardButton(f"{i}⭐️", callback_data=f"rate|{msg}|{i}")]
-        for i in range(1, 6)
-    ]
-    rating_msg = await update.message.reply_text(
-        "How would you rate this book? 🤔",
-        reply_markup=InlineKeyboardMarkup(rating_buttons)
-    )
-else:
-    rating_msg = None
+        if not has_rated(str(user_id), msg):
+            rating_buttons = [
+                [InlineKeyboardButton(f"{i}⭐️", callback_data=f"rate|{msg}|{i}")]
+                for i in range(1, 6)
+            ]
+            rating_msg = await update.message.reply_text(
+                "How would you rate this book? 🤔",
+                reply_markup=InlineKeyboardMarkup(rating_buttons)
+            )
+        else:
+            rating_msg = None
 
-countdown_msg = await update.message.reply_text("⏳ [██████████] 10:00 remaining")
-print(f"⏳ Countdown started for user {user_id}")
+        countdown_msg = await update.message.reply_text("⏳ [██████████] 10:00 remaining")
+        print(f"⏳ Countdown started for user {user_id}")
 
-asyncio.create_task(
-    countdown_timer(
-        context.bot,
-        countdown_msg.chat.id,
-        countdown_msg.message_id,
-        600,
-        final_text=f"♻️ File was deleted for your privacy.\nTo see it again, type `{msg}`.",
-    )
-)
+        asyncio.create_task(
+            countdown_timer(
+                context.bot,
+                countdown_msg.chat.id,
+                countdown_msg.message_id,
+                600,
+                final_text=f"♻️ File was deleted for your privacy.\nTo see it again, type `{msg}`."
+            )
+        )
 
-asyncio.create_task(delete_after_delay(context.bot, sent.chat.id, sent.message_id, 600))
+        asyncio.create_task(delete_after_delay(context.bot, sent.chat.id, sent.message_id, 600))
+        asyncio.create_task(delete_after_delay(context.bot, countdown_msg.chat.id, countdown_msg.message_id, 600))
 
-if rating_msg:
-    asyncio.create_task(delete_after_delay(context.bot, rating_msg.chat.id, rating_msg.message_id, 600))
+        if rating_msg:
+            asyncio.create_task(delete_after_delay(context.bot, rating_msg.chat.id, rating_msg.message_id, 600))
 
-# ❗️ These must be outside the 'if msg in BOOKS' block
-elif msg.isdigit():
-    await update.message.reply_text("❌ Book not found.")
-else:
-    await update.message.reply_text("Huh? 🤔")
+    elif msg.isdigit():
+        await update.message.reply_text("❌ Book not found.")
+    else:
+        await update.message.reply_text("Huh? 🤔")
 
 # ------------------ Save PDF ------------------
 async def save_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE):
