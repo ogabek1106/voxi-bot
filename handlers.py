@@ -92,18 +92,18 @@ async def admin_commands(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     help_text = (
-        "🛠 *Admin Commands Help*\n\n"
-        "/stats — Show total user count\n"
-        "/all_books — List all available books with their codes\n"
-        "/book_stats — View book download counts and ratings\n"
-        "/broadcast_new <code> — Broadcast a newly added book to all users\n"
-        "/asd — Show this help message\n\n"
-        "📤 *To upload a book:*\n"
-        "Just send a PDF and the bot will reply with file info.\n"
-        "You can later manually add it to `BOOKS` using code and name."
-    )
+    "🛠 <b>Admin Commands Help</b>\n\n"
+    "<code>/stats</code> — Show total user count\n"
+    "<code>/all_books</code> — List all available books with their codes\n"
+    "<code>/book_stats</code> — View book download counts and ratings\n"
+    "<code>/broadcast_new &lt;code&gt;</code> — Broadcast a newly added book to all users\n"
+    "<code>/asd</code> — Show this help message\n\n"
+    "📤 <b>To upload a book:</b>\n"
+    "Just send a PDF and the bot will reply with file info.\n"
+    "You can later manually add it to <code>BOOKS</code> using code and name."
+)
 
-    await update.message.reply_text(help_text, parse_mode="Markdown")
+    await update.message.reply_text(help_text, parse_mode="HTML")
 
 # ------------------ /broadcast_new ------------------
 async def broadcast_new(update: Update, context: ContextTypes.DEFAULT_TYPE):
