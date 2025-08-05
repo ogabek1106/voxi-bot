@@ -5,16 +5,15 @@ from config import BOT_TOKEN, ADMIN_IDS
 from handlers import register_handlers
 
 # 🌍 Webhook settings
-WEBHOOK_PATH = f"/{BOT_TOKEN}"
-WEBHOOK_URL = f"https://worker-production-78ca.up.railway.app{WEBHOOK_PATH}"
 PORT = int(os.environ.get("PORT", 8080))
+WEBHOOK_URL = f"https://worker-production-78ca.up.railway.app/webhook"
 
 # 🧾 Logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # 🚀 Main
-def main():
+async def main():
     print("🟢 bot.py is starting...")
 
     # Build the bot
@@ -39,13 +38,12 @@ def main():
     app.post_init = setup
 
     print("🚀 Launching app.run_webhook...")
-    app.run_webhook(
+    await app.run_webhook(
         listen="0.0.0.0",
         port=PORT,
-        webhook_url=WEBHOOK_URL,
-        webhook_path=WEBHOOK_PATH,  # ✅ MUST be set!
-        stop_signals=None
+        webhook_url=WEBHOOK_URL
     )
 
 if __name__ == "__main__":
-    main()
+    import asyncio
+    asyncio.run(main())
