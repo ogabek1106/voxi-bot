@@ -198,7 +198,7 @@ async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE, overri
     else:
         await update.message.reply_text("Huh? 🤔")
 
-# ------------------ Handle PDF uploads ------------------
+# ------------------ Handle PDF uploads (admin-only) ------------------
 async def handle_upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id not in ADMIN_IDS:
@@ -209,20 +209,24 @@ async def handle_upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Please send a valid PDF file.")
         return
 
-    forwarded = await context.bot.send_document(
-        chat_id=STORAGE_CHANNEL_ID,
-        document=doc.file_id,
-        caption=f"📚 *{doc.file_name}*",
-        parse_mode=ParseMode.MARKDOWN
-    )
+    try:
+        forwarded = await context.bot.send_document(
+            chat_id=STORAGE_CHANNEL_ID,
+            document=doc.file_id,
+            caption=f"📚 *{doc.file_name}*",
+            parse_mode=ParseMode.MARKDOWN
+        )
 
-    upload_state[user_id] = {
-        "file_id": doc.file_id,
-        "filename": doc.file_name,
-        "message_id": forwarded.message_id
-    }
+        channel_id = str(STORAGE_CHANNEL_ID).replace("-100", "")
+        link = f"https://t.me/c/{channel_id}/{forwarded.message_id}"
 
-    await update.message.reply_text("📖 Please enter the *name of the book*", parse_mode=ParseMode.MARKDOWN)
+        await update.message.reply_text(
+            f"✅ File forwarded to channel.\n🔗 [Open file]({link})\n🆔 Message ID: `{forwarded.message_id}`",
+            parse_mode="Markdown"
+        )
+
+    except TelegramError as e:
+        await update.message.reply_text(f"❌ Failed to forward the file:\n{e}")
 
 # ------------------ Handle Rating ------------------
 async def rating_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
