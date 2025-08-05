@@ -13,16 +13,16 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # 🚀 Main
-async def main():
+def main():
     print("🟢 bot.py is starting...")
 
-    # Build the bot
+    # Build app
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
     print("📦 Registering handlers...")
     register_handlers(app)
 
-    # Set webhook and notify admin
+    # Setup webhook on bot start
     async def setup(app):
         print("🔗 Setting webhook...")
         await app.bot.set_webhook(WEBHOOK_URL)
@@ -38,12 +38,11 @@ async def main():
     app.post_init = setup
 
     print("🚀 Launching app.run_webhook...")
-    await app.run_webhook(
+    app.run_webhook(
         listen="0.0.0.0",
         port=PORT,
         webhook_url=WEBHOOK_URL
     )
 
 if __name__ == "__main__":
-    import asyncio
-    asyncio.run(main())
+    main()
