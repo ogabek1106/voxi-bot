@@ -274,9 +274,4 @@ def register_handlers(app):
 
     app.add_error_handler(error_handler)
 
-    # ✅ Echo test
-    async def echo_test(update: Update, context: ContextTypes.DEFAULT_TYPE):
-        await update.message.reply_text("✅ Bot is alive and received your message.")
-
-    app.add_handler(MessageHandler(filters.TEXT, echo_test))
 
