@@ -210,6 +210,7 @@ async def handle_upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     try:
+        # Forward the file to the storage channel
         forwarded = await context.bot.send_document(
             chat_id=STORAGE_CHANNEL_ID,
             document=doc.file_id,
@@ -217,11 +218,16 @@ async def handle_upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode=ParseMode.MARKDOWN
         )
 
+        # Generate t.me/c/ link
         channel_id = str(STORAGE_CHANNEL_ID).replace("-100", "")
         link = f"https://t.me/c/{channel_id}/{forwarded.message_id}"
 
+        # Respond with all required info
         await update.message.reply_text(
-            f"✅ File forwarded to channel.\n🔗 [Open file]({link})\n🆔 Message ID: `{forwarded.message_id}`",
+            f"✅ *File forwarded to channel.*\n\n"
+            f"🔗 [Open file]({link})\n"
+            f"🆔 *Message ID:* `{forwarded.message_id}`\n"
+            f"🧾 *File ID:* `{doc.file_id}`",
             parse_mode="Markdown"
         )
 
