@@ -1,7 +1,13 @@
+#bot.py
+
 import logging
 from telegram.ext import ApplicationBuilder
 from config import BOT_TOKEN
 from handlers import register_handlers
+from database import initialize_db
+
+initialize_db()
+
 
 # 🧾 Logging
 logging.basicConfig(level=logging.INFO)
