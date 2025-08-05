@@ -16,11 +16,12 @@ def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     register_handlers(app)
 
-    async def setup(app):
-        print("🔗 Setting webhook...")
+    async def set_hook():
+        print("🔗 Setting webhook (before run)...")
         await app.bot.set_webhook(WEBHOOK_URL)
 
-    app.post_init = setup
+    import asyncio
+    asyncio.run(set_hook())  # Set webhook BEFORE running
 
     print("🚀 Launching minimal webhook app...")
     app.run_webhook(
