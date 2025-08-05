@@ -1,24 +1,22 @@
 import asyncio
-import json
 import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode
-from telegram.error import TelegramError
 from telegram.ext import (
     ContextTypes, CommandHandler, MessageHandler,
     CallbackQueryHandler, filters
 )
-from config import ADMIN_IDS, STORAGE_CHANNEL_ID
-from books import BOOKS, BOOKS_FILE
+from config import ADMIN_IDS
+from books import BOOKS
 from database import (
     add_user_if_not_exists, get_user_count,
     increment_book_request, get_book_stats,
-    has_rated, save_rating, get_rating_stats
+    has_rated, save_rating, get_rating_stats,
+    save_countdown, get_remaining_countdown
 )
 from utils import delete_after_delay, countdown_timer
 
 logger = logging.getLogger(__name__)
-upload_state = {}
 
 # ------------------ /start ------------------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -98,40 +96,6 @@ async def admin_commands(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await update.message.reply_text(help_text, parse_mode="HTML")
 
-# ------------------ /broadcast_new ------------------
-async def broadcast_new(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id not in ADMIN_IDS:
-        return
-
-    from user_data import load_users
-    user_ids = load_users()  # TEMP: if your new user tracking is not fully implemented yet
-    if not context.args:
-        await update.message.reply_text("❗ Usage: /broadcast_new <book_code>")
-        return
-
-    code = context.args[0]
-    if code not in BOOKS:
-        await update.message.reply_text("❌ No such book code.")
-        return
-
-    book = BOOKS[code]
-    msg = (
-        f"📚 *New Book Uploaded!*\n\n"
-        f"{book['caption'].splitlines()[0]}\n"
-        f"🆔 Code: `{code}`\n\n"
-        f"Send this number to get the file!"
-    )
-
-    success, fail = 0, 0
-    for uid in user_ids:
-        try:
-            await context.bot.send_message(chat_id=uid, text=msg, parse_mode="Markdown")
-            success += 1
-        except Exception as e:
-            fail += 1
-            logger.warning(f"Couldn't message {uid}: {e}")
-    await update.message.reply_text(f"✅ Sent to {success} users.\n❌ Failed for {fail}.")
-
 # ------------------ Handle all messages ------------------
 async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE, override_code=None):
     user_id = update.effective_user.id
@@ -160,18 +124,23 @@ async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE, overri
                 reply_markup=InlineKeyboardMarkup(rating_buttons)
             )
 
-        countdown_msg = await update.message.reply_text("⏳ [██████████] 10:00 remaining")
+        remaining = get_remaining_countdown(user_id, msg)
+        if remaining == 0:
+            remaining = 600
+            save_countdown(user_id, msg, remaining)
+
+        countdown_msg = await update.message.reply_text(f"⏳ [██████████] {remaining // 60:02}:{remaining % 60:02} remaining")
         asyncio.create_task(countdown_timer(
             context.bot,
             countdown_msg.chat.id,
             countdown_msg.message_id,
-            600,
+            remaining,
             final_text=f"♻️ File was deleted for your privacy.\nTo see it again, type `{msg}`."
         ))
-        asyncio.create_task(delete_after_delay(context.bot, sent.chat.id, sent.message_id, 600))
-        asyncio.create_task(delete_after_delay(context.bot, countdown_msg.chat.id, countdown_msg.message_id, 600))
+        asyncio.create_task(delete_after_delay(context.bot, sent.chat.id, sent.message_id, remaining))
+        asyncio.create_task(delete_after_delay(context.bot, countdown_msg.chat.id, countdown_msg.message_id, remaining))
         if rating_msg:
-            asyncio.create_task(delete_after_delay(context.bot, rating_msg.chat.id, rating_msg.message_id, 600))
+            asyncio.create_task(delete_after_delay(context.bot, rating_msg.chat.id, rating_msg.message_id, remaining))
     elif msg.isdigit():
         await update.message.reply_text("❌ Book not found.")
     else:
@@ -202,6 +171,5 @@ def register_handlers(app):
     app.add_handler(CommandHandler("asd", admin_commands))
     app.add_handler(CommandHandler("all_books", all_books))
     app.add_handler(CommandHandler("book_stats", book_stats))
-    app.add_handler(CommandHandler("broadcast_new", broadcast_new))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_code))
     app.add_handler(CallbackQueryHandler(rating_callback, pattern=r"^rate\|"))
