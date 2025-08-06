@@ -96,6 +96,35 @@ async def admin_commands(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await update.message.reply_text(help_text, parse_mode="HTML")
 
+# ------------------ Handle Document Uploads ------------------
+async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if user_id not in ADMIN_IDS:
+        await update.message.reply_text("❌ You can't upload files.")
+        return
+
+    if not update.message.document:
+        await update.message.reply_text("❗ Please send a PDF file.")
+        return
+
+    file = update.message.document
+    if file.mime_type != "application/pdf":
+        await update.message.reply_text("❗ Only PDF files are supported.")
+        return
+
+    # ✅ Forward to storage channel
+    forwarded = await update.message.forward(chat_id=-1002714023986)
+
+    # ℹ️ Reply with file_id and message_id for t.me/c/ link
+    file_id = file.file_id
+    msg_id = forwarded.message_id
+    await update.message.reply_text(
+        f"✅ File forwarded.\n\n"
+        f"<b>file_id</b>:\n<code>{file_id}</code>\n\n"
+        f"<b>message_id</b>: <code>{msg_id}</code>",
+        parse_mode="HTML"
+    )
+
 # ------------------ Handle all messages ------------------
 async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE, override_code=None):
     user_id = update.effective_user.id
@@ -171,5 +200,6 @@ def register_handlers(app):
     app.add_handler(CommandHandler("asd", admin_commands))
     app.add_handler(CommandHandler("all_books", all_books))
     app.add_handler(CommandHandler("book_stats", book_stats))
+    app.add_handler(MessageHandler(filters.Document.PDF, handle_document))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_code))
     app.add_handler(CallbackQueryHandler(rating_callback, pattern=r"^rate\|"))
