@@ -1,3 +1,5 @@
+#database.py
+
 import sqlite3
 import time
 
@@ -6,36 +8,10 @@ DB_PATH = "data.db"
 def initialize_db():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-
-    # Create tables
-    c.execute("""
-    CREATE TABLE IF NOT EXISTS users (
-        user_id INTEGER PRIMARY KEY
-    )
-    """)
-    c.execute("""
-    CREATE TABLE IF NOT EXISTS book_requests (
-        book_code TEXT PRIMARY KEY,
-        count INTEGER NOT NULL DEFAULT 0
-    )
-    """)
-    c.execute("""
-    CREATE TABLE IF NOT EXISTS ratings (
-        user_id INTEGER,
-        book_code TEXT,
-        rating INTEGER,
-        PRIMARY KEY (user_id, book_code)
-    )
-    """)
-    c.execute("""
-    CREATE TABLE IF NOT EXISTS countdowns (
-        user_id INTEGER,
-        book_code TEXT,
-        end_timestamp INTEGER,
-        PRIMARY KEY (user_id, book_code)
-    )
-    """)
-
+    c.execute("""CREATE TABLE IF NOT EXISTS users (user_id INTEGER PRIMARY KEY)""")
+    c.execute("""CREATE TABLE IF NOT EXISTS book_requests (book_code TEXT PRIMARY KEY, count INTEGER NOT NULL DEFAULT 0)""")
+    c.execute("""CREATE TABLE IF NOT EXISTS ratings (user_id INTEGER, book_code TEXT, rating INTEGER, PRIMARY KEY (user_id, book_code))""")
+    c.execute("""CREATE TABLE IF NOT EXISTS countdowns (user_id INTEGER, book_code TEXT, end_timestamp INTEGER, PRIMARY KEY (user_id, book_code))""")
     conn.commit()
     conn.close()
 
@@ -54,6 +30,14 @@ def get_user_count() -> int:
     count = c.fetchone()[0]
     conn.close()
     return count
+
+def get_all_users() -> list[int]:
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("SELECT user_id FROM users")
+    users = [row[0] for row in c.fetchall()]
+    conn.close()
+    return users
 
 # ----------- BOOK REQUESTS -----------
 def increment_book_request(book_code: str):
@@ -125,7 +109,6 @@ def get_remaining_countdown(user_id: int, book_code: str) -> int:
     """, (user_id, book_code))
     row = c.fetchone()
     conn.close()
-
     if row:
         remaining = row[0] - int(time.time())
         return max(0, remaining)
