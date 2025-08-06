@@ -1,3 +1,5 @@
+#handlers.py
+
 import asyncio
 import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -12,7 +14,8 @@ from database import (
     add_user_if_not_exists, get_user_count,
     increment_book_request, get_book_stats,
     has_rated, save_rating, get_rating_stats,
-    save_countdown, get_remaining_countdown
+    save_countdown, get_remaining_countdown,
+    get_all_users
 )
 from utils import delete_after_delay, countdown_timer
 
@@ -96,6 +99,44 @@ async def admin_commands(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await update.message.reply_text(help_text, parse_mode="HTML")
 
+# ------------------ /broadcast_new <code> ------------------
+async def broadcast_new(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+
+    if user_id not in ADMIN_IDS:
+        await update.message.reply_text("❌ You’re not allowed to use this command.")
+        return
+
+    if not context.args:
+        await update.message.reply_text("❗ Usage: /broadcast_new <code>")
+        return
+
+    code = context.args[0]
+    book = BOOKS.get(code)
+
+    if not book:
+        await update.message.reply_text("❌ Book with this code not found.")
+        return
+
+    title_line = book["caption"].split('\n')[0]
+    text = (
+        "📚 <b>New Book Uploaded!</b>\n\n"
+        f"{title_line}\n"
+        f"🆔 <b>Code:</b> <code>{code}</code>\n\n"
+        "Send this number to get the file!"
+    )
+
+    count = 0
+    for uid in get_all_users():
+        try:
+            await context.bot.send_message(uid, text, parse_mode="HTML")
+            count += 1
+            await asyncio.sleep(0.05)
+        except Exception as e:
+            logger.warning(f"Failed to send to {uid}: {e}")
+
+    await update.message.reply_text(f"✅ Sent to {count} users.")
+
 # ------------------ Handle Document Uploads ------------------
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -104,18 +145,15 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if not update.message.document:
-        await update.message.reply_text("❗ Please send a PDF file.")
+        await update.message.reply_text("❗️ Please send a PDF file.")
         return
 
     file = update.message.document
     if file.mime_type != "application/pdf":
-        await update.message.reply_text("❗ Only PDF files are supported.")
+        await update.message.reply_text("❗️ Only PDF files are supported.")
         return
 
-    # ✅ Forward to storage channel
     forwarded = await update.message.forward(chat_id=-1002714023986)
-
-    # ℹ️ Reply with file_id and message_id for t.me/c/ link
     file_id = file.file_id
     msg_id = forwarded.message_id
     await update.message.reply_text(
@@ -145,8 +183,7 @@ async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE, overri
         rating_msg = None
         if not has_rated(user_id, msg):
             rating_buttons = [
-                [InlineKeyboardButton(f"{i}⭐️", callback_data=f"rate|{msg}|{i}")]
-                for i in range(1, 6)
+                [InlineKeyboardButton(f"{i}⭐️", callback_data=f"rate|{msg}|{i}")] for i in range(1, 6)
             ]
             rating_msg = await update.message.reply_text(
                 "How would you rate this book? 🤔",
@@ -158,7 +195,10 @@ async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE, overri
             remaining = 600
             save_countdown(user_id, msg, remaining)
 
-        countdown_msg = await update.message.reply_text(f"⏳ [██████████] {remaining // 60:02}:{remaining % 60:02} remaining")
+        countdown_msg = await update.message.reply_text(
+            f"⏳ [██████████] {remaining // 60:02}:{remaining % 60:02} remaining"
+        )
+
         asyncio.create_task(countdown_timer(
             context.bot,
             countdown_msg.chat.id,
@@ -170,6 +210,7 @@ async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE, overri
         asyncio.create_task(delete_after_delay(context.bot, countdown_msg.chat.id, countdown_msg.message_id, remaining))
         if rating_msg:
             asyncio.create_task(delete_after_delay(context.bot, rating_msg.chat.id, rating_msg.message_id, remaining))
+
     elif msg.isdigit():
         await update.message.reply_text("❌ Book not found.")
     else:
@@ -200,6 +241,7 @@ def register_handlers(app):
     app.add_handler(CommandHandler("asd", admin_commands))
     app.add_handler(CommandHandler("all_books", all_books))
     app.add_handler(CommandHandler("book_stats", book_stats))
+    app.add_handler(CommandHandler("broadcast_new", broadcast_new))
     app.add_handler(MessageHandler(filters.Document.PDF, handle_document))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_code))
     app.add_handler(CallbackQueryHandler(rating_callback, pattern=r"^rate\|"))
