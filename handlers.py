@@ -3,7 +3,6 @@
 import asyncio
 import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.constants import ParseMode
 from telegram.ext import (
     ContextTypes, CommandHandler, MessageHandler,
     CallbackQueryHandler, filters
@@ -20,6 +19,50 @@ from database import (
 from utils import delete_after_delay, countdown_timer
 
 logger = logging.getLogger(__name__)
+
+# ------------------ helpers ------------------
+def cancel_kb():
+    return InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="mock_cancel")]])
+
+async def run_preexam_countdown(context: ContextTypes.DEFAULT_TYPE, chat_id: int, message_id: int, seconds: int = 10):
+    """
+    10-second pre-exam countdown. Edits the same message every second.
+    Supports external cancellation via task.cancel() from 'mock_cancel'.
+    """
+    try:
+        for s in range(seconds, 0, -1):
+            text = (
+                "📝 <b>IELTS Mock Exam</b>\n\n"
+                f"🕒 Exam will start in <b>{s}</b> second(s)...\n\n"
+                "Press <b>Cancel</b> if you’re not ready."
+            )
+            await context.bot.edit_message_text(
+                chat_id=chat_id, message_id=message_id,
+                text=text, parse_mode="HTML", reply_markup=cancel_kb()
+            )
+            await asyncio.sleep(1)
+
+        # Countdown finished → start Listening Part 1 (placeholder for next step)
+        await context.bot.edit_message_text(
+            chat_id=chat_id, message_id=message_id,
+            text="▶️ Starting <b>Listening — Part 1</b>...", parse_mode="HTML"
+        )
+        # TODO: send Listening Part 1 tasks here in the next iteration.
+
+    except asyncio.CancelledError:
+        # Silently exit on cancel
+        raise
+    except Exception as e:
+        logger.error(f"[run_preexam_countdown ERROR] {e}")
+
+def _get_user_task_store(context: ContextTypes.DEFAULT_TYPE):
+    # Ensure a dict for storing per-user countdown tasks
+    if "mock_tasks" not in context.application.bot_data:
+        context.application.bot_data["mock_tasks"] = {}
+    return context.application.bot_data["mock_tasks"]
+
+def _task_key(user_id: int) -> str:
+    return f"preexam:{user_id}"
 
 # ------------------ /start ------------------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -258,21 +301,51 @@ async def mock_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(text, parse_mode="HTML", reply_markup=buttons)
 
+# ------------------ User pressed "I am ready" ------------------
 async def mock_ready(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    await query.edit_message_text(
-        "Great! ✅ We’ll begin with <b>Listening</b> first.\n"
-        "I will guide you part by part.\n\n"
-        "⏳ Preparing the first section...",
-        parse_mode="HTML"
-    )
 
+    # If the user already has a running countdown task, cancel it first
+    tasks = _get_user_task_store(context)
+    key = _task_key(query.from_user.id)
+    old_task = tasks.get(key)
+    if old_task and not old_task.done():
+        old_task.cancel()
+
+    # Edit message to initial countdown state with cancel button
+    text = (
+        "📝 <b>IELTS Mock Exam</b>\n\n"
+        "🕒 Exam will start in <b>10</b> second(s)...\n\n"
+        "Press <b>Cancel</b> if you’re not ready."
+    )
+    await query.edit_message_text(text, parse_mode="HTML", reply_markup=cancel_kb())
+
+    # Launch 10-second countdown task and store handle
+    task = asyncio.create_task(run_preexam_countdown(context, query.message.chat.id, query.message.message_id, 10))
+    tasks[key] = task
+
+# ------------------ User pressed "Not now" ------------------
 async def mock_later(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer("No rush — come back when you’re ready!")
     await query.edit_message_text(
         "No problem. You can type /mock whenever you’re ready.",
+        parse_mode="HTML"
+    )
+
+# ------------------ User pressed "Cancel" during 10s countdown ------------------
+async def mock_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer("Cancelled.")
+    tasks = _get_user_task_store(context)
+    key = _task_key(query.from_user.id)
+    t = tasks.get(key)
+    if t and not t.done():
+        t.cancel()
+    # Confirm cancellation
+    await query.edit_message_text(
+        "⛔️ Mock exam cancelled.\nType /mock when you’re ready again.",
         parse_mode="HTML"
     )
 
@@ -290,3 +363,4 @@ def register_handlers(app):
     app.add_handler(CallbackQueryHandler(rating_callback, pattern=r"^rate\|"))
     app.add_handler(CallbackQueryHandler(mock_ready, pattern=r"^mock_ready$"))
     app.add_handler(CallbackQueryHandler(mock_later, pattern=r"^mock_later$"))
+    app.add_handler(CallbackQueryHandler(mock_cancel, pattern=r"^mock_cancel$"))
