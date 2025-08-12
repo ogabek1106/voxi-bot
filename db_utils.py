@@ -1,9 +1,15 @@
-# db_utils.py
+#db_utils.py
 
+import os
 import sqlite3
+from pathlib import Path
 from contextlib import contextmanager
 
-DB_PATH = "data.db"
+DB_PATH = os.getenv("DB_PATH", "data.db")
+
+db_dir = os.path.dirname(DB_PATH)
+if db_dir:
+    Path(db_dir).mkdir(parents=True, exist_ok=True)
 
 @contextmanager
 def get_db():
