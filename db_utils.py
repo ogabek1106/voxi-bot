@@ -7,6 +7,7 @@ from contextlib import contextmanager
 
 DB_PATH = os.getenv("DB_PATH", "data.db")
 
+# Ensure directory exists (e.g., /data)
 db_dir = os.path.dirname(DB_PATH)
 if db_dir:
     Path(db_dir).mkdir(parents=True, exist_ok=True)
