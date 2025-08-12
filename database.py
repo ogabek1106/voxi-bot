@@ -1,17 +1,42 @@
 #database.py
 
+import os
 import sqlite3
 import time
+from pathlib import Path
 
-DB_PATH = "data.db"
+# ✅ Persist DB on Railway volume if provided
+DB_PATH = os.getenv("DB_PATH", "data.db")
+
+# Ensure the directory exists (e.g., /data)
+db_dir = os.path.dirname(DB_PATH)
+if db_dir:
+    Path(db_dir).mkdir(parents=True, exist_ok=True)
+
+print(f"📦 Using SQLite at: {DB_PATH}")
 
 def initialize_db():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    c.execute("""CREATE TABLE IF NOT EXISTS users (user_id INTEGER PRIMARY KEY)""")
-    c.execute("""CREATE TABLE IF NOT EXISTS book_requests (book_code TEXT PRIMARY KEY, count INTEGER NOT NULL DEFAULT 0)""")
-    c.execute("""CREATE TABLE IF NOT EXISTS ratings (user_id INTEGER, book_code TEXT, rating INTEGER, PRIMARY KEY (user_id, book_code))""")
-    c.execute("""CREATE TABLE IF NOT EXISTS countdowns (user_id INTEGER, book_code TEXT, end_timestamp INTEGER, PRIMARY KEY (user_id, book_code))""")
+    c.execute("""CREATE TABLE IF NOT EXISTS users (
+        user_id INTEGER PRIMARY KEY
+    )""")
+    c.execute("""CREATE TABLE IF NOT EXISTS book_requests (
+        book_code TEXT PRIMARY KEY,
+        count INTEGER NOT NULL DEFAULT 0
+    )""")
+    c.execute("""CREATE TABLE IF NOT EXISTS ratings (
+        user_id INTEGER,
+        book_code TEXT,
+        rating INTEGER,
+        PRIMARY KEY (user_id, book_code)
+    )""")
+    c.execute("""CREATE TABLE IF NOT EXISTS countdowns (
+        user_id INTEGER,
+        book_code TEXT,
+        end_timestamp INTEGER,
+        PRIMARY KEY (user_id, book_code)
+    )""")
     conn.commit()
     conn.close()
 
@@ -109,7 +134,7 @@ def get_remaining_countdown(user_id: int, book_code: str) -> int:
     """, (user_id, book_code))
     row = c.fetchone()
     conn.close()
-    if row:
-        remaining = row[0] - int(time.time())
-        return max(0, remaining)
-    return 0
+    if not row:
+        return 0
+    remaining = row[0] - int(time.time())
+    return max(0, remaining)
