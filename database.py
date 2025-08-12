@@ -5,10 +5,10 @@ import sqlite3
 import time
 from pathlib import Path
 
-# ✅ Persist DB on Railway volume if provided
+# ✅ Use persistent path if provided (Railway: /data/data.db)
 DB_PATH = os.getenv("DB_PATH", "data.db")
 
-# Ensure the directory exists (e.g., /data)
+# Make sure the directory exists (e.g., /data)
 db_dir = os.path.dirname(DB_PATH)
 if db_dir:
     Path(db_dir).mkdir(parents=True, exist_ok=True)
