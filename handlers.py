@@ -234,6 +234,48 @@ async def rating_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"[rating_callback ERROR] {e}")
 
+# ------------------ /mock command ------------------
+async def mock_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = (
+        "📝 <b>IELTS Mock Exam</b>\n\n"
+        "⏳ Total duration: <b>~3 hours</b>\n\n"
+        "The test includes 4 parts:\n"
+        "1) <b>Listening</b> (~30–40 min)\n"
+        "2) <b>Reading</b> (60 min)\n"
+        "3) <b>Writing</b> (60 min)\n"
+        "4) <b>Speaking</b> (11–14 min)\n\n"
+        "📍 Please sit in a quiet place and prepare your headphones and notebook.\n"
+        "When you’re ready, press <b>I am ready</b> to begin.\n\n"
+        "Good luck! 🍀"
+    )
+
+    buttons = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("✅ I am ready", callback_data="mock_ready"),
+            InlineKeyboardButton("⏳ Not now, need more time", callback_data="mock_later")
+        ]
+    ])
+
+    await update.message.reply_text(text, parse_mode="HTML", reply_markup=buttons)
+
+async def mock_ready(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    await query.edit_message_text(
+        "Great! ✅ We’ll begin with <b>Listening</b> first.\n"
+        "I will guide you part by part.\n\n"
+        "⏳ Preparing the first section...",
+        parse_mode="HTML"
+    )
+
+async def mock_later(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer("No rush — come back when you’re ready!")
+    await query.edit_message_text(
+        "No problem. You can type /mock whenever you’re ready.",
+        parse_mode="HTML"
+    )
+
 # ------------------ Register ------------------
 def register_handlers(app):
     app.add_handler(CommandHandler("start", start))
@@ -242,6 +284,9 @@ def register_handlers(app):
     app.add_handler(CommandHandler("all_books", all_books))
     app.add_handler(CommandHandler("book_stats", book_stats))
     app.add_handler(CommandHandler("broadcast_new", broadcast_new))
+    app.add_handler(CommandHandler("mock", mock_cmd))  # IELTS mock command
     app.add_handler(MessageHandler(filters.Document.PDF, handle_document))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_code))
     app.add_handler(CallbackQueryHandler(rating_callback, pattern=r"^rate\|"))
+    app.add_handler(CallbackQueryHandler(mock_ready, pattern=r"^mock_ready$"))
+    app.add_handler(CallbackQueryHandler(mock_later, pattern=r"^mock_later$"))
