@@ -7,6 +7,7 @@ from telegram.ext import (
     ContextTypes, CommandHandler, MessageHandler,
     CallbackQueryHandler, filters
 )
+from telegram.error import BadRequest
 from config import ADMIN_IDS
 from books import BOOKS
 from database import (
@@ -20,88 +21,32 @@ from utils import delete_after_delay, countdown_timer
 
 logger = logging.getLogger(__name__)
 
-# ------------------ helpers ------------------
+# ------------------ Helpers ------------------
 def cancel_kb():
     return InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="mock_cancel")]])
 
-def _get_user_task_store(context: ContextTypes.DEFAULT_TYPE):
-    if "mock_tasks" not in context.application.bot_data:
-        context.application.bot_data["mock_tasks"] = {}
-    return context.application.bot_data["mock_tasks"]
-
-def _task_key(user_id: int) -> str:
-    return f"preexam:{user_id}"
-
-def _bar(current: int, total: int, length: int = 10) -> str:
-    filled = max(0, min(length, length - (current - 1)))  # visually fills as time goes down
-    # Instead, make it more intuitive: fill as time passes
-    elapsed = total - current
+def _bar_left(seconds_left: int, total: int, length: int = 10) -> str:
+    elapsed = max(0, total - seconds_left)
     filled = int(length * elapsed / total)
     return "█" * filled + "-" * (length - filled)
 
+# Keys for chat_data (per chat state for pre-exam countdown)
+KD_COUNT_LEFT = "mock_count_left"
+KD_COUNT_TOTAL = "mock_count_total"
+KD_MSG_ID     = "mock_msg_id"
+KD_JOB_NAME   = "mock_job_name"
+
+# ------------------ Listening placeholder ------------------
 async def mock_begin_listening(context: ContextTypes.DEFAULT_TYPE, chat_id: int):
-    """
-    Starts the actual exam flow (Listening Part 1 placeholder).
-    You can replace this with your real content delivery (audio, questions, timers).
-    """
     await context.bot.send_message(
         chat_id=chat_id,
         text=(
             "▶️ Starting <b>Listening — Part 1</b>\n\n"
             "🎧 Please put on your headphones.\n"
-            "I’ll play the audio and then show questions.\n\n"
-            "<i>(Demo placeholder — we’ll add real tasks next.)</i>"
+            "<i>(Demo placeholder — we’ll add real audio & questions next.)</i>"
         ),
         parse_mode="HTML"
     )
-    # TODO: send audio + questions here in the next step.
-
-async def run_preexam_countdown(
-    context: ContextTypes.DEFAULT_TYPE,
-    chat_id: int,
-    message_id: int,
-    seconds: int = 10
-):
-    """
-    Live 10-second pre-exam countdown. Edits the same message each second.
-    Supports cancellation via mock_cancel.
-    At 0, it starts Listening Part 1 automatically.
-    """
-    try:
-        total = seconds
-        for s in range(seconds, 0, -1):
-            bar = _bar(s, total, length=10)
-            text = (
-                "📝 <b>IELTS Mock Exam</b>\n\n"
-                f"🕒 Exam will start in <b>{s}</b> second(s)...\n"
-                f"[{bar}]\n\n"
-                "Press <b>Cancel</b> if you’re not ready."
-            )
-            await context.bot.edit_message_text(
-                chat_id=chat_id,
-                message_id=message_id,
-                text=text,
-                parse_mode="HTML",
-                reply_markup=cancel_kb()
-            )
-            await asyncio.sleep(1)
-
-        # Final tick → remove cancel button and announce start
-        await context.bot.edit_message_text(
-            chat_id=chat_id,
-            message_id=message_id,
-            text="✅ Ready! Starting <b>Listening — Part 1</b>...",
-            parse_mode="HTML"
-        )
-
-        # Now actually start the exam (next step handler)
-        await mock_begin_listening(context, chat_id)
-
-    except asyncio.CancelledError:
-        # Clean stop when user cancels
-        raise
-    except Exception as e:
-        logger.error(f"[run_preexam_countdown ERROR] {e}")
 
 # ------------------ /start ------------------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -245,7 +190,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="HTML"
     )
 
-# ------------------ Handle all messages ------------------
+# ------------------ Handle all messages (book codes) ------------------
 async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE, override_code=None):
     user_id = update.effective_user.id
     add_user_if_not_exists(user_id)
@@ -316,7 +261,7 @@ async def rating_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"[rating_callback ERROR] {e}")
 
-# ------------------ /mock command ------------------
+# ------------------ /mock command (intro) ------------------
 async def mock_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (
         "📝 <b>IELTS Mock Exam</b>\n\n"
@@ -330,62 +275,126 @@ async def mock_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "When you’re ready, press <b>I am ready</b> to begin.\n\n"
         "Good luck! 🍀"
     )
-
     buttons = InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("✅ I am ready", callback_data="mock_ready"),
-            InlineKeyboardButton("⏳ Not now, need more time", callback_data="mock_later")
-        ]
+        [InlineKeyboardButton("✅ I am ready", callback_data="mock_ready"),
+         InlineKeyboardButton("⏳ Not now, need more time", callback_data="mock_later")]
     ])
-
     await update.message.reply_text(text, parse_mode="HTML", reply_markup=buttons)
 
-# ------------------ User pressed "I am ready" ------------------
+# ------------------ "I am ready" → start 10s countdown via JobQueue ------------------
 async def mock_ready(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
+    q = update.callback_query
+    await q.answer()
 
-    tasks = _get_user_task_store(context)
-    key = _task_key(query.from_user.id)
-    old_task = tasks.get(key)
-    if old_task and not old_task.done():
-        old_task.cancel()
+    # Cancel any previous countdown jobs for this chat
+    job_name = f"mock_pre_{q.message.chat.id}"
+    for j in context.job_queue.get_jobs_by_name(job_name):
+        j.schedule_removal()
 
-    # Initial view of countdown + cancel
-    text = (
-        "📝 <b>IELTS Mock Exam</b>\n\n"
-        "🕒 Exam will start in <b>10</b> second(s)...\n"
-        "[----------]\n\n"
-        "Press <b>Cancel</b> if you’re not ready."
+    total = 10
+    context.chat_data[KD_COUNT_LEFT] = total
+    context.chat_data[KD_COUNT_TOTAL] = total
+    context.chat_data[KD_MSG_ID] = q.message.message_id
+    context.chat_data[KD_JOB_NAME] = job_name
+
+    try:
+        await q.edit_message_text(
+            "📝 <b>IELTS Mock Exam</b>\n\n"
+            f"🕒 Exam will start in <b>{total}</b> second(s)...\n"
+            f"[{'-'*10}]\n\n"
+            "Press <b>Cancel</b> if you’re not ready.",
+            parse_mode="HTML",
+            reply_markup=cancel_kb()
+        )
+    except BadRequest:
+        pass
+
+    context.job_queue.run_repeating(
+        mock_pre_tick,
+        interval=1.0,
+        first=1.0,
+        name=job_name,
+        data={"chat_id": q.message.chat.id}
     )
-    await query.edit_message_text(text, parse_mode="HTML", reply_markup=cancel_kb())
 
-    # Start live countdown task
-    task = asyncio.create_task(run_preexam_countdown(context, query.message.chat.id, query.message.message_id, 10))
-    tasks[key] = task
+# ------------------ Countdown tick ------------------
+async def mock_pre_tick(context: ContextTypes.DEFAULT_TYPE):
+    chat_id = context.job.data["chat_id"]
+    chat_data = context.application.chat_data.get(chat_id, {})
 
-# ------------------ User pressed "Not now" ------------------
+    left  = chat_data.get(KD_COUNT_LEFT, 0)
+    total = chat_data.get(KD_COUNT_TOTAL, 10)
+    msgid = chat_data.get(KD_MSG_ID)
+
+    # Finished/cancelled
+    if left <= 0 or not msgid:
+        for j in context.job_queue.get_jobs_by_name(chat_data.get(KD_JOB_NAME, "")):
+            j.schedule_removal()
+        return
+
+    left -= 1
+    chat_data[KD_COUNT_LEFT] = left
+    context.application.chat_data[chat_id] = chat_data  # persist change
+
+    if left > 0:
+        bar = _bar_left(left, total, 10)
+        try:
+            await context.bot.edit_message_text(
+                chat_id=chat_id, message_id=msgid,
+                text=(
+                    "📝 <b>IELTS Mock Exam</b>\n\n"
+                    f"🕒 Exam will start in <b>{left}</b> second(s)...\n"
+                    f"[{bar}]\n\n"
+                    "Press <b>Cancel</b> if you’re not ready."
+                ),
+                parse_mode="HTML",
+                reply_markup=cancel_kb()
+            )
+        except BadRequest:
+            pass
+        return
+
+    # left == 0 → finish, remove cancel, start exam
+    for j in context.job_queue.get_jobs_by_name(chat_data.get(KD_JOB_NAME, "")):
+        j.schedule_removal()
+
+    try:
+        await context.bot.edit_message_text(
+            chat_id=chat_id, message_id=msgid,
+            text="✅ Ready! Starting <b>Listening — Part 1</b>...",
+            parse_mode="HTML"
+        )
+    except BadRequest:
+        pass
+
+    await mock_begin_listening(context, chat_id)
+
+# ------------------ "Not now" ------------------
 async def mock_later(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer("No rush — come back when you’re ready!")
-    await query.edit_message_text(
-        "No problem. You can type /mock whenever you’re ready.",
-        parse_mode="HTML"
-    )
+    q = update.callback_query
+    await q.answer("No rush — come back when you’re ready!")
+    await q.edit_message_text("No problem. You can type /mock whenever you’re ready.", parse_mode="HTML")
 
-# ------------------ User pressed "Cancel" during 10s countdown ------------------
+# ------------------ Cancel during countdown ------------------
 async def mock_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer("Cancelled.")
-    tasks = _get_user_task_store(context)
-    key = _task_key(query.from_user.id)
-    t = tasks.get(key)
-    if t and not t.done():
-        t.cancel()
-    await query.edit_message_text(
-        "⛔️ Mock exam cancelled.\nType /mock when you’re ready again.",
-        parse_mode="HTML"
-    )
+    q = update.callback_query
+    await q.answer("Cancelled.")
+    chat_id = q.message.chat.id
+
+    job_name = context.chat_data.get(KD_JOB_NAME, f"mock_pre_{chat_id}")
+    for j in context.job_queue.get_jobs_by_name(job_name):
+        j.schedule_removal()
+
+    try:
+        await q.edit_message_text(
+            "⛔️ Mock exam cancelled.\nType /mock when you’re ready again.",
+            parse_mode="HTML"
+        )
+    except BadRequest:
+        pass
+
+    for k in [KD_COUNT_LEFT, KD_COUNT_TOTAL, KD_MSG_ID, KD_JOB_NAME]:
+        context.chat_data.pop(k, None)
 
 # ------------------ Register ------------------
 def register_handlers(app):
@@ -399,6 +408,6 @@ def register_handlers(app):
     app.add_handler(MessageHandler(filters.Document.PDF, handle_document))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_code))
     app.add_handler(CallbackQueryHandler(rating_callback, pattern=r"^rate\|"))
-    app.add_handler(CallbackQueryHandler(mock_ready, pattern=r"^mock_ready$"))
-    app.add_handler(CallbackQueryHandler(mock_later, pattern=r"^mock_later$"))
+    app.add_handler(CallbackQueryHandler(mock_ready,  pattern=r"^mock_ready$"))
+    app.add_handler(CallbackQueryHandler(mock_later,  pattern=r"^mock_later$"))
     app.add_handler(CallbackQueryHandler(mock_cancel, pattern=r"^mock_cancel$"))
