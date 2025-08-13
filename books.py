@@ -44,8 +44,7 @@ else:
             "file_id": "BQACAgIAAxkBAAINfWiTLk7G3chZBfp2KUoGJfNGinCaAALAegACLISZSMTA2T-nz4TeNgQ",
             "filename": "📕 Vocabulary Builder.pdf (Course 2)",
             "caption": "📕 *Vocabulary Builder.pdf (Course 2)*\n\n⏰ File will be deleted in 15 minutes.\n\nMore 👉 @IELTSforeverybody"
-        }
-    },
+        },
         "8": {
             "file_id": "BQACAgIAAxkBAAIRwGicYX1BD5f1QujpsyhjTV5k6OnBAAKbiQAC5ufhSFgapiqCnLYGNgQ",
             "filename": "📗 Vocabulary Builder.pdf (Course 3)",
