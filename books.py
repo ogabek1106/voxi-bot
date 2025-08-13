@@ -49,6 +49,11 @@ else:
             "file_id": "BQACAgIAAxkBAAIRwGicYX1BD5f1QujpsyhjTV5k6OnBAAKbiQAC5ufhSFgapiqCnLYGNgQ",
             "filename": "📗 Vocabulary Builder.pdf (Course 3)",
             "caption": "📗 *Vocabulary Builder.pdf (Course 3)*\n\n⏰ File will be deleted in 15 minutes.\n\nMore 👉 @IELTSforeverybody"
+        },
+        "9": {
+            "file_id": "BQACAgIAAxkBAAIR1Wicaxvc3cnpD8---RD4ySJ_U6PFAAIVigAC5ufhSERuCR3xRglyNgQ",
+            "filename": "📗 The Tale of Peter Rabbit",
+            "caption": "📗 *The Tale of Peter Rabbit*\n\n⏰ File will be deleted in 15 minutes.\n\nMore 👉 @IELTSforeverybody"
         }
     }
 
