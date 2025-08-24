@@ -119,6 +119,11 @@ else:
             "file_id": "BQACAgIAAxkBAAIWHGiqwXycalOrxu-UNBLdVf4YzrbjAAIOegACpqdZSSgg9TJEQUJXNgQ",
             "filename": "📗 Daily warm ups reading grade 4.pdf",
             "caption": "📗 *Daily warm ups reading grade 4.pdf*\n\n⏰ File will be deleted in 15 minutes.\n\nMore 👉 @IELTSforeverybody"
+        },
+        "23": {
+            "file_id": "BQACAgIAAxkBAAIWImiqwq-hbETab8OW-Cw7fFGhAnSpAAImegACpqdZSXDXwyvldbrjNgQ",
+            "filename": "📔 NTC's Dictionary of  Easily Confused Words.pdf",
+            "caption": "📔 *NTC's Dictionary of  Easily Confused Words*\n\n⏰ File will be deleted in 15 minutes.\n\nMore 👉 @IELTSforeverybody"
         }
     }
 
