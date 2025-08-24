@@ -79,6 +79,11 @@ else:
             "file_id": "BQACAgIAAxkBAAIV7WiqsHQXE-LDUxwDmPXIS3w5a8BoAAJHeQACpqdZSe22A3SHkSpANgQ",
             "filename": "📙 IELTS Practice Exams.pdf",
             "caption": "📙 *IELTS Practice Exams.pdf*\n\n⏰ File will be deleted in 15 minutes.\n\nMore 👉 @IELTSforeverybody"
+        },
+        "15": {
+            "file_id": "BQACAgIAAxkBAAIV82iqsigKjRUfMxYhVTsAAZ8J6PXNSAACWnkAAqanWUlIWarBF-OxWTYE",
+            "filename": "📘 Writing B1+ Intermediate.pdf",
+            "caption": "📘 *Writing B1+ Intermediate.pdf*\n\n⏰ File will be deleted in 15 minutes.\n\nMore 👉 @IELTSforeverybody"
         }
     }
 
