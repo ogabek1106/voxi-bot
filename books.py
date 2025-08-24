@@ -64,6 +64,11 @@ else:
             "file_id": "BQACAgIAAxkBAAIVtWip0HcEX7Amp5eN5AnCD4QbcLv6AAJOfgACpqdRSbpLx3JZFGz3NgQ",
             "filename": "📘 IELTS Premier with 8 Practice Tests",
             "caption": "📘 *IELTS Premier with 8 Practice Tests*\n\n⏰ File will be deleted in 15 minutes.\n\nMore 👉 @IELTSforeverybody"
+        },
+        "12": {
+            "file_id": "BQACAgIAAxkBAAIVvWip2wAB-1U84hCR493inA8CE6y7FQACA38AAqanUUkdVCZ5WDlVdjYE",
+            "filename": "📘 English Vocabulary in Use - Upper-Intermediate.pdf",
+            "caption": "📘 *English Vocabulary in Use - Upper-Intermediate.pdf*\n\n⏰ File will be deleted in 15 minutes.\n\nMore 👉 @IELTSforeverybody"
         }
     }
 
