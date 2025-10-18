@@ -134,6 +134,11 @@ else:
             "file_id": "BQACAgIAAxkBAAIfkWjiMNxaXrGPpm8ZpD9deUXU9031AALGdQAC82IRS4FF4xl8VuQXNgQ",
             "filename": "📕Powerful Vocabulary for Reading Success Grade 5.pdf",
             "caption": "📕 *Powerful Vocabulary for Reading Success Grade 5.pdf*\n\n⏰ File will be deleted in 15 minutes.\n\nMore 👉 @IELTSforeverybody"
+        },
+        "26": {
+            "file_id": "BQACAgIAAxkBAAIjBWjzP14AAWxWpbeT-xVuP5IkPj285QAC64IAAhTXmUuDKqgvaexnbzYE",
+            "filename": "📘Powerful Vocabulary for Reading Success Grade 6.pdf",
+            "caption": "📘 *Powerful Vocabulary for Reading Success Grade 6.pdf*\n\n⏰ File will be deleted in 15 minutes.\n\nMore 👉 @IELTSforeverybody"
         }
     }
 
