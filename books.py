@@ -139,6 +139,11 @@ else:
             "file_id": "BQACAgIAAxkBAAIjBWjzP14AAWxWpbeT-xVuP5IkPj285QAC64IAAhTXmUuDKqgvaexnbzYE",
             "filename": "📘Vocabulary Builder.pdf (Course 6).pdf",
             "caption": "📘 *Vocabulary Builder.pdf (Course 6).pdf*\n\n⏰ File will be deleted in 15 minutes.\n\nMore 👉 @IELTSforeverybody"
+        },
+         "27": {
+            "file_id": "BQACAgIAAxkBAAImamj7KSGgJLa_yBmji2LtwGkBSvS0AAIffgACgXvZS1PBorwiF8bVNgQ",
+            "filename": "📗Vocabulary Builder.pdf (Course 7).pdf",
+            "caption": "📗 *Vocabulary Builder.pdf (Course 7).pdf*\n\n⏰ File will be deleted in 15 minutes.\n\nMore 👉 @IELTSforeverybody"
         }
     }
 
