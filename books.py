@@ -144,6 +144,11 @@ else:
             "file_id": "BQACAgIAAxkBAAImamj7KSGgJLa_yBmji2LtwGkBSvS0AAIffgACgXvZS1PBorwiF8bVNgQ",
             "filename": "📗Vocabulary Builder.pdf (Course 7).pdf",
             "caption": "📗 *Vocabulary Builder.pdf (Course 7).pdf*\n\n⏰ File will be deleted in 15 minutes.\n\nMore 👉 @IELTSforeverybody"
+        },
+        "28": {
+            "file_id": "BQACAgIAAxkBAAIoR2kDbzNAB9GYaLLWID84ZMuIkrh5AAKdggACslgYSC8gbG1TrPkbNgQ",
+            "filename": "📘Essay Activator - Your Key to Writing Success.pdf",
+            "caption": "📘 *Essay Activator - Your Key to Writing Success.pdf*\n\n⏰ File will be deleted in 15 minutes.\n\nMore 👉 @IELTSforeverybody"
         }
     }
 
