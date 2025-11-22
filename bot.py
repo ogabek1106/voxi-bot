@@ -5,6 +5,8 @@ from telegram.ext import ApplicationBuilder
 from config import BOT_TOKEN
 from handlers import register_handlers
 from database import initialize_db 
+from sheets_worker import sheets_worker
+import asyncio
 
 import os
 
@@ -29,6 +31,9 @@ def main():
 
     print("📦 Registering handlers...")
     register_handlers(app)
+
+    # Start Google Sheets worker in background
+    asyncio.create_task(sheets_worker(app.bot))
 
     print("🚀 Launching app.run_polling()...")
     app.run_polling()
