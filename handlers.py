@@ -19,6 +19,10 @@ from database import (
     get_all_users
 )
 from utils import delete_after_delay, countdown_timer
+from database import start_bridge, get_bridge_admin, end_bridge
+from config import ADMIN_IDS
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.ext import ContextTypes
 
 logger = logging.getLogger(__name__)
 
@@ -434,6 +438,151 @@ async def get_test(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=keyboard
     )
 
+# --- Constants
+SPAM_HELP_URL = "/mnt/data/voxi-form-responses-823c82ea7719.json"  # uploaded local path (you'll map this to a public URL as needed)
+ADMIN_TG = "Ogabek1106"  # your personal username without @
+ADMIN_TG_LINK = f"https://t.me/{ADMIN_TG}"
+
+# Called when user presses the "I'm spam-blocked" callback button
+async def spam_help_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    data = query.data or ""
+    # data format may be "spam_help|<target_user>" or "spam_help_start|<target_user>|<admin_id>"
+    parts = data.split("|")
+
+    # If the button contains admin id (from notify_user), extract it; otherwise link to first admin
+    admin_id = None
+    if len(parts) >= 3 and parts[0] in ("spam_help", "spam_help_start"):
+        # format: spam_help_start|<target_user>|<admin_id>
+        try:
+            admin_id = int(parts[2])
+        except Exception:
+            admin_id = None
+
+    # the target_user from callback (the user who will be bridged) — usually current chat id
+    # prefer to use query.from_user.id (the person pressing) as the user to bridge
+    target_user = query.from_user.id
+
+    if not admin_id:
+        # fallback: pick first admin from ADMIN_IDS set
+        try:
+            admin_id = next(iter(ADMIN_IDS))
+        except StopIteration:
+            admin_id = None
+
+    # create the bridge
+    start_bridge(target_user, admin_id)
+
+    # notify admin that bridge is started
+    try:
+        await context.bot.send_message(
+            chat_id=admin_id,
+            text=(f"🔔 Bridge opened with user <code>{target_user}</code> — they pressed 'I'm spam-blocked'.\n\n"
+                  "You can reply using:\n"
+                  f"<code>/reply {target_user} Your message here</code>\n"
+                  f"When finished, close with: <code>/close_bridge {target_user}</code>"),
+            parse_mode="HTML"
+        )
+    except Exception as e:
+        print(f"Failed to notify admin {admin_id}: {e}")
+
+    # confirm to user and provide contact admin button too
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("👤 Contact admin", url=ADMIN_TG_LINK)]
+    ])
+
+    try:
+        await query.edit_message_text(
+            "✅ Bizga xabar yubordik. Endi siz admin bilan bot orqali bog'lanishingiz mumkin.\n\n"
+            "Admin sizga tez orada javob beradi. Agar adminga to'g'ridan-to'g'ri yozmoqchi bo'lsangiz ishlabchi tugmani bosing.",
+            reply_markup=keyboard
+        )
+    except Exception:
+        pass
+
+
+# Forward user's messages (while bridged) to the linked admin automatically
+async def bridge_forward_user_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Only handle messages from users (not channels/groups)
+    user = update.effective_user
+    if not user:
+        return
+
+    # Do not forward admin messages here
+    if user.id in ADMIN_IDS:
+        return
+
+    admin_id = get_bridge_admin(user.id)
+    if not admin_id:
+        return  # no active bridge for this user
+
+    msg = update.message
+    if not msg:
+        return
+
+    # Forward the original message to admin (preserves content and attachments)
+    try:
+        await context.bot.forward_message(chat_id=admin_id, from_chat_id=msg.chat.id, message_id=msg.message_id)
+    except Exception as e:
+        # fallback: send a text summary
+        try:
+            await context.bot.send_message(chat_id=admin_id, text=f"[From {user.id}] {msg.text or '<non-text message>'}")
+        except Exception:
+            pass
+
+
+# Admin command: reply to bridged user via bot
+async def reply_bridge_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id not in ADMIN_IDS:
+        await update.message.reply_text("❌ You are not allowed to use this command.")
+        return
+
+    if len(context.args) < 2:
+        await update.message.reply_text("❗ Usage: /reply <user_id> <message>")
+        return
+
+    try:
+        target_id = int(context.args[0])
+    except ValueError:
+        await update.message.reply_text("❗ Invalid user_id.")
+        return
+
+    text = " ".join(context.args[1:])
+    try:
+        await context.bot.send_message(chat_id=target_id, text=text)
+        await update.message.reply_text("✅ Sent.")
+    except Exception as e:
+        await update.message.reply_text(f"⚠️ Failed to send: {e}")
+
+
+# Admin command: close the bridge
+async def close_bridge_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id not in ADMIN_IDS:
+        await update.message.reply_text("❌ You are not allowed to use this command.")
+        return
+
+    if not context.args:
+        await update.message.reply_text("❗ Usage: /close_bridge <user_id>")
+        return
+
+    try:
+        target_id = int(context.args[0])
+    except ValueError:
+        await update.message.reply_text("❗ Invalid user_id.")
+        return
+
+    end_bridge(target_id)
+    await update.message.reply_text(f"✅ Bridge with <code>{target_id}</code> closed.", parse_mode="HTML")
+
+    # notify user
+    try:
+        await context.bot.send_message(chat_id=target_id,
+                                       text="🔒 Admin bilan aloqangiz yakunlandi. Agar kerak bo'lsa, yana murojaat qiling.")
+    except Exception:
+        pass
+
 
 # ------------------ Register ------------------
 def register_handlers(app):
@@ -451,3 +600,12 @@ def register_handlers(app):
     app.add_handler(CallbackQueryHandler(mock_ready,  pattern=r"^mock_ready$"))
     app.add_handler(CallbackQueryHandler(mock_later,  pattern=r"^mock_later$"))
     app.add_handler(CallbackQueryHandler(mock_cancel, pattern=r"^mock_cancel$"))
+    # Callback for spam-help button
+    app.add_handler(CallbackQueryHandler(spam_help_callback, pattern=r"^spam_help"))
+
+    # Admin reply and close commands
+    app.add_handler(CommandHandler("reply", reply_bridge_cmd))
+    app.add_handler(CommandHandler("close_bridge", close_bridge_cmd))
+
+    # Forward user messages to admin if bridge is active — register this AFTER your handle_code and other main handlers
+    app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, bridge_forward_user_messages))
