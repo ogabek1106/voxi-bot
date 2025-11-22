@@ -19,6 +19,12 @@ def initialize_db():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
 
+    c.execute("""CREATE TABLE IF NOT EXISTS bridges (
+        user_id INTEGER PRIMARY KEY,
+        admin_id INTEGER,
+        started_at INTEGER
+    )""")
+
     c.execute("""CREATE TABLE IF NOT EXISTS users (
         user_id INTEGER PRIMARY KEY
     )""")
@@ -242,3 +248,31 @@ def mark_token_used(token: str):
     conn.commit()
     conn.close()
 
+import time
+
+# ----------- BRIDGES -----------
+def start_bridge(user_id: int, admin_id: int):
+    """Create or replace a bridge linking user -> admin."""
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("INSERT OR REPLACE INTO bridges (user_id, admin_id, started_at) VALUES (?, ?, ?)",
+              (user_id, admin_id, int(time.time())))
+    conn.commit()
+    conn.close()
+
+def get_bridge_admin(user_id: int):
+    """Return admin_id for a bridged user, or None."""
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("SELECT admin_id FROM bridges WHERE user_id = ?", (user_id,))
+    row = c.fetchone()
+    conn.close()
+    return row[0] if row else None
+
+def end_bridge(user_id: int):
+    """Remove the bridge for the user."""
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("DELETE FROM bridges WHERE user_id = ?", (user_id,))
+    conn.commit()
+    conn.close()
