@@ -394,12 +394,35 @@ async def mock_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         pass
 
     for k in [KD_COUNT_LEFT, KD_COUNT_TOTAL, KD_MSG_ID, KD_JOB_NAME]:
-        context.chat_data.pop(k, None)
+        context.chat_data.pop(k, None) 
+
+## ------------------ Google Test ------------------
+from database import save_token
+import uuid
+from config import GOOGLE_FORM_BASE, GOOGLE_FORM_ENTRY_TOKEN
+
+async def get_test(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+
+    # Generate a unique token
+    token = uuid.uuid4().hex[:12]  # shorter but unique
+    save_token(user_id, token)
+
+    # Create user's personalized Google Form link
+    form_link = f"{GOOGLE_FORM_BASE}?usp=pp_url&{GOOGLE_FORM_ENTRY_TOKEN}={token}"
+
+    await update.message.reply_text(
+        f"✏️ Testga ulanish havolangiz tayyor!\n\n"
+        f"🔑 Sizning tokeningiz: <code>{token}</code>\n\n"
+        f"📝 Testga kirish:\n{form_link}",
+        parse_mode="HTML"
+    )
 
 # ------------------ Register ------------------
 def register_handlers(app):
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("stats", stats))
+    app.add_handler(CommandHandler("get_test", get_test))
     app.add_handler(CommandHandler("asd", admin_commands))
     app.add_handler(CommandHandler("all_books", all_books))
     app.add_handler(CommandHandler("book_stats", book_stats))
