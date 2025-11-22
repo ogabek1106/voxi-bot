@@ -37,6 +37,12 @@ def initialize_db():
         end_timestamp INTEGER,
         PRIMARY KEY (user_id, book_code)
     )""")
+    c.execute("""CREATE TABLE IF NOT EXISTS tokens (
+    token TEXT PRIMARY KEY,
+    user_id INTEGER,
+    used INTEGER DEFAULT 0
+    )""")
+
     conn.commit()
     conn.close()
 
@@ -137,4 +143,39 @@ def get_remaining_countdown(user_id: int, book_code: str) -> int:
     if not row:
         return 0
     remaining = row[0] - int(time.time())
-    return max(0, remaining)
+    return max(0, remaining) 
+
+# ----------- TOKEN SYSTEM -----------
+def save_token(user_id: int, token: str):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute(
+        "INSERT OR REPLACE INTO tokens (token, user_id, used) VALUES (?, ?, 0)",
+        (token, user_id)
+    )
+    conn.commit()
+    conn.close()
+
+def get_token_owner(token: str):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("SELECT user_id FROM tokens WHERE token = ?", (token,))
+    row = c.fetchone()
+    conn.close()
+    return row[0] if row else None
+
+def is_token_used(token: str) -> bool:
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("SELECT used FROM tokens WHERE token = ?", (token,))
+    row = c.fetchone()
+    conn.close()
+    return (row[0] == 1) if row else True
+
+def mark_token_used(token: str):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("UPDATE tokens SET used = 1 WHERE token = ?", (token,))
+    conn.commit()
+    conn.close()
+
