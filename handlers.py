@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ContextTypes, CommandHandler, MessageHandler,
@@ -411,11 +412,17 @@ async def get_test(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Create user's personalized Google Form link
     form_link = f"{GOOGLE_FORM_BASE}?usp=pp_url&{GOOGLE_FORM_ENTRY_TOKEN}={token}"
 
-    await update.message.reply_text(
-        f"✏️ Testga ulanish havolangiz tayyor!\n\n"
-        f"🔑 Sizning tokeningiz: <code>{token}</code>\n\n"
-        f"📝 Testga kirish:\n{form_link}",
-        parse_mode="HTML"
+    # Build an inline button so Telegram sends the full URL reliably
+keyboard = InlineKeyboardMarkup([
+    [InlineKeyboardButton("📝 Start test", url=form_link)]
+])
+
+await update.message.reply_text(
+    f"✏️ Testga ulanish havolangiz tayyor!\n\n"
+    f"🔑 Sizning tokeningiz: <code>{token}</code>\n\n",
+    parse_mode="HTML",
+    reply_markup=keyboard
+)
     )
 
 # ------------------ Register ------------------
