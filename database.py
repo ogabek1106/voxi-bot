@@ -55,16 +55,22 @@ def initialize_db():
 
 # ----------- TOKENS -----------
 def save_token(user_id: int, token: str):
-    """Save a token for a user."""
+    """
+    Save a token for a user.
+    Ensure there is at most one token row per user by deleting any previous tokens for that user,
+    then inserting the new token.
+    """
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    c.execute("""
-        INSERT OR REPLACE INTO tokens (token, user_id, used)
-        VALUES (?, ?, 0)
-    """, (token, user_id))
+    # Remove any previous token(s) for this user
+    c.execute("DELETE FROM tokens WHERE user_id = ?", (user_id,))
+    # Insert the new token (token is PRIMARY KEY)
+    c.execute(
+        "INSERT INTO tokens (token, user_id, used) VALUES (?, ?, 0)",
+        (token, user_id)
+    )
     conn.commit()
     conn.close()
-
 
 def get_token_for_user(user_id: int):
     """Return user's token string, or None."""
