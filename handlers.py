@@ -399,8 +399,8 @@ async def mock_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 ## ---------------- Google Test ----------------
 
-from database import save_token
 import uuid
+from database import save_token, get_token_for_user
 from config import GOOGLE_FORM_BASE, GOOGLE_FORM_ENTRY_TOKEN
 from telegram import InlineKeyboardMarkup, InlineKeyboardButton
 from telegram import Update
@@ -409,22 +409,24 @@ from telegram.ext import ContextTypes
 async def get_test(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
 
-    # Generate a unique token
-    token = uuid.uuid4().hex[:12]   # shorter but unique
-    save_token(user_id, token)
+    # Check if user already has a token
+    existing = get_token_for_user(user_id)
+    if existing:
+        token = existing
+    else:
+        # Generate a new unique token and save it
+        token = uuid.uuid4().hex[:12]
+        save_token(user_id, token)
 
-    # Create user's personalized Google Form link
-    form_link = (
-        f"{GOOGLE_FORM_BASE}?usp=pp_url&"
-        f"{GOOGLE_FORM_ENTRY_TOKEN}={token}"
-    )
+    # Build pre-filled Google Form link
+    form_link = f"{GOOGLE_FORM_BASE}?usp=pp_url&{GOOGLE_FORM_ENTRY_TOKEN}={token}"
 
-    # Build an inline button — ensures Telegram sends correct URL
+    # Inline button (prevents Telegram from breaking the URL)
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("📝 Start test", url=form_link)]
     ])
 
-    # Send message with button
+    # Send message
     await update.message.reply_text(
         f"✏️ Testga ulanish havolangiz tayyor!\n\n"
         f"🔑 Sizning tokeningiz: <code>{token}</code>\n\n",
