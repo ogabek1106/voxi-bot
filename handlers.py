@@ -73,6 +73,23 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("Darling, you are not an admin 🤪")
 
+## ------------------ /whois ------------------
+async def whois_token(update, context):
+    if update.effective_user.id not in ADMIN_IDS:
+        return await update.message.reply_text("You are not admin.")
+
+    if not context.args:
+        return await update.message.reply_text("Usage: /whois <token>")
+
+    token = context.args[0]
+    owner = get_token_owner(token)
+
+    if owner:
+        await update.message.reply_text(f"Token belongs to user_id: {owner}")
+    else:
+        await update.message.reply_text("Token not found.")
+
+
 # ------------------ /all_books ------------------
 async def all_books(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not BOOKS:
@@ -589,6 +606,7 @@ def register_handlers(app):
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("stats", stats))
     app.add_handler(CommandHandler("get_test", get_test))
+    app.add_handler(CommandHandler("whois", whois_token))
     app.add_handler(CommandHandler("asd", admin_commands))
     app.add_handler(CommandHandler("all_books", all_books))
     app.add_handler(CommandHandler("book_stats", book_stats))
