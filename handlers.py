@@ -58,15 +58,73 @@ async def mock_begin_listening(context: ContextTypes.DEFAULT_TYPE, chat_id: int)
 
 # ------------------ /start ------------------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
+    """
+    Robust /start:
+    - parses context.args, raw message text and entities for payload
+    - if payload == 'get_test' -> call get_test(update, context)
+    - otherwise show fallback "Get test" button
+    """
+    msg = update.effective_message
+    user_id = update.effective_user.id if update.effective_user else None
+    raw_text = msg.text if msg else None
+    logger.info("START received raw_text=%r args=%r from=%s", raw_text, context.args, user_id)
+
+    payload = None
+
+    # 1) context.args (typical)
+    if context.args:
+        payload = context.args[0]
+
+    # 2) raw text parsing (typed "/start get_test")
+    if not payload and raw_text:
+        parts = raw_text.strip().split(maxsplit=1)
+        if len(parts) >= 2:
+            payload = parts[1].strip()
+
+    # 3) parse using entities (most robust)
+    if not payload and msg and getattr(msg, "entities", None):
+        try:
+            for ent in msg.entities:
+                if ent.type == "bot_command":
+                    start_idx = ent.offset + ent.length
+                    rest = raw_text[start_idx:].strip() if raw_text and start_idx < len(raw_text) else ""
+                    if rest:
+                        if rest.startswith("start="):
+                            payload = rest.split("=", 1)[1].strip()
+                        else:
+                            payload = rest.split()[0].strip()
+                        break
+        except Exception as e:
+            logger.exception("Failed to parse entities for start payload: %s", e)
+
+    if payload and payload.startswith("start="):
+        payload = payload.split("=", 1)[1]
+
+    logger.info("Parsed start payload=%r", payload)
+
+    # If payload requests test, call existing get_test handler
+    if payload and payload.lower() == "get_test":
+        return await get_test(update, context)
+
+    # Default start behaviour
     add_user_if_not_exists(user_id)
 
-    arg = context.args[0] if context.args else None
-    if arg and arg in BOOKS:
-        await handle_code(update, context, override_code=arg)
+    # If user already has a token, show it
+    existing = get_token_for_user(user_id)
+    if existing:
+        await msg.reply_text(
+            f"Assalomu alaykum! Sizda allaqachon token mavjud: <code>{existing}</code>\n\n"
+            "Agar yangi token kerak bo'lsa, yozing /get_test",
+            parse_mode="HTML"
+        )
         return
 
-    await update.message.reply_text("🦧 Welcome to Voxi Bot!\n\nSend a code like 1, 2, 3...")
+    # Fallback button (calls get_test_callback)
+    keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("📝 Get test", callback_data="get_test_cmd")]])
+    await msg.reply_text(
+        "Welcome! Press the button below to get your test (fallback if deep-link payload was lost).",
+        reply_markup=keyboard
+    )
 
 # ------------------ /stats ------------------
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -430,6 +488,15 @@ from telegram import InlineKeyboardMarkup, InlineKeyboardButton
 from telegram import Update
 from telegram.ext import ContextTypes
 
+# Callback that triggers get_test when user presses fallback button
+async def get_test_callback(query_update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = query_update.callback_query
+    await q.answer()  # acknowledge button press
+
+    # Reuse existing get_test logic by passing q.message as the message update
+    fake_update = Update(update_id=query_update.update_id, message=q.message)
+    return await get_test(fake_update, context)
+
 async def get_test(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
 
@@ -617,6 +684,7 @@ def register_handlers(app):
     app.add_handler(CommandHandler("mock", mock_cmd))  # IELTS mock command
     app.add_handler(MessageHandler(filters.Document.PDF, handle_document))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_code))
+    app.add_handler(CallbackQueryHandler(get_test_callback, pattern=r"^get_test_cmd$"))
     app.add_handler(CallbackQueryHandler(rating_callback, pattern=r"^rate\|"))
     app.add_handler(CallbackQueryHandler(mock_ready,  pattern=r"^mock_ready$"))
     app.add_handler(CallbackQueryHandler(mock_later,  pattern=r"^mock_later$"))
