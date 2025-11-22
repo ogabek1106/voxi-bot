@@ -18,33 +18,90 @@ print(f"📦 Using SQLite at: {DB_PATH}")
 def initialize_db():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
+
     c.execute("""CREATE TABLE IF NOT EXISTS users (
         user_id INTEGER PRIMARY KEY
     )""")
+
     c.execute("""CREATE TABLE IF NOT EXISTS book_requests (
         book_code TEXT PRIMARY KEY,
         count INTEGER NOT NULL DEFAULT 0
     )""")
+
     c.execute("""CREATE TABLE IF NOT EXISTS ratings (
         user_id INTEGER,
         book_code TEXT,
         rating INTEGER,
         PRIMARY KEY (user_id, book_code)
     )""")
+
     c.execute("""CREATE TABLE IF NOT EXISTS countdowns (
         user_id INTEGER,
         book_code TEXT,
         end_timestamp INTEGER,
         PRIMARY KEY (user_id, book_code)
     )""")
+
+    # Token table — 1 token = 1 user, used = 0/1
     c.execute("""CREATE TABLE IF NOT EXISTS tokens (
-    token TEXT PRIMARY KEY,
-    user_id INTEGER,
-    used INTEGER DEFAULT 0
+        token TEXT PRIMARY KEY,
+        user_id INTEGER,
+        used INTEGER DEFAULT 0
     )""")
 
     conn.commit()
     conn.close()
+
+
+# ----------- TOKENS -----------
+def save_token(user_id: int, token: str):
+    """Save a token for a user."""
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("""
+        INSERT OR REPLACE INTO tokens (token, user_id, used)
+        VALUES (?, ?, 0)
+    """, (token, user_id))
+    conn.commit()
+    conn.close()
+
+
+def get_token_for_user(user_id: int):
+    """Return user's token string, or None."""
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("SELECT token FROM tokens WHERE user_id = ?", (user_id,))
+    row = c.fetchone()
+    conn.close()
+    return row[0] if row else None
+
+
+def get_token_owner(token: str):
+    """Return user_id who owns this token, or None."""
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("SELECT user_id FROM tokens WHERE token = ?", (token,))
+    row = c.fetchone()
+    conn.close()
+    return row[0] if row else None
+
+
+def is_token_used(token: str) -> bool:
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("SELECT used FROM tokens WHERE token = ?", (token,))
+    row = c.fetchone()
+    conn.close()
+    return bool(row and row[0])
+
+
+def mark_token_used(token: str):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("UPDATE tokens SET used = 1 WHERE token = ?", (token,))
+    conn.commit()
+    conn.close()
+
 
 # ----------- USERS -----------
 def add_user_if_not_exists(user_id: int):
