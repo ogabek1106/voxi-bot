@@ -423,7 +423,6 @@ await update.message.reply_text(
     parse_mode="HTML",
     reply_markup=keyboard
 )
-    )
 
 # ------------------ Register ------------------
 def register_handlers(app):
