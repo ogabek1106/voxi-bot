@@ -4,7 +4,15 @@ import logging
 from telegram.ext import ApplicationBuilder
 from config import BOT_TOKEN
 from handlers import register_handlers
-from database import initialize_db
+from database import initialize_db 
+
+import os
+
+# Recreate Google service account file from Railway environment variable
+_sa = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON")
+if _sa:
+    with open("service_account.json", "w", encoding="utf-8") as f:
+        f.write(_sa)
 
 initialize_db()
 
