@@ -4,10 +4,8 @@ import logging
 from telegram.ext import ApplicationBuilder
 from config import BOT_TOKEN
 from handlers import register_handlers
-from database import initialize_db 
+from database import initialize_db
 from sheets_worker import sheets_worker
-import asyncio
-
 import os
 
 # Recreate Google service account file from Railway environment variable
@@ -22,21 +20,32 @@ initialize_db()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+
+# This runs inside PTB's event loop when the app starts
+async def on_startup(app):
+    print("🟢 Launching Google Sheets worker...")
+    # Use app.create_task so the worker runs in the same loop as PTB
+    app.create_task(sheets_worker(app.bot))
+
+
 # 🚀 Main
 def main():
     print("🟢 bot.py is starting...")
 
-    # Build app
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
+    # Build app and register a startup hook that will start the worker
+    app = (
+        ApplicationBuilder()
+        .token(BOT_TOKEN)
+        .post_init(on_startup)
+        .build()
+    )
 
     print("📦 Registering handlers...")
     register_handlers(app)
 
-    # Start Google Sheets worker in background
-    asyncio.create_task(sheets_worker(app.bot))
-
     print("🚀 Launching app.run_polling()...")
     app.run_polling()
+
 
 if __name__ == "__main__":
     main()
