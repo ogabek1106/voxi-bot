@@ -36,7 +36,7 @@ def main():
     app = (
         ApplicationBuilder()
         .token(BOT_TOKEN)
-        .post_init(on_startup)
+        #.post_init(on_startup)
         .build()
     )
 
