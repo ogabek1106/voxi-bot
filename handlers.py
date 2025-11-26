@@ -106,6 +106,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if payload and payload.lower() == "get_test":
         return await get_test(update, context)
 
+    # ✅ NEW FIX — If payload is a book code, give the book
+    if payload and payload.isdigit() and payload in BOOKS:
+        return await handle_code(update, context, override_code=payload)
+
     # Default start behaviour
     add_user_if_not_exists(user_id)
 
