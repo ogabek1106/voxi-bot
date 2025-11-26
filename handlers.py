@@ -2,6 +2,7 @@
 import asyncio
 import logging
 import traceback
+import uuid
 from typing import Optional
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
@@ -55,29 +56,28 @@ async def _notify_admins_from_context(context: ContextTypes.DEFAULT_TYPE, text: 
         bot = context.bot
         for admin in ADMIN_IDS:
             try:
-                await bot.send_message(chat_id=admin, text=text)
+                await bot.send_message(chat_id=admin, text=text, parse_mode=None)
             except Exception:
                 logger.exception("Failed to send admin notify to %s", admin)
     except Exception:
         logger.exception("Failed to notify admins (context missing?)")
 
-def _format_exc() -> str:
-    return "".join(traceback.format_exception_only(Exception, Exception())).strip()
-
 # Safer wrapper decorator for handlers to catch & notify on unexpected errors
 def safe_handler(fn):
+    if not asyncio.iscoroutinefunction(fn):
+        raise ValueError("safe_handler expects an async function")
+
     async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             return await fn(update, context)
         except Exception as e:
-            # log full traceback
             tb = traceback.format_exc()
             logger.exception("Unhandled error in handler %s: %s", fn.__name__, e)
             # attempt to notify admins via context (non-blocking)
             try:
-                text = f"🛑 Handler error: <code>{fn.__name__}</code>\n\n<pre>{tb[:3000]}</pre>"
-                # schedule admin notify (don't await to avoid blocking)
                 if context:
+                    text = f"🛑 Handler error: <code>{fn.__name__}</code>\n\n<pre>{tb[:3000]}</pre>"
+                    # schedule admin notify (don't await to avoid blocking)
                     asyncio.create_task(_notify_admins_from_context(context, text))
             except Exception:
                 logger.exception("Failed to schedule admin notification for handler error")
@@ -92,17 +92,26 @@ def safe_handler(fn):
 # ------------------ Track every user (global) ------------------
 @safe_handler
 async def track_every_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # LOG FIRST (safe: handle missing user/message)
+    user = update.effective_user
+    logger.info(
+        "[TRACK] message from %s: %r",
+        user.id if user else None,
+        getattr(update.effective_message, "text", None),
+    )
+
     """
     Add every real user to DB the moment *any* update from them arrives.
     This runs before other handlers (we register it with group=0).
     """
-    user = update.effective_user
+
     if not user:
         logger.debug("[TRACK] update has no effective_user, skipping")
         return
+
     try:
         add_user_if_not_exists(user.id)
-        logger.debug("[TRACK] message from %s: %r", user.id, getattr(update.effective_message, "text", None))
+        logger.debug("[TRACK] added user %s", user.id)
     except Exception as e:
         logger.exception("Failed to add user %s: %s", user.id, e)
 
@@ -357,57 +366,49 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 # ------------------ Handle all messages (book codes) ------------------
-@safe_handler
 async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE, override_code: Optional[str] = None):
-    # This function is the main "send book by code" handler.
-    user_id = update.effective_user.id if update.effective_user else None
-    try:
-        if user_id:
-            add_user_if_not_exists(user_id)
-    except Exception:
-        logger.exception("add_user_if_not_exists failed in handle_code for %s", user_id)
+    user_id = update.effective_user.id
+    add_user_if_not_exists(user_id)
 
-    # get message text (or override)
-    text_msg = override_code if override_code is not None else (update.message.text.strip() if update.message and update.message.text else "")
-    logger.info("[HANDLE_CODE] from %s: %r", user_id, text_msg)
+    # Defensive: ensure we have a message here
+    text = None
+    if update and getattr(update, "message", None):
+        text = update.message.text
 
-    msg = text_msg
+    msg = override_code or (text.strip() if text else "")
 
-    # normalize numeric codes to string
-    if isinstance(msg, str) and msg.isdigit():
-        msg = str(int(msg))
+    logger.info("[HANDLE_CODE] from=%s text=%r override=%r resolved_msg=%r", user_id, text, override_code, msg)
 
+    # Quick guard: empty message
     if not msg:
-        await update.message.reply_text("Huh? 🤔")
+        await update.message.reply_text("I didn't understand — please send the book code (e.g. `1`).")
         return
 
+    # If exists — send book
     if msg in BOOKS:
         book = BOOKS[msg]
-        try:
-            increment_book_request(msg)
-        except Exception:
-            logger.exception("increment_book_request failed for %s", msg)
+        increment_book_request(msg)
 
         try:
             sent = await update.message.reply_document(
-                document=book.get("file_id"),
+                document=book["file_id"],
                 filename=book.get("filename"),
                 caption=book.get("caption"),
                 parse_mode="Markdown"
             )
         except Exception as e:
-            # Log & notify admins with context
-            tb = traceback.format_exc()
-            logger.exception("[HANDLE_CODE] reply_document failed for %s: %s", msg, e)
-            # notify admins
+            logger.exception("[HANDLE_CODE] failed to send book %s to %s: %s", msg, user_id, e)
+            # Inform the user and also tell them to contact admin
+            await update.message.reply_text("❌ Internal error while sending file. Admin notified.")
+            # try to notify admins
             try:
-                await _notify_admins_from_context(context, f"🛑 Failed to send document for code {msg}\n\n<pre>{tb[:3000]}</pre>")
+                if context:
+                    text = f"🛑 Failed to send book {msg} to {user_id}: {e}"
+                    asyncio.create_task(_notify_admins_from_context(context, text))
             except Exception:
-                logger.exception("Failed to notify admins about reply_document failure")
-            await update.message.reply_text("⚠️ Failed to send the file. Admins notified.")
+                logger.exception("Failed to schedule admin notify for failed send")
             return
 
-        # If we successfully sent the document — proceed with rating & countdown
         rating_msg = None
         try:
             if not has_rated(user_id, msg):
@@ -419,26 +420,22 @@ async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE, overri
                     reply_markup=InlineKeyboardMarkup(rating_buttons)
                 )
         except Exception:
-            logger.exception("Failed to send rating buttons to %s for %s", user_id, msg)
+            logger.exception("[HANDLE_CODE] failed to send rating buttons for %s to %s", msg, user_id)
 
-        try:
-            remaining = get_remaining_countdown(user_id, msg)
-            if not remaining or remaining == 0:
-                remaining = 600
-                save_countdown(user_id, msg, remaining)
-        except Exception:
-            logger.exception("get/save countdown failed for %s user %s", msg, user_id)
+        remaining = get_remaining_countdown(user_id, msg)
+        if remaining == 0:
             remaining = 600
+            save_countdown(user_id, msg, remaining)
 
         try:
             countdown_msg = await update.message.reply_text(
                 f"⏳ [██████████] {remaining // 60:02}:{remaining % 60:02} remaining"
             )
         except Exception:
-            logger.exception("Failed to send countdown msg to %s", user_id)
+            logger.exception("[HANDLE_CODE] failed to send countdown msg for %s to %s", msg, user_id)
             countdown_msg = None
 
-        # schedule deletion and timer tasks (best-effort)
+        # schedule deletions and timer (best-effort)
         try:
             if countdown_msg:
                 asyncio.create_task(countdown_timer(
@@ -448,19 +445,19 @@ async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE, overri
                     remaining,
                     final_text=f"♻️ File was deleted for your privacy.\nTo see it again, type `{msg}`."
                 ))
+                asyncio.create_task(delete_after_delay(context.bot, countdown_msg.chat.id, countdown_msg.message_id, remaining))
             if sent:
                 asyncio.create_task(delete_after_delay(context.bot, sent.chat.id, sent.message_id, remaining))
-            if countdown_msg:
-                asyncio.create_task(delete_after_delay(context.bot, countdown_msg.chat.id, countdown_msg.message_id, remaining))
             if rating_msg:
                 asyncio.create_task(delete_after_delay(context.bot, rating_msg.chat.id, rating_msg.message_id, remaining))
         except Exception:
-            logger.exception("Failed to schedule post-send tasks for %s", user_id)
+            logger.exception("[HANDLE_CODE] scheduling delete/timer failed for %s to %s", msg, user_id)
 
-    elif isinstance(msg, str) and msg.isdigit():
-        await update.message.reply_text("❌ Book not found.")
+    # If numeric but not found
+    elif msg.isdigit():
+        await update.message.reply_text("❌ Book not found. Check the code and try again.")
     else:
-        await update.message.reply_text("Huh? 🤔")
+        await update.message.reply_text("Huh? 🤔 (Send a book code or /all_books)")
 
 # ------------------ Rating Callback ------------------
 @safe_handler
@@ -624,11 +621,10 @@ async def mock_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         pass
 
     for k in [KD_COUNT_LEFT, KD_COUNT_TOTAL, KD_MSG_ID, KD_JOB_NAME]:
-        context.chat_data.pop(k, None) 
+        context.chat_data.pop(k, None)
 
 # ---------------- Google Test ----------------
-import uuid
-
+# get_test_callback and get_test are both safe-wrapped
 @safe_handler
 async def get_test_callback(query_update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = query_update.callback_query
@@ -817,12 +813,11 @@ async def close_bridge_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ------------------ Register ------------------
 def register_handlers(app):
+    logger.info("[REGISTER] registering handlers")
     # Track every user for any message/update — must run before other handlers
     app.add_handler(MessageHandler(filters.ALL, track_every_user), group=0)
     # Also track users when they press inline buttons (CallbackQuery)
     app.add_handler(CallbackQueryHandler(track_every_user), group=0)
-
-    # Command handlers
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("stats", stats))
     app.add_handler(CommandHandler("get_test", get_test))
@@ -832,16 +827,8 @@ def register_handlers(app):
     app.add_handler(CommandHandler("book_stats", book_stats))
     app.add_handler(CommandHandler("broadcast_new", broadcast_new))
     app.add_handler(CommandHandler("mock", mock_cmd))  # IELTS mock command
-    app.add_handler(CommandHandler("reply", reply_bridge_cmd))
-    app.add_handler(CommandHandler("close_bridge", close_bridge_cmd))
-
-    # Document handler
     app.add_handler(MessageHandler(filters.Document.PDF, handle_document))
-
-    # Text messages → book codes
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_code))
-
-    # CallbackQuery handlers
     app.add_handler(CallbackQueryHandler(get_test_callback, pattern=r"^get_test_cmd$"))
     app.add_handler(CallbackQueryHandler(rating_callback, pattern=r"^rate\|"))
     app.add_handler(CallbackQueryHandler(mock_ready,  pattern=r"^mock_ready$"))
@@ -850,7 +837,10 @@ def register_handlers(app):
     # Callback for spam-help button
     app.add_handler(CallbackQueryHandler(spam_help_callback, pattern=r"^spam_help"))
 
+    # Admin reply and close commands
+    app.add_handler(CommandHandler("reply", reply_bridge_cmd))
+    app.add_handler(CommandHandler("close_bridge", close_bridge_cmd))
+
     # Forward user messages to admin if bridge is active — register this AFTER your handle_code and other main handlers
     app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, bridge_forward_user_messages))
-
     logger.info("[REGISTER] handlers registered")
