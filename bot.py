@@ -22,8 +22,8 @@ logger = logging.getLogger(__name__)
 
 
 # This runs inside PTB's event loop when the app starts
-async def on_startup(app):
-    print("🟢 Launching Google Sheets worker...")
+# async def on_startup(app):
+   # print("🟢 Launching Google Sheets worker...")
     # Use app.create_task so the worker runs in the same loop as PTB
     # app.create_task(sheets_worker(app.bot))
 
