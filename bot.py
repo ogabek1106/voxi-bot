@@ -11,6 +11,7 @@ from telegram.ext import ApplicationBuilder
 from config import BOT_TOKEN, ADMIN_IDS
 from handlers import register_handlers
 from database import initialize_db
+
 # Guarded import for sheets worker (so Google/Sheets problems won't crash startup)
 try:
     from sheets_worker import sheets_worker
@@ -119,6 +120,19 @@ def setup_admin_reporting(app):
 # ---------------- end of admin reporting block ----------------
 
 
+# This runs inside PTB's event loop when the app starts
+async def on_startup(app):
+    """Run once when Application starts — schedule background tasks here."""
+    # schedule the sheets worker inside the running loop (if available)
+    if sheets_worker:
+        try:
+            # call sheets_worker(app.bot) as a long-running task
+            app.create_task(sheets_worker(app.bot))
+            print("🟢 Sheets worker scheduled (on_startup).")
+        except Exception as e:
+            print("⚠️ Failed to schedule sheets_worker in on_startup:", e)
+
+
 # 🚀 Main
 def main():
     print("🟢 bot.py is starting...")
@@ -126,21 +140,12 @@ def main():
     app = (
         ApplicationBuilder()
         .token(BOT_TOKEN)
-        # .post_init(on_startup)  # optional startup hook if you prefer
+        .post_init(on_startup)  # ensure on_startup runs inside the running event loop
         .build()
     )
 
     print("📦 Registering handlers...")
     register_handlers(app)
-
-    # Start sheets worker only if it imported successfully
-    if sheets_worker:
-        try:
-            # schedule the worker in PTB's event loop
-            app.create_task(sheets_worker(app.bot))
-            print("🟢 Sheets worker scheduled (in-app task).")
-        except Exception as e:
-            print("⚠️ Failed to schedule sheets_worker:", e)
 
     # Setup admin reporting now that app is built and handlers are registered
     try:
