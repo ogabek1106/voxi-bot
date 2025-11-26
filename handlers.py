@@ -38,6 +38,20 @@ def _bar_left(seconds_left: int, total: int, length: int = 10) -> str:
     filled = int(length * elapsed / total)
     return "█" * filled + "-" * (length - filled)
 
+# ------------------ Track every user (global) ------------------
+async def track_every_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Add every real user to DB the moment *any* update from them arrives.
+    This runs before other handlers (we register it with group=0).
+    """
+    user = update.effective_user
+    if not user:
+        return
+    try:
+        add_user_if_not_exists(user.id)
+    except Exception as e:
+        logger.exception("Failed to add user %s: %s", user.id, e)
+
 # Keys for chat_data (per chat state for pre-exam countdown)
 KD_COUNT_LEFT = "mock_count_left"
 KD_COUNT_TOTAL = "mock_count_total"
@@ -677,6 +691,10 @@ async def close_bridge_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ------------------ Register ------------------
 def register_handlers(app):
+    # Track every user for any message/update — must run before other handlers
+    app.add_handler(MessageHandler(filters.ALL, track_every_user), group=0)
+    # Also track users when they press inline buttons (CallbackQuery)
+    app.add_handler(CallbackQueryHandler(track_every_user), group=0)
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("stats", stats))
     app.add_handler(CommandHandler("get_test", get_test))
