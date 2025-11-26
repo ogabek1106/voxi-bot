@@ -887,6 +887,75 @@ async def ping_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.exception("[PING] failed: %s", e)
 
+# ------------------ Debug: list all book codes ------------------
+async def list_books_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        if update.effective_user and update.effective_user.id not in ADMIN_IDS:
+            await update.message.reply_text("Only admin can use this debug command.")
+            return
+
+        if not BOOKS:
+            await update.message.reply_text("BOOKS is empty.")
+            return
+
+        keys = sorted(BOOKS.keys(), key=lambda k: str(k))
+        sample = keys[:10]
+        text = (
+            f"Total books: {len(keys)}\n"
+            f"First keys (up to 10): {', '.join(map(str, sample))}\n\n"
+            "Use /debug_book <code> to inspect one."
+        )
+        await update.message.reply_text(text)
+        logger.info("[DEBUG] list_books requested by %s. keys=%s", update.effective_user.id if update.effective_user else None, sample)
+    except Exception as e:
+        logger.exception("[DEBUG] list_books_cmd error: %s", e)
+        try:
+            await update.message.reply_text("⚠️ Debug error.")
+        except Exception:
+            pass
+
+# ------------------ Debug: inspect single book entry ------------------
+async def debug_book_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        uid = update.effective_user.id if update.effective_user else None
+        if uid not in ADMIN_IDS:
+            await update.message.reply_text("Only admin can use this debug command.")
+            return
+
+        if not context.args:
+            await update.message.reply_text("Usage: /debug_book <code>")
+            return
+
+        code = context.args[0].strip()
+        # normalize numeric codes
+        if code.isdigit():
+            code = str(int(code))
+
+        book = BOOKS.get(code)
+        if not book:
+            await update.message.reply_text(f"Book with code {code} not found in BOOKS.")
+            logger.info("[DEBUG] debug_book: code %s not found", code)
+            return
+
+        # Build a readable debug message (do not expose too long file_id)
+        file_id = book.get("file_id", "<missing>")
+        filename = book.get("filename", "<missing>")
+        caption = book.get("caption", "<missing>").splitlines()[0] if book.get("caption") else "<missing>"
+        text = (
+            f"Code: {code}\n"
+            f"Filename: {filename}\n"
+            f"Caption(first line): {caption}\n"
+            f"file_id (start): {str(file_id)[:200]}\n"
+        )
+        await update.message.reply_text(text)
+        logger.info("[DEBUG] debug_book requested by %s -> %s", uid, text)
+    except Exception as e:
+        logger.exception("[DEBUG] debug_book_cmd error: %s", e)
+        try:
+            await update.message.reply_text("⚠️ Debug error.")
+        except Exception:
+            pass
+
 # ------------------ Register ------------------
 def register_handlers(app):
     # Track every user for any message/update — must run before other handlers
@@ -907,6 +976,9 @@ def register_handlers(app):
 
     # Useful test command
     app.add_handler(CommandHandler("ping", ping_cmd))
+    app.add_handler(CommandHandler("list_books", list_books_cmd))
+    app.add_handler(CommandHandler("debug_book", debug_book_cmd))
+
 
     # Content handlers
     app.add_handler(MessageHandler(filters.Document.PDF, handle_document))
