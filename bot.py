@@ -28,22 +28,7 @@ logger = logging.getLogger(__name__)
     # app.create_task(sheets_worker(app.bot))
 
 
-# 🚀 Main
-def main():
-    print("🟢 bot.py is starting...")
-
-    # Build app and register a startup hook that will start the worker
-    app = (
-        ApplicationBuilder()
-        .token(BOT_TOKEN)
-        #.post_init(on_startup)
-        .build()
-    )
-
-    print("📦 Registering handlers...")
-    register_handlers(app)
-
-    # ===== Admin error reporting (paste after app is built & handlers registered) =====
+# ===== Admin error reporting (moved OUTSIDE of main) =====
 import sys
 import traceback
 import asyncio
@@ -130,9 +115,29 @@ def setup_admin_reporting(app):
 
 # ---------------- end of admin reporting block ----------------
 
+
+# 🚀 Main
+def main():
+    print("🟢 bot.py is starting...")
+
+    # Build app and register a startup hook that will start the worker
+    app = (
+        ApplicationBuilder()
+        .token(BOT_TOKEN)
+        #.post_init(on_startup)
+        .build()
+    )
+
+    print("📦 Registering handlers...")
+    register_handlers(app)
+
+    # Setup admin reporting now that app is built and handlers are registered
+    setup_admin_reporting(app)
+
     print("🚀 Launching app.run_polling()...")
     app.run_polling()
 
 
 if __name__ == "__main__":
     main()
+
