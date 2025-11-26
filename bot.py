@@ -124,13 +124,13 @@ def setup_admin_reporting(app):
 async def on_startup(app):
     """Run once when Application starts — schedule background tasks here."""
     # schedule the sheets worker inside the running loop (if available)
-    if sheets_worker:
-        try:
-            # call sheets_worker(app.bot) as a long-running task
-            app.create_task(sheets_worker(app.bot))
-            print("🟢 Sheets worker scheduled (on_startup).")
-        except Exception as e:
-            print("⚠️ Failed to schedule sheets_worker in on_startup:", e)
+#    if sheets_worker:
+ #       try:
+  #          # call sheets_worker(app.bot) as a long-running task
+   #         app.create_task(sheets_worker(app.bot))
+    #        print("🟢 Sheets worker scheduled (on_startup).")
+     #   except Exception as e:
+      #      print("⚠️ Failed to schedule sheets_worker in on_startup:", e)
 
 
 # 🚀 Main
