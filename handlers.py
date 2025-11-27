@@ -10,7 +10,7 @@ from telegram.ext import (
 
 from books import BOOKS
 from database import (
-    save_book_request,
+    increment_book_request,
     save_rating,
     save_countdown,
     get_countdown,
