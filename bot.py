@@ -241,7 +241,7 @@ def main():
     # global error handler
     app.add_error_handler(error_handler)
 
-        logger.info("📦 Registering handlers...")
+    logger.info("📦 Registering handlers...")
     register_handlers(app)
 
     # --- Ensure background worker from handlers is scheduled robustly ---
@@ -260,7 +260,6 @@ def main():
             logger.debug("Countdown worker already scheduled on app; skipping duplicate schedule.")
     except Exception:
         logger.exception("Could not import countdown worker from handlers — worker not scheduled.")
-       
 
     try:
         setup_admin_reporting(app)
