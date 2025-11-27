@@ -1,4 +1,4 @@
-# bot.py — minimal, polling-only launcher for your Voxi bot (safe loop handling)
+# bot.py — resilient, minimal polling launcher for Voxi bot
 import os
 import sys
 import traceback
@@ -6,10 +6,8 @@ import asyncio
 import logging
 from typing import Optional
 
-from telegram.request import Request
-from telegram.ext import ApplicationBuilder
 from telegram import Update
-from telegram.ext import ContextTypes
+from telegram.ext import ApplicationBuilder, ContextTypes
 
 from config import BOT_TOKEN, ADMIN_IDS
 from handlers import register_handlers
@@ -22,9 +20,16 @@ initialize_db()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Try to import Request (may be unavailable in some environments / package versions)
+try:
+    from telegram.request import Request  # type: ignore
+except Exception:
+    Request = None  # fallback to default Request inside PTB
+
 
 # ---------------- Admin notifications ----------------
 async def _notify_admins(bot, text: str):
+    """Send a long text to every admin (chunked)."""
     CHUNK = 3500
     for admin in ADMIN_IDS:
         try:
@@ -36,8 +41,8 @@ async def _notify_admins(bot, text: str):
 
 def _safe_schedule_coro(coro):
     """
-    Try to schedule a coroutine on the running loop in a safe way.
-    If scheduling is impossible (no loop or loop closed), fallback to printing.
+    Try to schedule a coroutine on the running loop.
+    If scheduling is impossible (no loop or loop closed), log and return False.
     """
     try:
         loop = asyncio.get_event_loop()
@@ -46,13 +51,7 @@ def _safe_schedule_coro(coro):
         loop.call_soon_threadsafe(asyncio.create_task, coro)
         return True
     except Exception:
-        # fallback: cannot schedule the coroutine, print the message instead
-        try:
-            # Attempt to extract text from the coro if it's _notify_admins(bot, text)
-            # Not guaranteed; we just log that notification couldn't be scheduled
-            logger.error("Could not schedule admin notification; loop closed or unavailable.")
-        except Exception:
-            pass
+        logger.debug("Could not schedule coroutine; loop closed or unavailable.")
         return False
 
 
@@ -66,7 +65,6 @@ def _make_loop_exception_handler(bot):
             else:
                 tb = str(context)
             text = f"{header}\n\n```\n{tb}\n```"
-            # Schedule notification safely
             _safe_schedule_coro(_notify_admins(bot, text))
         except Exception:
             logger.exception("Error in loop exception handler")
@@ -78,11 +76,10 @@ def _install_sys_excepthook(bot):
         try:
             tb_text = "".join(traceback.format_exception(type_, value, tb))
             text = "⚠️ Uncaught exception\n\n```\n" + tb_text + "\n```"
-            # Schedule notification safely
             _safe_schedule_coro(_notify_admins(bot, text))
         except Exception:
             logger.exception("Failed to report uncaught exception")
-        # still call default hook for visibility
+        # call original hook for visibility in logs
         try:
             sys.__excepthook__(type_, value, tb)
         except Exception:
@@ -91,6 +88,7 @@ def _install_sys_excepthook(bot):
 
 
 class AdminLogHandler(logging.Handler):
+    """Logging handler that notifies admins on errors, but is safe if loop is closed."""
     def __init__(self, bot):
         super().__init__(level=logging.ERROR)
         self.bot = bot
@@ -98,16 +96,14 @@ class AdminLogHandler(logging.Handler):
     def emit(self, record):
         try:
             msg = self.format(record)
-            # Try to schedule sending the message to admins; if not possible, print it
             scheduled = _safe_schedule_coro(_notify_admins(self.bot, f"🛑 Log ERROR\n\n```\n{msg}\n```"))
             if not scheduled:
-                # Best-effort fallback: log to stderr so it is visible in logs
+                # fallback: print to stderr so Railway logs include it
                 try:
                     print("AdminLogHandler fallback — Log ERROR:\n", msg, file=sys.stderr)
                 except Exception:
                     pass
         except Exception:
-            # Never allow logging errors to crash the app
             try:
                 print("AdminLogHandler.emit failed for record:", record, file=sys.stderr)
             except Exception:
@@ -116,6 +112,7 @@ class AdminLogHandler(logging.Handler):
 
 # ---------------- Application error handler ----------------
 async def error_handler(update: Optional[Update], context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Application-wide error handler — attempt to notify admins (best-effort)."""
     try:
         logger.exception("Application caught an exception: %s", context.error)
         tb = ""
@@ -126,13 +123,13 @@ async def error_handler(update: Optional[Update], context: ContextTypes.DEFAULT_
         text = f"⚠️ Application error\n\n```\n{tb[:7000]}\n```"
         bot = getattr(context, "bot", None)
         if bot:
-            # schedule safely
             _safe_schedule_coro(_notify_admins(bot, text))
     except Exception:
         logger.exception("Failed in application-level error handler")
 
 
 def setup_admin_reporting(app):
+    """Install admin reporting: loop handler, sys.excepthook, and log handler."""
     bot = app.bot
     # install loop exception handler if possible
     try:
@@ -140,10 +137,10 @@ def setup_admin_reporting(app):
         if not loop.is_closed():
             loop.set_exception_handler(_make_loop_exception_handler(bot))
     except Exception:
-        # ignore - environment might not have a loop yet
-        pass
+        logger.debug("Could not set loop exception handler (no loop yet)")
 
     _install_sys_excepthook(bot)
+
     admin_handler = AdminLogHandler(bot)
     admin_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
     logging.getLogger().addHandler(admin_handler)
@@ -151,36 +148,46 @@ def setup_admin_reporting(app):
 
 # ---------------- Main ----------------
 def main():
-    print("🟢 bot.py is starting...")
+    logger.info("🟢 bot.py is starting...")
 
-    REQUEST = Request(
-        connect_timeout=10.0,
-        read_timeout=40.0,
-        pool_timeout=10.0,
-        con_pool_size=16,
-        http_version="1.1",
-    )
+    # Build optional tuned Request (if available)
+    REQUEST = None
+    if Request is not None:
+        try:
+            REQUEST = Request(
+                connect_timeout=10.0,
+                read_timeout=40.0,
+                pool_timeout=10.0,
+                con_pool_size=16,
+                http_version="1.1",
+            )
+            logger.info("Using custom Request with tuned timeouts.")
+        except Exception:
+            REQUEST = None
+            logger.warning("Failed to create custom Request; falling back to defaults.")
 
-    app = (
-        ApplicationBuilder()
-        .token(BOT_TOKEN)
-        .request(REQUEST)
-        .build()
-    )
+    # Build Application (include .request(...) only if REQUEST is set)
+    builder = ApplicationBuilder().token(BOT_TOKEN)
+    if REQUEST is not None:
+        try:
+            builder = builder.request(REQUEST)
+        except Exception:
+            logger.warning("Builder.request(...) failed; continuing without custom Request.")
+    app = builder.build()
 
     # global error handler
     app.add_error_handler(error_handler)
 
-    print("📦 Registering handlers...")
+    logger.info("📦 Registering handlers...")
     register_handlers(app)
 
     try:
         setup_admin_reporting(app)
-        print("🟢 Admin reporting set up.")
+        logger.info("🟢 Admin reporting set up.")
     except Exception:
         logger.exception("setup_admin_reporting failed")
 
-    print("🚀 Launching app.run_polling()...")
+    logger.info("🚀 Launching app.run_polling()...")
     app.run_polling(poll_interval=0.0)
 
 
