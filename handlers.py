@@ -1,9 +1,11 @@
-# handlers.py — minimal handlers for Voxi bot + temporary debug handlers
+# handlers.py — verbose debug logging + minimal handlers for Voxi bot
 import asyncio
 import logging
 import json
+import traceback
 from typing import Optional
 
+import httpx
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, Chat
 from telegram.error import NetworkError
 from telegram.ext import (
@@ -28,6 +30,19 @@ from database import (
 
 logger = logging.getLogger(__name__)
 
+# ---- Helper: safe truncation for logs ----
+def _safe_json(obj, max_len=4000):
+    try:
+        s = json.dumps(obj, default=str, ensure_ascii=False)
+    except Exception:
+        try:
+            s = str(obj)
+        except Exception:
+            s = "<unserializable>"
+    if len(s) > max_len:
+        return s[:max_len] + "...(truncated)"
+    return s
+
 
 # ----------------- Safe wrapper -----------------
 def safe_handler(fn):
@@ -36,14 +51,19 @@ def safe_handler(fn):
 
     async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
+            logger.debug("Entering handler %s for update_id=%s", fn.__name__, getattr(update, "update_id", None))
             return await fn(update, context)
         except Exception as e:
-            logger.exception("Handler %s failed: %s", fn.__name__, e)
+            tb = traceback.format_exc()
+            # log full traceback (DEBUG) and a short error note (INFO)
+            logger.error("Handler %s raised exception: %s", fn.__name__, e)
+            logger.debug("Traceback for handler %s:\n%s", fn.__name__, tb)
+            # try to inform the user minimally
             try:
                 if update and getattr(update, "effective_message", None):
                     await update.effective_message.reply_text("⚠️ Internal error. Admins notified.")
             except Exception:
-                logger.exception("Failed to send error message to user")
+                logger.exception("Failed to send error message to user after handler exception")
     return wrapper
 
 
@@ -55,6 +75,7 @@ async def track_every_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     try:
         add_user_if_not_exists(user.id)
+        logger.debug("Added/tracked user %s", user.id)
     except Exception:
         logger.exception("Failed to add user %s", user.id)
 
@@ -126,7 +147,18 @@ async def book_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
     if not msg or not msg.text:
+        logger.debug("handle_code called with no message/text")
         return
+
+    # Log raw update payload (truncated)
+    try:
+        payload = update.to_dict() if hasattr(update, "to_dict") else {
+            "update_id": getattr(update, "update_id", None),
+            "message": getattr(update, "message", None)
+        }
+        logger.debug("UPDATE_PAYLOAD: %s", _safe_json(payload, max_len=8000))
+    except Exception:
+        logger.exception("Failed to dump update payload")
 
     user = update.effective_user
     user_id = user.id if user else None
@@ -148,23 +180,48 @@ async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception:
             logger.exception("Failed to log book send info for %s", code)
 
+        # Attempt to send document. Log before and after.
         try:
-            await msg.reply_document(
+            logger.debug("Calling reply_document for user=%s code=%s", user_id, code)
+            sent = await msg.reply_document(
                 document=book["file_id"],
                 filename=book.get("filename"),
                 caption=book.get("caption"),
                 parse_mode=None,
             )
+            logger.info("reply_document succeeded: chat=%s message_id=%s", getattr(sent, "chat_id", None), getattr(sent, "message_id", None))
         except NetworkError as ne:
             # network error — log full details and inform user
-            logger.exception("NetworkError when sending book %s to %s: %s", code, user_id, ne)
+            logger.error("NetworkError when sending book %s to %s: %s", code, user_id, ne)
+            logger.debug("NetworkError repr: %r", ne)
+            # If it's an httpx exception, show the inner details if available
+            try:
+                if isinstance(ne.__cause__, Exception):
+                    logger.debug("NetworkError.__cause__: %s", traceback.format_exc())
+            except Exception:
+                pass
             try:
                 await msg.reply_text("🔁 Temporary network error while sending the file. Please try again in a moment.")
             except Exception:
                 logger.exception("Failed to send network error message to user %s", user_id)
             return
+        except httpx.ReadError as hx:
+            logger.exception("httpx.ReadError sending book %s to %s: %s", code, user_id, hx)
+            try:
+                await msg.reply_text("🔁 Temporary network read error. Try again shortly.")
+            except Exception:
+                logger.exception("Failed to notify user about httpx.ReadError")
+            return
         except Exception as e:
-            logger.exception("Failed to send book %s to %s: %s", code, user_id, e)
+            # Log full traceback and helpful diagnostics
+            tb = traceback.format_exc()
+            logger.error("Failed to send book %s to %s: %s", code, user_id, e)
+            logger.debug("Traceback while sending document:\n%s", tb)
+            # Also dump exception repr and class
+            try:
+                logger.debug("Exception class: %s, repr: %r", e.__class__, e)
+            except Exception:
+                pass
             try:
                 await msg.reply_text("❌ Failed to send file. Please try again later.")
             except Exception:
@@ -229,14 +286,18 @@ async def rating_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def debug_log_and_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Log a compact update summary and reply (private chats only)."""
     try:
-        info = {
-            "update_id": getattr(update, "update_id", None),
-            "from": getattr(update.effective_user, "id", None),
-            "chat_id": getattr(getattr(update, "effective_chat", None), "id", None),
-            "message_text": (update.message.text if update.message and update.message.text else None),
-            "callback_data": (update.callback_query.data if update.callback_query else None),
-        }
-        logger.info("DEBUG_UPDATE: %s", json.dumps(info, ensure_ascii=False))
+        # Prefer full to_dict if available (very helpful)
+        try:
+            ud = update.to_dict()
+        except Exception:
+            ud = {
+                "update_id": getattr(update, "update_id", None),
+                "message_text": (update.message.text if update.message and update.message.text else None),
+                "callback_data": (update.callback_query.data if update.callback_query else None),
+                "from": getattr(update.effective_user, "id", None),
+                "chat_id": getattr(getattr(update, "effective_chat", None), "id", None),
+            }
+        logger.debug("DEBUG_UPDATE (full): %s", _safe_json(ud, max_len=16000))
 
         chat = getattr(update, "effective_chat", None)
         if chat and getattr(chat, "type", None) == Chat.PRIVATE:
@@ -271,4 +332,4 @@ def register_handlers(app):
     app.add_handler(CommandHandler("ping", debug_log_and_reply))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, debug_log_and_reply), group=2)
 
-    logger.info("Minimal handlers registered (with temporary debug).")
+    logger.info("Minimal handlers registered (with verbose debug).")
