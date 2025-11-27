@@ -7,78 +7,137 @@ from typing import Dict, List, Optional
 DB_PATH = os.getenv("DB_PATH", "data.db")
 
 
-# ============================================================
-# Initialize DB
-# ============================================================
+# ---------------------------
+# Internal helpers
+# ---------------------------
+def _connect():
+    return sqlite3.connect(DB_PATH)
 
+
+def _table_has_column(table: str, column: str) -> bool:
+    conn = _connect()
+    c = conn.cursor()
+    try:
+        c.execute(f"PRAGMA table_info({table})")
+        cols = [r[1] for r in c.fetchall()]
+        return column in cols
+    finally:
+        conn.close()
+
+
+def _add_column_if_missing(table: str, column_def: str) -> None:
+    """
+    Add a column to table if it doesn't exist.
+    column_def should be like "message_id INTEGER".
+    """
+    # Extract column name
+    col_name = column_def.split()[0]
+    if _table_has_column(table, col_name):
+        return
+    conn = _connect()
+    c = conn.cursor()
+    try:
+        c.execute(f"ALTER TABLE {table} ADD COLUMN {column_def}")
+        conn.commit()
+    except Exception as e:
+        # Best-effort: don't crash on deployment if ALTER fails; log to stderr
+        try:
+            print(f"Failed to add column {col_name} to {table}: {e}", flush=True)
+        except Exception:
+            pass
+    finally:
+        conn.close()
+
+
+# ============================================================
+# Initialize DB (creates tables and performs safe migrations)
+# ============================================================
 def initialize_db():
-    conn = sqlite3.connect(DB_PATH)
+    conn = _connect()
     c = conn.cursor()
 
     # Users
-    c.execute("""
+    c.execute(
+        """
         CREATE TABLE IF NOT EXISTS users (
             user_id INTEGER PRIMARY KEY
         )
-    """)
+        """
+    )
 
     # Book request counters
-    c.execute("""
+    c.execute(
+        """
         CREATE TABLE IF NOT EXISTS book_requests (
             book_code TEXT PRIMARY KEY,
             count INTEGER NOT NULL DEFAULT 0
         )
-    """)
+        """
+    )
 
     # Ratings
-    c.execute("""
+    c.execute(
+        """
         CREATE TABLE IF NOT EXISTS ratings (
             user_id INTEGER,
             book_code TEXT,
             rating INTEGER,
             PRIMARY KEY (user_id, book_code)
         )
-    """)
+        """
+    )
 
-    # Countdowns (stores message_id too)
-    c.execute("""
+    # Countdowns (ensure the table exists; may be missing message_id in older DBs)
+    c.execute(
+        """
         CREATE TABLE IF NOT EXISTS countdowns (
             user_id INTEGER,
             book_code TEXT,
             end_timestamp INTEGER,
-            message_id INTEGER,
+            -- message_id may be added via migration if missing
             PRIMARY KEY (user_id, book_code)
         )
-    """)
+        """
+    )
 
     # Tokens
-    c.execute("""
+    c.execute(
+        """
         CREATE TABLE IF NOT EXISTS tokens (
             token TEXT PRIMARY KEY,
             user_id INTEGER,
             used INTEGER DEFAULT 0
         )
-    """)
+        """
+    )
 
     # Bridges
-    c.execute("""
+    c.execute(
+        """
         CREATE TABLE IF NOT EXISTS bridges (
             user_id INTEGER PRIMARY KEY,
             admin_id INTEGER,
             started_at INTEGER
         )
-    """)
+        """
+    )
 
     conn.commit()
     conn.close()
+
+    # Migration: ensure countdowns.message_id exists (safe ALTER)
+    try:
+        _add_column_if_missing("countdowns", "message_id INTEGER")
+    except Exception:
+        # swallow errors; _add_column_if_missing already logs if needed
+        pass
 
 
 # ============================================================
 # Users
 # ============================================================
-
 def add_user_if_not_exists(user_id: int) -> None:
-    conn = sqlite3.connect(DB_PATH)
+    conn = _connect()
     c = conn.cursor()
     c.execute("INSERT OR IGNORE INTO users (user_id) VALUES (?)", (user_id,))
     conn.commit()
@@ -86,7 +145,7 @@ def add_user_if_not_exists(user_id: int) -> None:
 
 
 def get_all_users() -> List[int]:
-    conn = sqlite3.connect(DB_PATH)
+    conn = _connect()
     c = conn.cursor()
     c.execute("SELECT user_id FROM users")
     rows = c.fetchall()
@@ -95,7 +154,7 @@ def get_all_users() -> List[int]:
 
 
 def get_user_count() -> int:
-    conn = sqlite3.connect(DB_PATH)
+    conn = _connect()
     c = conn.cursor()
     c.execute("SELECT COUNT(*) FROM users")
     row = c.fetchone()
@@ -106,15 +165,17 @@ def get_user_count() -> int:
 # ============================================================
 # Book Requests
 # ============================================================
-
 def increment_book_request(book_code: str) -> None:
-    conn = sqlite3.connect(DB_PATH)
+    conn = _connect()
     c = conn.cursor()
-    c.execute("""
+    c.execute(
+        """
         INSERT INTO book_requests (book_code, count)
         VALUES (?, 1)
         ON CONFLICT(book_code) DO UPDATE SET count = count + 1
-    """, (book_code,))
+    """,
+        (book_code,),
+    )
     conn.commit()
     conn.close()
 
@@ -128,7 +189,7 @@ def save_book_request(book_code: str) -> None:
 
 
 def get_book_stats() -> Dict[str, int]:
-    conn = sqlite3.connect(DB_PATH)
+    conn = _connect()
     c = conn.cursor()
     c.execute("SELECT book_code, count FROM book_requests")
     rows = c.fetchall()
@@ -139,18 +200,20 @@ def get_book_stats() -> Dict[str, int]:
 # ============================================================
 # Countdowns (message auto-delete system)
 # ============================================================
-
 def save_countdown(user_id: int, book_code: str, end_timestamp: int, message_id: Optional[int]) -> None:
     """
     Save or replace countdown row. This function expects an absolute end_timestamp.
     message_id may be None if not known.
     """
-    conn = sqlite3.connect(DB_PATH)
+    conn = _connect()
     c = conn.cursor()
-    c.execute("""
+    c.execute(
+        """
         INSERT OR REPLACE INTO countdowns (user_id, book_code, end_timestamp, message_id)
         VALUES (?, ?, ?, ?)
-    """, (user_id, book_code, end_timestamp, message_id))
+        """,
+        (user_id, book_code, end_timestamp, message_id),
+    )
     conn.commit()
     conn.close()
 
@@ -171,12 +234,15 @@ def get_countdown(user_id: int, book_code: str) -> Optional[Dict]:
       {"user_id": ..., "book_code": ..., "end_timestamp": ..., "message_id": ..., "remaining": ...}
     or None if not found.
     """
-    conn = sqlite3.connect(DB_PATH)
+    conn = _connect()
     c = conn.cursor()
-    c.execute("""
+    c.execute(
+        """
         SELECT end_timestamp, message_id FROM countdowns
         WHERE user_id = ? AND book_code = ?
-    """, (user_id, book_code))
+        """,
+        (user_id, book_code),
+    )
     row = c.fetchone()
     conn.close()
     if not row:
@@ -193,12 +259,14 @@ def get_countdown(user_id: int, book_code: str) -> Optional[Dict]:
 
 
 def get_all_countdowns() -> List[dict]:
-    conn = sqlite3.connect(DB_PATH)
+    conn = _connect()
     c = conn.cursor()
-    c.execute("""
+    c.execute(
+        """
         SELECT user_id, book_code, end_timestamp, message_id
         FROM countdowns
-    """)
+    """
+    )
     rows = c.fetchall()
     conn.close()
 
@@ -215,11 +283,14 @@ def get_all_countdowns() -> List[dict]:
 
 
 def delete_countdown(user_id: int, book_code: str) -> None:
-    conn = sqlite3.connect(DB_PATH)
+    conn = _connect()
     c = conn.cursor()
-    c.execute("""
+    c.execute(
+        """
         DELETE FROM countdowns WHERE user_id = ? AND book_code = ?
-    """, (user_id, book_code))
+    """,
+        (user_id, book_code),
+    )
     conn.commit()
     conn.close()
 
@@ -232,13 +303,16 @@ def get_expired_countdowns(current_timestamp: Optional[int] = None) -> List[dict
     if current_timestamp is None:
         current_timestamp = int(time.time())
 
-    conn = sqlite3.connect(DB_PATH)
+    conn = _connect()
     c = conn.cursor()
-    c.execute("""
+    c.execute(
+        """
         SELECT user_id, book_code, end_timestamp, message_id
         FROM countdowns
         WHERE end_timestamp <= ?
-    """, (int(current_timestamp),))
+    """,
+        (int(current_timestamp),),
+    )
     rows = c.fetchall()
     conn.close()
 
@@ -256,25 +330,30 @@ def get_expired_countdowns(current_timestamp: Optional[int] = None) -> List[dict
 # ============================================================
 # Ratings
 # ============================================================
-
 def save_rating(user_id: int, book_code: str, rating: int) -> None:
-    conn = sqlite3.connect(DB_PATH)
+    conn = _connect()
     c = conn.cursor()
-    c.execute("""
+    c.execute(
+        """
         INSERT OR REPLACE INTO ratings (user_id, book_code, rating)
         VALUES (?, ?, ?)
-    """, (user_id, book_code, rating))
+    """,
+        (user_id, book_code, rating),
+    )
     conn.commit()
     conn.close()
 
 
 def has_rated(user_id: int, book_code: str) -> bool:
-    conn = sqlite3.connect(DB_PATH)
+    conn = _connect()
     c = conn.cursor()
-    c.execute("""
+    c.execute(
+        """
         SELECT 1 FROM ratings
         WHERE user_id = ? AND book_code = ?
-    """, (user_id, book_code))
+    """,
+        (user_id, book_code),
+    )
     ok = c.fetchone()
     conn.close()
     return ok is not None
@@ -285,13 +364,15 @@ def get_rating_stats() -> Dict[str, Dict[int, int]]:
     Returns a dict:
       { book_code: {1: count, 2: count, 3: count, 4: count, 5: count}, ... }
     """
-    conn = sqlite3.connect(DB_PATH)
+    conn = _connect()
     c = conn.cursor()
-    c.execute("""
+    c.execute(
+        """
         SELECT book_code, rating, COUNT(*) as cnt
         FROM ratings
         GROUP BY book_code, rating
-    """)
+    """
+    )
     rows = c.fetchall()
     conn.close()
 
@@ -305,21 +386,23 @@ def get_rating_stats() -> Dict[str, Dict[int, int]]:
 # ============================================================
 # Tokens
 # ============================================================
-
 def save_token(user_id: int, token: str) -> None:
-    conn = sqlite3.connect(DB_PATH)
+    conn = _connect()
     c = conn.cursor()
     c.execute("DELETE FROM tokens WHERE user_id = ?", (user_id,))
-    c.execute("""
+    c.execute(
+        """
         INSERT OR REPLACE INTO tokens (token, user_id, used)
         VALUES (?, ?, 0)
-    """, (token, user_id))
+    """,
+        (token, user_id),
+    )
     conn.commit()
     conn.close()
 
 
 def get_token_owner(token: str) -> Optional[int]:
-    conn = sqlite3.connect(DB_PATH)
+    conn = _connect()
     c = conn.cursor()
     c.execute("SELECT user_id FROM tokens WHERE token=?", (token,))
     row = c.fetchone()
@@ -328,7 +411,7 @@ def get_token_owner(token: str) -> Optional[int]:
 
 
 def is_token_used(token: str) -> bool:
-    conn = sqlite3.connect(DB_PATH)
+    conn = _connect()
     c = conn.cursor()
     c.execute("SELECT used FROM tokens WHERE token=?", (token,))
     row = c.fetchone()
@@ -337,7 +420,7 @@ def is_token_used(token: str) -> bool:
 
 
 def mark_token_used(token: str) -> None:
-    conn = sqlite3.connect(DB_PATH)
+    conn = _connect()
     c = conn.cursor()
     c.execute("UPDATE tokens SET used = 1 WHERE token=?", (token,))
     conn.commit()
@@ -347,20 +430,22 @@ def mark_token_used(token: str) -> None:
 # ============================================================
 # Bridges
 # ============================================================
-
 def start_bridge(user_id: int, admin_id: int) -> None:
-    conn = sqlite3.connect(DB_PATH)
+    conn = _connect()
     c = conn.cursor()
-    c.execute("""
+    c.execute(
+        """
         INSERT OR REPLACE INTO bridges (user_id, admin_id, started_at)
         VALUES (?, ?, ?)
-    """, (user_id, admin_id, int(time.time())))
+    """,
+        (user_id, admin_id, int(time.time())),
+    )
     conn.commit()
     conn.close()
 
 
 def get_bridge_admin(user_id: int) -> Optional[int]:
-    conn = sqlite3.connect(DB_PATH)
+    conn = _connect()
     c = conn.cursor()
     c.execute("SELECT admin_id FROM bridges WHERE user_id=?", (user_id,))
     row = c.fetchone()
@@ -369,8 +454,12 @@ def get_bridge_admin(user_id: int) -> Optional[int]:
 
 
 def end_bridge(user_id: int) -> None:
-    conn = sqlite3.connect(DB_PATH)
+    conn = _connect()
     c = conn.cursor()
     c.execute("DELETE FROM bridges WHERE user_id=?", (user_id,))
     conn.commit()
     conn.close()
+
+
+# Initialize DB when module is imported
+initialize_db()
