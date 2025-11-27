@@ -5,6 +5,7 @@ import json
 from typing import Optional
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, Chat
+from telegram.error import NetworkError
 from telegram.ext import (
     ContextTypes,
     CommandHandler,
@@ -140,6 +141,13 @@ async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception:
             logger.exception("Failed to increment book request for %s", code)
 
+        # DEBUG: log what we are about to send
+        try:
+            logger.info("Preparing to send book code=%s to user=%s file_id=%s filename=%r",
+                        code, user_id, book.get("file_id"), book.get("filename"))
+        except Exception:
+            logger.exception("Failed to log book send info for %s", code)
+
         try:
             await msg.reply_document(
                 document=book["file_id"],
@@ -147,9 +155,20 @@ async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 caption=book.get("caption"),
                 parse_mode=None,
             )
+        except NetworkError as ne:
+            # network error — log full details and inform user
+            logger.exception("NetworkError when sending book %s to %s: %s", code, user_id, ne)
+            try:
+                await msg.reply_text("🔁 Temporary network error while sending the file. Please try again in a moment.")
+            except Exception:
+                logger.exception("Failed to send network error message to user %s", user_id)
+            return
         except Exception as e:
             logger.exception("Failed to send book %s to %s: %s", code, user_id, e)
-            await msg.reply_text("❌ Failed to send file. Please try again later.")
+            try:
+                await msg.reply_text("❌ Failed to send file. Please try again later.")
+            except Exception:
+                logger.exception("Failed to notify user about send failure %s", user_id)
             return
 
         # Send rating buttons if user hasn't rated this book yet
