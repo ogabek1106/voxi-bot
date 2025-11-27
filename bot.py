@@ -241,8 +241,26 @@ def main():
     # global error handler
     app.add_error_handler(error_handler)
 
-    logger.info("📦 Registering handlers...")
+        logger.info("📦 Registering handlers...")
     register_handlers(app)
+
+    # --- Ensure background worker from handlers is scheduled robustly ---
+    # Import the worker and schedule it once (idempotent).
+    try:
+        from handlers import _countdown_worker
+        # avoid double-scheduling: check a flag stored on the app instance
+        if not getattr(app, "_countdown_worker_scheduled", False):
+            try:
+                app.create_task(_countdown_worker(app))
+                app._countdown_worker_scheduled = True
+                logger.info("Scheduled countdown worker (explicit from bot.py).")
+            except Exception:
+                logger.exception("Failed to schedule countdown worker via app.create_task().")
+        else:
+            logger.debug("Countdown worker already scheduled on app; skipping duplicate schedule.")
+    except Exception:
+        logger.exception("Could not import countdown worker from handlers — worker not scheduled.")
+       
 
     try:
         setup_admin_reporting(app)
