@@ -10,7 +10,6 @@ from telegram.ext import (
 
 from books import BOOKS
 from database import (
-    save_user,
     save_book_request,
     save_rating,
     save_countdown,
@@ -27,7 +26,7 @@ logger = logging.getLogger(__name__)
 
 async def start(update: Update, context: CallbackContext):
     user_id = update.effective_user.id
-    save_user(user_id)
+    add_user_if_not_exists(user_id)
     await update.message.reply_text("Assalomu alaykum! 👋")
 
 
