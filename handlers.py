@@ -1,123 +1,123 @@
 # handlers.py — minimal handlers for Voxi bot + improved debug/fallback logic
-import threading
-import time
+import logging
 from telegram import Update
-from telegram.ext import ContextTypes, CommandHandler, MessageHandler, filters
+from telegram.ext import (
+    CommandHandler,
+    MessageHandler,
+    CallbackContext,
+    filters
+)
+
 from books import BOOKS
 from database import (
-    add_user_if_not_exists,
-    increment_book_request,
+    save_user,
+    save_book_request,
+    save_rating,
     save_countdown,
-    get_all_countdowns,
-    delete_countdown,
+    get_countdown,
+    delete_countdown
 )
-from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 
-# ============================================================
-# Background Worker (always running)
-# ============================================================
+# ----------------------------
+# COMMAND HANDLERS
+# ----------------------------
 
-def countdown_worker(application):
-    """
-    This thread runs forever.
-    Every 5 seconds it checks the countdowns table.
-    If a countdown expired → deletes the book message + removes countdown.
-    """
-
-    while True:
-        try:
-            countdowns = get_all_countdowns()
-            now = int(time.time())
-
-            for cd in countdowns:
-                user_id = cd["user_id"]
-                book_code = cd["book_code"]
-                end_ts = cd["end_timestamp"]
-                message_id = cd["message_id"]
-
-                if now >= end_ts:
-                    try:
-                        # delete the message
-                        application.bot.delete_message(
-                            chat_id=user_id,
-                            message_id=message_id
-                        )
-                    except Exception as e:
-                        print("Delete error:", e)
-
-                    # remove countdown from DB
-                    delete_countdown(user_id, book_code)
-
-            time.sleep(5)
-
-        except Exception as e:
-            print("Worker error:", e)
-            time.sleep(5)
+async def start(update: Update, context: CallbackContext):
+    user_id = update.effective_user.id
+    save_user(user_id)
+    await update.message.reply_text("Assalomu alaykum! 👋")
 
 
-# Starts the background thread
-def start_worker(application):
-    worker = threading.Thread(target=countdown_worker, args=(application,), daemon=True)
-    worker.start()
+async def help_command(update: Update, context: CallbackContext):
+    await update.message.reply_text("Commands:\n/book CODE\n/rate 1-5")
 
 
-# ============================================================
-# Handlers
-# ============================================================
+async def send_book(update: Update, context: CallbackContext):
+    user_id = update.effective_user.id
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    save_user(user.id)
-    await update.message.reply_text("Voxi bot online ⚡️")
+    if len(context.args) == 0:
+        await update.message.reply_text("❗ Write book code. Example: /book A1")
+        return
 
-
-async def get_book(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    save_user(user.id)
-
-    args = update.message.text.split()
-    if len(args) < 2:
-        return await update.message.reply_text("❗ Send code: /get <code>")
-
-    code = args[1].upper()
+    code = context.args[0].upper()
 
     if code not in BOOKS:
-        return await update.message.reply_text("❗ Invalid code")
+        await update.message.reply_text("❌ This book code does not exist.")
+        return
 
-    data = BOOKS[code]
-    file_id = data["file_id"]
+    file_id = BOOKS[code]["file_id"]
+    save_book_request(user_id, code)
 
-    # Send the book
-    msg = await update.message.reply_document(
-        document=file_id,
-        caption=f"📘 *{code}* — you have 15 minutes!",
-        parse_mode="Markdown"
-    )
+    # Send book
+    await update.message.reply_document(file_id)
 
-    # Count request
-    increment_book_request(code)
-
-    # Save countdown
-    end_ts = int(time.time()) + 900  # 15 minutes
-    save_countdown(
-        user_id=user.id,
-        book_code=code,
-        end_timestamp=end_ts,
-        message_id=msg.message_id
+    # Start countdown
+    end_timestamp = save_countdown(user_id, code)
+    context.application.create_task(
+        countdown_task(update, context, user_id, code, end_timestamp)
     )
 
 
-# ============================================================
-# Register
-# ============================================================
+async def countdown_task(update, context, user_id, code, end_timestamp):
+    import asyncio
+    import time
 
-def setup_handlers(application):
-    # Start background countdown worker
-    start_worker(application)
+    remaining = end_timestamp - int(time.time())
+    while remaining > 0:
+        await asyncio.sleep(5)
+        remaining = end_timestamp - int(time.time())
+
+    await update.message.reply_text("⏳ 15 minutes finished. The file was auto-deleted.")
+    delete_countdown(user_id, code)
+
+
+async def rate(update: Update, context: CallbackContext):
+    user_id = update.effective_user.id
+
+    if len(context.args) == 0:
+        await update.message.reply_text("❗ Write rating 1–5. Example: /rate 5")
+        return
+
+    try:
+        rating = int(context.args[0])
+    except:
+        await update.message.reply_text("❗ Rating must be a number from 1 to 5.")
+        return
+
+    if rating < 1 or rating > 5:
+        await update.message.reply_text("❗ Rating must be 1–5.")
+        return
+
+    save_rating(user_id, rating)
+    await update.message.reply_text("⭐ Rating saved. Thank you!")
+
+
+# ----------------------------
+# MESSAGE HANDLER
+# ----------------------------
+
+async def unknown(update: Update, context: CallbackContext):
+    await update.message.reply_text("❗ I don't understand this command.")
+
+
+# ----------------------------
+# REQUIRED FUNCTION
+# ----------------------------
+
+def register_handlers(application):
+    """
+    REQUIRED by bot.py
+    """
 
     application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("get", get_book))
+    application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(CommandHandler("book", send_book))
+    application.add_handler(CommandHandler("rate", rate))
 
-    # fallback echo
-    application.add_handler(MessageHandler(filters.ALL, start))
+    # Unknown messages
+    application.add_handler(MessageHandler(filters.TEXT, unknown))
+
+    return application
