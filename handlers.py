@@ -82,9 +82,12 @@ async def send_book(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # send file and capture message_id
     try:
-        sent = await context.bot.send_document(chat_id=chat_id, document=file_id,
-                                               filename=book.get("filename"),
-                                               caption=book.get("caption"))
+        sent = await context.bot.send_document(
+            chat_id=chat_id,
+            document=file_id,
+            filename=book.get("filename"),
+            caption=book.get("caption"),
+        )
         message_id = getattr(sent, "message_id", None)
     except Exception as e:
         logger.exception("Failed to send document %s to %s: %s", code, chat_id, e)
@@ -99,6 +102,12 @@ async def send_book(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.debug("Saved countdown: user=%s code=%s msg=%s end_ts=%s", user_id, code, message_id, end_ts)
     except Exception:
         logger.exception("Failed to save countdown for %s %s", user_id, code)
+
+    # notify user about auto-delete (optional short notice)
+    try:
+        await context.bot.send_message(chat_id=chat_id, text="⏰ File will be deleted in 15 minutes.")
+    except Exception:
+        logger.debug("Failed to send countdown notice to %s", chat_id)
 
     # send rating buttons if user hasn't rated this book yet
     try:
@@ -194,10 +203,14 @@ async def _countdown_worker(application):
                 book_code = row["book_code"]
                 message_id = row["message_id"]
                 try:
-                    await bot.delete_message(chat_id=user_id, message_id=message_id)
-                    logger.info("Deleted message %s for user %s (book %s)", message_id, user_id, book_code)
+                    if message_id is None:
+                        # nothing to delete, just remove DB row
+                        logger.debug("No message_id for countdown %s %s — deleting row", user_id, book_code)
+                    else:
+                        await bot.delete_message(chat_id=user_id, message_id=message_id)
+                        logger.info("Deleted message %s for user %s (book %s)", message_id, user_id, book_code)
                 except BadRequest as e:
-                    # message may already be deleted or too old
+                    # message may already be deleted or invalid
                     logger.debug("Could not delete message %s for %s: %s", message_id, user_id, e)
                 except TelegramError:
                     logger.exception("Telegram error when deleting message %s for %s", message_id, user_id)
@@ -288,9 +301,12 @@ def register_handlers(application):
 
             book = BOOKS[code]
             try:
-                sent = await context.bot.send_document(chat_id=chat_id, document=book["file_id"],
-                                                       filename=book.get("filename"),
-                                                       caption=book.get("caption"))
+                sent = await context.bot.send_document(
+                    chat_id=chat_id,
+                    document=book["file_id"],
+                    filename=book.get("filename"),
+                    caption=book.get("caption"),
+                )
                 message_id = getattr(sent, "message_id", None)
                 end_ts = int(time.time()) + 15 * 60
                 if message_id is not None:
@@ -317,6 +333,7 @@ def register_handlers(application):
 
     # Start countdown worker task
     try:
+        # Application has create_task() in PTB; schedule background worker
         application.create_task(_countdown_worker(application))
         logger.info("Scheduled countdown worker")
     except Exception:
