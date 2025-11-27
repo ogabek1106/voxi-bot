@@ -1,5 +1,7 @@
-# handlers.py — minimal handlers for Voxi bot + improved debug/fallback logic
+# handlers.py — minimal handlers for Voxi bot + improved debug logic
 import logging
+import time
+import asyncio
 from telegram import Update
 from telegram.ext import (
     CommandHandler,
@@ -10,6 +12,7 @@ from telegram.ext import (
 
 from books import BOOKS
 from database import (
+    add_user_if_not_exists,
     increment_book_request,
     save_rating,
     save_countdown,
@@ -18,7 +21,6 @@ from database import (
 )
 
 logger = logging.getLogger(__name__)
-
 
 # ----------------------------
 # COMMAND HANDLERS
@@ -48,28 +50,32 @@ async def send_book(update: Update, context: CallbackContext):
         return
 
     file_id = BOOKS[code]["file_id"]
-    save_book_request(user_id, code)
 
-    # Send book
+    # correct function
+    increment_book_request(code)
+
+    # Send the book
     await update.message.reply_document(file_id)
 
-    # Start countdown
+    # Start countdown & save to DB
     end_timestamp = save_countdown(user_id, code)
+
     context.application.create_task(
         countdown_task(update, context, user_id, code, end_timestamp)
     )
 
 
 async def countdown_task(update, context, user_id, code, end_timestamp):
-    import asyncio
-    import time
-
-    remaining = end_timestamp - int(time.time())
-    while remaining > 0:
+    while True:
         await asyncio.sleep(5)
-        remaining = end_timestamp - int(time.time())
+        now = int(time.time())
+        if now >= end_timestamp:
+            break
 
-    await update.message.reply_text("⏳ 15 minutes finished. The file was auto-deleted.")
+    await update.message.reply_text(
+        "⏳ 15 minutes finished. The file was auto-deleted."
+    )
+
     delete_countdown(user_id, code)
 
 
@@ -86,7 +92,7 @@ async def rate(update: Update, context: CallbackContext):
         await update.message.reply_text("❗ Rating must be a number from 1 to 5.")
         return
 
-    if rating < 1 or rating > 5:
+    if not (1 <= rating <= 5):
         await update.message.reply_text("❗ Rating must be 1–5.")
         return
 
@@ -107,9 +113,7 @@ async def unknown(update: Update, context: CallbackContext):
 # ----------------------------
 
 def register_handlers(application):
-    """
-    REQUIRED by bot.py
-    """
+    """ REQUIRED by bot.py """
 
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_command))
