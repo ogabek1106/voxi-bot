@@ -12,15 +12,20 @@ from telegram.ext import ApplicationBuilder, ContextTypes
 from config import BOT_TOKEN, ADMIN_IDS
 
 # Database init: try multiple common names for compatibility across your copies
+# Also perform a lightweight migration to ensure countdowns has message_id column
 try:
     # preferred name used in many of your earlier files
     from database import initialize_db as _init_db
+    from database import DB_PATH as _DB_PATH  # use DB_PATH for migrations if available
 except Exception:
     try:
         from database import init_db as _init_db
+        from database import DB_PATH as _DB_PATH
     except Exception:
         _init_db = None
+        _DB_PATH = os.getenv("DB_PATH", "data.db")
 
+# Run DB init if available (best-effort)
 if _init_db:
     try:
         _init_db()
@@ -28,6 +33,30 @@ if _init_db:
         # ensure startup continues even if DB init has issues (we log below)
         pass
 
+# Lightweight migration: ensure countdowns table has message_id column
+# This is safe: if column exists, we skip; if countdowns doesn't exist, skip.
+try:
+    import sqlite3
+
+    conn = sqlite3.connect(_DB_PATH)
+    c = conn.cursor()
+    # Check if countdowns table exists
+    c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='countdowns'")
+    if c.fetchone():
+        # Check columns
+        c.execute("PRAGMA table_info(countdowns)")
+        cols = [r[1] for r in c.fetchall()]  # name is index 1
+        if "message_id" not in cols:
+            try:
+                c.execute("ALTER TABLE countdowns ADD COLUMN message_id INTEGER")
+                conn.commit()
+                logging.getLogger(__name__).info("DB migration: added message_id to countdowns")
+            except Exception:
+                # Some SQLite older versions or locked DBs may fail; continue silently
+                logging.getLogger(__name__).exception("DB migration attempt to add message_id failed")
+    conn.close()
+except Exception:
+    logging.getLogger(__name__).exception("Failed to run DB migration check")
 
 # ---------------- Logging (DEBUG to capture detailed logs) ----------------
 # Use DEBUG so handlers' debug logs are visible in Railway logs.
