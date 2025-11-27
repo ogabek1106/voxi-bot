@@ -1,4 +1,4 @@
-# bot.py — minimal, polling-only launcher for your Voxi bot
+# bot.py — minimal, polling-only launcher for your Voxi bot (safe loop handling)
 import os
 import sys
 import traceback
@@ -34,6 +34,28 @@ async def _notify_admins(bot, text: str):
             logger.exception("Failed to notify admin %s", admin)
 
 
+def _safe_schedule_coro(coro):
+    """
+    Try to schedule a coroutine on the running loop in a safe way.
+    If scheduling is impossible (no loop or loop closed), fallback to printing.
+    """
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_closed():
+            raise RuntimeError("loop is closed")
+        loop.call_soon_threadsafe(asyncio.create_task, coro)
+        return True
+    except Exception:
+        # fallback: cannot schedule the coroutine, print the message instead
+        try:
+            # Attempt to extract text from the coro if it's _notify_admins(bot, text)
+            # Not guaranteed; we just log that notification couldn't be scheduled
+            logger.error("Could not schedule admin notification; loop closed or unavailable.")
+        except Exception:
+            pass
+        return False
+
+
 def _make_loop_exception_handler(bot):
     def _handler(loop, context):
         try:
@@ -44,7 +66,8 @@ def _make_loop_exception_handler(bot):
             else:
                 tb = str(context)
             text = f"{header}\n\n```\n{tb}\n```"
-            loop.call_soon_threadsafe(asyncio.create_task, _notify_admins(bot, text))
+            # Schedule notification safely
+            _safe_schedule_coro(_notify_admins(bot, text))
         except Exception:
             logger.exception("Error in loop exception handler")
     return _handler
@@ -55,11 +78,15 @@ def _install_sys_excepthook(bot):
         try:
             tb_text = "".join(traceback.format_exception(type_, value, tb))
             text = "⚠️ Uncaught exception\n\n```\n" + tb_text + "\n```"
-            loop = asyncio.get_event_loop()
-            loop.call_soon_threadsafe(asyncio.create_task, _notify_admins(bot, text))
+            # Schedule notification safely
+            _safe_schedule_coro(_notify_admins(bot, text))
         except Exception:
             logger.exception("Failed to report uncaught exception")
-        sys.__excepthook__(type_, value, tb)
+        # still call default hook for visibility
+        try:
+            sys.__excepthook__(type_, value, tb)
+        except Exception:
+            pass
     sys.excepthook = excepthook
 
 
@@ -71,13 +98,20 @@ class AdminLogHandler(logging.Handler):
     def emit(self, record):
         try:
             msg = self.format(record)
-            loop = asyncio.get_event_loop()
-            loop.call_soon_threadsafe(
-                asyncio.create_task,
-                _notify_admins(self.bot, f"🛑 Log ERROR\n\n```\n{msg}\n```"),
-            )
+            # Try to schedule sending the message to admins; if not possible, print it
+            scheduled = _safe_schedule_coro(_notify_admins(self.bot, f"🛑 Log ERROR\n\n```\n{msg}\n```"))
+            if not scheduled:
+                # Best-effort fallback: log to stderr so it is visible in logs
+                try:
+                    print("AdminLogHandler fallback — Log ERROR:\n", msg, file=sys.stderr)
+                except Exception:
+                    pass
         except Exception:
-            logger.exception("Failed to emit admin log")
+            # Never allow logging errors to crash the app
+            try:
+                print("AdminLogHandler.emit failed for record:", record, file=sys.stderr)
+            except Exception:
+                pass
 
 
 # ---------------- Application error handler ----------------
@@ -92,15 +126,23 @@ async def error_handler(update: Optional[Update], context: ContextTypes.DEFAULT_
         text = f"⚠️ Application error\n\n```\n{tb[:7000]}\n```"
         bot = getattr(context, "bot", None)
         if bot:
-            await _notify_admins(bot, text)
+            # schedule safely
+            _safe_schedule_coro(_notify_admins(bot, text))
     except Exception:
         logger.exception("Failed in application-level error handler")
 
 
 def setup_admin_reporting(app):
     bot = app.bot
-    loop = asyncio.get_event_loop()
-    loop.set_exception_handler(_make_loop_exception_handler(bot))
+    # install loop exception handler if possible
+    try:
+        loop = asyncio.get_event_loop()
+        if not loop.is_closed():
+            loop.set_exception_handler(_make_loop_exception_handler(bot))
+    except Exception:
+        # ignore - environment might not have a loop yet
+        pass
+
     _install_sys_excepthook(bot)
     admin_handler = AdminLogHandler(bot)
     admin_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
