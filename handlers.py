@@ -1,9 +1,10 @@
-# handlers.py — minimal handlers for Voxi bot
+# handlers.py — minimal handlers for Voxi bot + temporary debug handlers
 import asyncio
 import logging
+import json
 from typing import Optional
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, Chat
 from telegram.ext import (
     ContextTypes,
     CommandHandler,
@@ -26,6 +27,7 @@ from database import (
 
 logger = logging.getLogger(__name__)
 
+
 # ----------------- Safe wrapper -----------------
 def safe_handler(fn):
     if not asyncio.iscoroutinefunction(fn):
@@ -43,6 +45,7 @@ def safe_handler(fn):
                 logger.exception("Failed to send error message to user")
     return wrapper
 
+
 # ----------------- Track every user -----------------
 @safe_handler
 async def track_every_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -53,6 +56,7 @@ async def track_every_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
         add_user_if_not_exists(user.id)
     except Exception:
         logger.exception("Failed to add user %s", user.id)
+
 
 # ----------------- /start -----------------
 @safe_handler
@@ -74,6 +78,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await msg.reply_text(text, parse_mode=None)
 
+
 # ----------------- /stats (admin only) -----------------
 @safe_handler
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -83,6 +88,7 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     total = get_user_count()
     await update.message.reply_text(f"📊 Total users: {total}")
+
 
 # ----------------- /book_stats (admin only) -----------------
 @safe_handler
@@ -112,6 +118,7 @@ async def book_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         lines.append(f"{code}. {title} — {count} requests{rating_info}")
 
     await update.message.reply_text("\n".join(lines))
+
 
 # ----------------- Handle text messages as book codes -----------------
 @safe_handler
@@ -157,6 +164,7 @@ async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Not a known code
     await msg.reply_text("I didn't understand. Send a numeric book code (e.g. `1`).")
 
+
 # ----------------- Rating callback -----------------
 @safe_handler
 async def rating_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -196,9 +204,36 @@ async def rating_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception:
             pass
 
+
+# ---- DEBUG: log and reply to any text message (temporary) ----
+@safe_handler
+async def debug_log_and_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Log a compact update summary and reply (private chats only)."""
+    try:
+        info = {
+            "update_id": getattr(update, "update_id", None),
+            "from": getattr(update.effective_user, "id", None),
+            "chat_id": getattr(getattr(update, "effective_chat", None), "id", None),
+            "message_text": (update.message.text if update.message and update.message.text else None),
+            "callback_data": (update.callback_query.data if update.callback_query else None),
+        }
+        logger.info("DEBUG_UPDATE: %s", json.dumps(info, ensure_ascii=False))
+
+        chat = getattr(update, "effective_chat", None)
+        if chat and getattr(chat, "type", None) == Chat.PRIVATE:
+            # respond to /ping explicitly
+            if update.message and update.message.text and update.message.text.strip().lower() == "/ping":
+                await update.message.reply_text("pong — debug handler alive")
+            else:
+                # short confirmation so we know handler ran
+                await update.effective_message.reply_text("debug: received. Check logs.")
+    except Exception:
+        logger.exception("debug_log_and_reply failed")
+
+
 # ----------------- Register handlers -----------------
 def register_handlers(app):
-    # Track every user first
+    # Track every user first (group 0)
     app.add_handler(MessageHandler(filters.ALL, track_every_user), group=0)
     app.add_handler(CallbackQueryHandler(track_every_user), group=0)
 
@@ -207,10 +242,14 @@ def register_handlers(app):
     app.add_handler(CommandHandler("stats", stats))
     app.add_handler(CommandHandler("book_stats", book_stats))
 
-    # Message handlers
+    # Main message handler: interpret text as book code
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_code))
 
-    # Callback handlers
+    # Rating callbacks
     app.add_handler(CallbackQueryHandler(rating_callback, pattern=r"^rate\|"))
 
-    logger.info("Minimal handlers registered.")
+    # TEMP DEBUG handlers — low priority group so they don't override core logic (remove later)
+    app.add_handler(CommandHandler("ping", debug_log_and_reply))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, debug_log_and_reply), group=2)
+
+    logger.info("Minimal handlers registered (with temporary debug).")
