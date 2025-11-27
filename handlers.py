@@ -1,12 +1,9 @@
-# handlers.py — improved, non-destructive rewrite
+# handlers.py — minimal handlers for Voxi bot
 import asyncio
 import logging
-import traceback
-import uuid
 from typing import Optional
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
-from telegram.error import BadRequest
 from telegram.ext import (
     ContextTypes,
     CommandHandler,
@@ -15,7 +12,7 @@ from telegram.ext import (
     filters,
 )
 
-from config import ADMIN_IDS, GOOGLE_FORM_BASE, GOOGLE_FORM_ENTRY_TOKEN  # keep ADMIN_IDS
+from config import ADMIN_IDS
 from books import BOOKS
 from database import (
     add_user_if_not_exists,
@@ -25,44 +22,11 @@ from database import (
     has_rated,
     save_rating,
     get_rating_stats,
-    save_countdown,
-    get_remaining_countdown,
-    get_all_users,
-    # token functions
-    get_token_owner,
-    get_token_for_user,
-    save_token,
-    # bridge
-    start_bridge,
-    get_bridge_admin,
-    end_bridge,
 )
-from utils import delete_after_delay, countdown_timer
 
 logger = logging.getLogger(__name__)
 
-# ------------------ Helpers ------------------
-def cancel_kb():
-    return InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="mock_cancel")]])
-
-def _bar_left(seconds_left: int, total: int, length: int = 10) -> str:
-    elapsed = max(0, total - seconds_left)
-    filled = int(length * elapsed / total) if total > 0 else 0
-    return "█" * filled + "-" * (length - filled)
-
-async def _notify_admins_from_context(context: ContextTypes.DEFAULT_TYPE, text: str):
-    """Notify configured admins using context.bot. Safe — fire & forget."""
-    try:
-        bot = context.bot
-        for admin in ADMIN_IDS:
-            try:
-                await bot.send_message(chat_id=admin, text=text, parse_mode=None)
-            except Exception:
-                logger.exception("Failed to send admin notify to %s", admin)
-    except Exception:
-        logger.exception("Failed to notify admins (context missing?)")
-
-# Safer wrapper decorator for handlers to catch & notify on unexpected errors
+# ----------------- Safe wrapper -----------------
 def safe_handler(fn):
     if not asyncio.iscoroutinefunction(fn):
         raise ValueError("safe_handler expects an async function")
@@ -71,17 +35,7 @@ def safe_handler(fn):
         try:
             return await fn(update, context)
         except Exception as e:
-            tb = traceback.format_exc()
-            logger.exception("Unhandled error in handler %s: %s", fn.__name__, e)
-            # attempt to notify admins via context (non-blocking)
-            try:
-                if context:
-                    text = f"🛑 Handler error: <code>{fn.__name__}</code>\n\n<pre>{tb[:3000]}</pre>"
-                    # schedule admin notify (don't await to avoid blocking)
-                    asyncio.create_task(_notify_admins_from_context(context, text))
-            except Exception:
-                logger.exception("Failed to schedule admin notification for handler error")
-            # attempt to inform user minimally
+            logger.exception("Handler %s failed: %s", fn.__name__, e)
             try:
                 if update and getattr(update, "effective_message", None):
                     await update.effective_message.reply_text("⚠️ Internal error. Admins notified.")
@@ -89,758 +43,174 @@ def safe_handler(fn):
                 logger.exception("Failed to send error message to user")
     return wrapper
 
-# ------------------ Track every user (global) ------------------
+# ----------------- Track every user -----------------
 @safe_handler
 async def track_every_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # LOG FIRST (safe: handle missing user/message)
     user = update.effective_user
-    logger.info(
-        "[TRACK] message from %s: %r",
-        user.id if user else None,
-        getattr(update.effective_message, "text", None),
-    )
-
-    """
-    Add every real user to DB the moment *any* update from them arrives.
-    This runs before other handlers (we register it with group=0).
-    """
-
     if not user:
-        logger.debug("[TRACK] update has no effective_user, skipping")
         return
-
     try:
         add_user_if_not_exists(user.id)
-        logger.debug("[TRACK] added user %s", user.id)
-    except Exception as e:
-        logger.exception("Failed to add user %s: %s", user.id, e)
+    except Exception:
+        logger.exception("Failed to add user %s", user.id)
 
-# Keys for chat_data (per chat state for pre-exam countdown)
-KD_COUNT_LEFT = "mock_count_left"
-KD_COUNT_TOTAL = "mock_count_total"
-KD_MSG_ID     = "mock_msg_id"
-KD_JOB_NAME   = "mock_job_name"
-
-# ------------------ Listening placeholder ------------------
-@safe_handler
-async def mock_begin_listening(context: ContextTypes.DEFAULT_TYPE, chat_id: int):
-    await context.bot.send_message(
-        chat_id=chat_id,
-        text=(
-            "▶️ Starting <b>Listening — Part 1</b>\n\n"
-            "🎧 Please put on your headphones.\n"
-            "<i>(Demo placeholder — we’ll add real audio & questions next.)</i>"
-        ),
-        parse_mode="HTML"
-    )
-
-# ------------------ /start ------------------
+# ----------------- /start -----------------
 @safe_handler
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    Robust /start:
-    - parses context.args, raw message text and entities for payload
-    - if payload == 'get_test' -> call get_test(update, context)
-    - otherwise show fallback "Get test" button
-    """
     msg = update.effective_message
-    user_id = update.effective_user.id if update.effective_user else None
-    raw_text = msg.text if msg else None
-    logger.info("START received raw_text=%r args=%r from=%s", raw_text, context.args, user_id)
-
-    payload = None
-
-    # 1) context.args (typical)
-    if context.args:
-        payload = context.args[0]
-
-    # 2) raw text parsing (typed "/start get_test")
-    if not payload and raw_text:
-        parts = raw_text.strip().split(maxsplit=1)
-        if len(parts) >= 2:
-            payload = parts[1].strip()
-
-    # 3) parse using entities (most robust)
-    if not payload and msg and getattr(msg, "entities", None):
+    user = update.effective_user
+    if user:
         try:
-            for ent in msg.entities:
-                if ent.type == "bot_command":
-                    start_idx = ent.offset + ent.length
-                    rest = raw_text[start_idx:].strip() if raw_text and start_idx < len(raw_text) else ""
-                    if rest:
-                        if rest.startswith("start="):
-                            payload = rest.split("=", 1)[1].strip()
-                        else:
-                            payload = rest.split()[0].strip()
-                        break
-        except Exception as e:
-            logger.exception("Failed to parse entities for start payload: %s", e)
+            add_user_if_not_exists(user.id)
+        except Exception:
+            logger.exception("add_user_if_not_exists failed for %s", user.id)
 
-    if payload and payload.startswith("start="):
-        payload = payload.split("=", 1)[1]
-
-    logger.info("Parsed start payload=%r", payload)
-
-    # If payload requests test, call existing get_test handler
-    if payload and payload.lower() == "get_test":
-        return await get_test(update, context)
-
-    # If payload is a numeric book code, give the book
-    if payload and payload.isdigit() and payload in BOOKS:
-        return await handle_code(update, context, override_code=payload)
-
-    # Default start behaviour
-    try:
-        add_user_if_not_exists(user_id)
-    except Exception:
-        logger.exception("add_user_if_not_exists failed in /start for %s", user_id)
-
-    # If user already has a token, show it
-    existing = get_token_for_user(user_id)
-    if existing:
-        await msg.reply_text(
-            f"Assalomu alaykum! Sizda allaqachon token mavjud: <code>{existing}</code>\n\n"
-            "Agar yangi token kerak bo'lsa, yozing /get_test",
-            parse_mode="HTML"
-        )
-        return
-
-    # Fallback button (calls get_test_callback)
-    keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("📝 Get test", callback_data="get_test_cmd")]])
-    await msg.reply_text(
-        "Welcome! Press the button below to get your test (fallback if deep-link payload was lost).",
-        reply_markup=keyboard
+    text = (
+        "Assalomu alaykum 👋\n\n"
+        "Welcome to the Voxi bot.\n\n"
+        "• Send a book code (example: `1`) to receive the file.\n"
+        "• If you are an admin, use /stats and /book_stats.\n\n"
+        "Enjoy!"
     )
+    await msg.reply_text(text, parse_mode=None)
 
-# ------------------ /stats ------------------
+# ----------------- /stats (admin only) -----------------
 @safe_handler
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user and update.effective_user.id in ADMIN_IDS:
-        total_users = get_user_count()
-        await update.message.reply_text(f"📊 Total users: {total_users}")
-    else:
-        await update.message.reply_text("Darling, you are not an admin 🤪")
-
-# ------------------ /whois ------------------
-@safe_handler
-async def whois_token(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id not in ADMIN_IDS:
-        return await update.message.reply_text("You are not admin.")
-
-    if not context.args:
-        return await update.message.reply_text("Usage: /whois <token>")
-
-    token = context.args[0]
-    owner = get_token_owner(token)
-
-    if owner:
-        await update.message.reply_text(f"Token belongs to user_id: {owner}")
-    else:
-        await update.message.reply_text("Token not found.")
-
-# ------------------ /all_books ------------------
-@safe_handler
-async def all_books(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not BOOKS:
-        await update.message.reply_text("😕 No books are currently available.")
+    user = update.effective_user
+    if not user or user.id not in ADMIN_IDS:
+        await update.message.reply_text("❌ You are not an admin.")
         return
-    message = "📚 *Available Books:*\n\n"
-    for code, data in BOOKS.items():
-        title_line = data.get("caption", "").split('\n')[0]
-        message += f"{code}. {title_line}\n"
-    await update.message.reply_text(message, parse_mode="Markdown")
+    total = get_user_count()
+    await update.message.reply_text(f"📊 Total users: {total}")
 
-# ------------------ /book_stats ------------------
+# ----------------- /book_stats (admin only) -----------------
 @safe_handler
 async def book_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id not in ADMIN_IDS:
-        await update.message.reply_text("❌ You’re not allowed to see the stats 😎")
+    user = update.effective_user
+    if not user or user.id not in ADMIN_IDS:
+        await update.message.reply_text("❌ You are not an admin.")
         return
 
     stats = get_book_stats()
     ratings = get_rating_stats()
 
     if not stats:
-        await update.message.reply_text("📉 No book requests have been recorded yet.")
+        await update.message.reply_text("📉 No book requests recorded yet.")
         return
 
-    message = "📊 *Book Stats:*\n\n"
-    for code, count in stats.items():
-        book = BOOKS.get(code)
-        if book:
-            title = book.get('caption', '').splitlines()[0]
-            rating_info = ""
-            if code in ratings:
-                votes = ratings[code]
-                total_votes = sum(votes.get(i, 0) for i in range(1, 6))
-                avg = sum(i * votes.get(i, 0) for i in range(1, 6)) / total_votes if total_votes > 0 else 0
-                rating_info = f" — ⭐️ {avg:.1f}/5 ({total_votes} votes)"
-            message += f"{code}. {title} — {count} requests{rating_info}\n"
+    lines = ["📊 Book stats:\n"]
+    for code, count in sorted(stats.items(), key=lambda x: int(x[0]) if x[0].isdigit() else x[0]):
+        title = BOOKS.get(code, {}).get("caption", "").splitlines()[0] if BOOKS.get(code) else f"Code {code}"
+        rating_info = ""
+        if code in ratings:
+            votes = ratings[code]
+            total_votes = sum(votes.get(i, 0) for i in range(1, 6))
+            if total_votes:
+                avg = sum(i * votes.get(i, 0) for i in range(1, 6)) / total_votes
+                rating_info = f" — ⭐ {avg:.1f}/5 ({total_votes} votes)"
+        lines.append(f"{code}. {title} — {count} requests{rating_info}")
 
-    await update.message.reply_text(message, parse_mode="Markdown")
+    await update.message.reply_text("\n".join(lines))
 
-# ------------------ /asd (admin help) ------------------
+# ----------------- Handle text messages as book codes -----------------
 @safe_handler
-async def admin_commands(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id not in ADMIN_IDS:
-        await update.message.reply_text("❌ You don’t have access to this command.")
+async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    msg = update.message
+    if not msg or not msg.text:
         return
 
-    help_text = (
-        "🛠 <b>Admin Commands Help</b>\n\n"
-        "<code>/stats</code> — Show total user count\n"
-        "<code>/all_books</code> — List all available books with their codes\n"
-        "<code>/book_stats</code> — View book download counts and ratings\n"
-        "<code>/broadcast_new &lt;code&gt;</code> — Broadcast a newly added book to all users\n"
-        "<code>/asd</code> — Show this help message\n\n"
-        "📤 <b>To upload a book:</b>\n"
-        "Just send a PDF and the bot will reply with file info.\n"
-        "You can later manually add it to <code>BOOKS</code> using code and name."
-    )
-    await update.message.reply_text(help_text, parse_mode="HTML")
+    user = update.effective_user
+    user_id = user.id if user else None
+    text = msg.text.strip()
 
-# ------------------ /broadcast_new <code> ------------------
-@safe_handler
-async def broadcast_new(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-
-    if user_id not in ADMIN_IDS:
-        await update.message.reply_text("❌ You’re not allowed to use this command.")
-        return
-
-    if not context.args:
-        await update.message.reply_text("❗ Usage: /broadcast_new <code>")
-        return
-
-    code = context.args[0]
-    book = BOOKS.get(code)
-
-    if not book:
-        await update.message.reply_text("❌ Book with this code not found.")
-        return
-
-    title_line = book.get("caption", "").split('\n')[0]
-    text = (
-        "📚 <b>New Book Uploaded!</b>\n\n"
-        f"{title_line}\n"
-        f"🆔 <b>Code:</b> <code>{code}</code>\n\n"
-        "Send this number to get the file!"
-    )
-
-    count = 0
-    for uid in get_all_users():
+    # If user sent a numeric code that matches a book
+    if text.isdigit() and text in BOOKS:
+        code = text
+        book = BOOKS[code]
         try:
-            await context.bot.send_message(uid, text, parse_mode="HTML")
-            count += 1
-            await asyncio.sleep(0.05)
-        except Exception as e:
-            logger.warning(f"Failed to send to {uid}: {e}")
-
-    await update.message.reply_text(f"✅ Sent to {count} users.")
-
-# ------------------ Handle Document Uploads ------------------
-@safe_handler
-async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    if user_id not in ADMIN_IDS:
-        await update.message.reply_text("❌ You can't upload files.")
-        return
-
-    if not update.message.document:
-        await update.message.reply_text("❗️ Please send a PDF file.")
-        return
-
-    file = update.message.document
-    if file.mime_type != "application/pdf":
-        await update.message.reply_text("❗️ Only PDF files are supported.")
-        return
-
-    forwarded = await update.message.forward(chat_id=-1002714023986)
-    file_id = file.file_id
-    msg_id = forwarded.message_id
-    await update.message.reply_text(
-        f"✅ File forwarded.\n\n"
-        f"<b>file_id</b>:\n<code>{file_id}</code>\n\n"
-        f"<b>message_id</b>: <code>{msg_id}</code>",
-        parse_mode="HTML"
-    )
-
-# ------------------ Handle all messages (book codes) ------------------
-async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE, override_code: Optional[str] = None):
-    user_id = update.effective_user.id
-    add_user_if_not_exists(user_id)
-
-    # Defensive: ensure we have a message here
-    text = None
-    if update and getattr(update, "message", None):
-        text = update.message.text
-
-    msg = override_code or (text.strip() if text else "")
-
-    logger.info("[HANDLE_CODE] from=%s text=%r override=%r resolved_msg=%r", user_id, text, override_code, msg)
-
-    # Quick guard: empty message
-    if not msg:
-        await update.message.reply_text("I didn't understand — please send the book code (e.g. `1`).")
-        return
-
-    # If exists — send book
-    if msg in BOOKS:
-        book = BOOKS[msg]
-        increment_book_request(msg)
+            increment_book_request(code)
+        except Exception:
+            logger.exception("Failed to increment book request for %s", code)
 
         try:
-            sent = await update.message.reply_document(
+            await msg.reply_document(
                 document=book["file_id"],
                 filename=book.get("filename"),
                 caption=book.get("caption"),
-                parse_mode="Markdown"
+                parse_mode=None,
             )
         except Exception as e:
-            logger.exception("[HANDLE_CODE] failed to send book %s to %s: %s", msg, user_id, e)
-            # Inform the user and also tell them to contact admin
-            await update.message.reply_text("❌ Internal error while sending file. Admin notified.")
-            # try to notify admins
-            try:
-                if context:
-                    text = f"🛑 Failed to send book {msg} to {user_id}: {e}"
-                    asyncio.create_task(_notify_admins_from_context(context, text))
-            except Exception:
-                logger.exception("Failed to schedule admin notify for failed send")
+            logger.exception("Failed to send book %s to %s: %s", code, user_id, e)
+            await msg.reply_text("❌ Failed to send file. Please try again later.")
             return
 
-        rating_msg = None
+        # Send rating buttons if user hasn't rated this book yet
         try:
-            if not has_rated(user_id, msg):
-                rating_buttons = [
-                    [InlineKeyboardButton(f"{i}⭐️", callback_data=f"rate|{msg}|{i}")] for i in range(1, 6)
-                ]
-                rating_msg = await update.message.reply_text(
-                    "How would you rate this book? 🤔",
-                    reply_markup=InlineKeyboardMarkup(rating_buttons)
-                )
+            if user_id is not None and not has_rated(user_id, code):
+                buttons = [[InlineKeyboardButton(f"{i}⭐", callback_data=f"rate|{code}|{i}")] for i in range(1, 6)]
+                await msg.reply_text("How would you rate this book?", reply_markup=InlineKeyboardMarkup(buttons))
         except Exception:
-            logger.exception("[HANDLE_CODE] failed to send rating buttons for %s to %s", msg, user_id)
+            logger.exception("Failed to send rating buttons for %s to %s", code, user_id)
+        return
 
-        remaining = get_remaining_countdown(user_id, msg)
-        if remaining == 0:
-            remaining = 600
-            save_countdown(user_id, msg, remaining)
+    # Not a known code
+    await msg.reply_text("I didn't understand. Send a numeric book code (e.g. `1`).")
 
-        try:
-            countdown_msg = await update.message.reply_text(
-                f"⏳ [██████████] {remaining // 60:02}:{remaining % 60:02} remaining"
-            )
-        except Exception:
-            logger.exception("[HANDLE_CODE] failed to send countdown msg for %s to %s", msg, user_id)
-            countdown_msg = None
-
-        # schedule deletions and timer (best-effort)
-        try:
-            if countdown_msg:
-                asyncio.create_task(countdown_timer(
-                    context.bot,
-                    countdown_msg.chat.id,
-                    countdown_msg.message_id,
-                    remaining,
-                    final_text=f"♻️ File was deleted for your privacy.\nTo see it again, type `{msg}`."
-                ))
-                asyncio.create_task(delete_after_delay(context.bot, countdown_msg.chat.id, countdown_msg.message_id, remaining))
-            if sent:
-                asyncio.create_task(delete_after_delay(context.bot, sent.chat.id, sent.message_id, remaining))
-            if rating_msg:
-                asyncio.create_task(delete_after_delay(context.bot, rating_msg.chat.id, rating_msg.message_id, remaining))
-        except Exception:
-            logger.exception("[HANDLE_CODE] scheduling delete/timer failed for %s to %s", msg, user_id)
-
-    # If numeric but not found
-    elif msg.isdigit():
-        await update.message.reply_text("❌ Book not found. Check the code and try again.")
-    else:
-        await update.message.reply_text("Huh? 🤔 (Send a book code or /all_books)")
-
-# ------------------ Rating Callback ------------------
+# ----------------- Rating callback -----------------
 @safe_handler
 async def rating_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    try:
-        await query.answer("Feedback sent!", show_alert=False)
-        data = (query.data or "").split("|")
-        if len(data) != 3:
-            logger.warning("[RATING] malformed callback data: %r", query.data)
-            return
-        _, book_code, rating = data
-        user_id = query.from_user.id
-        if not has_rated(user_id, book_code):
-            save_rating(user_id, book_code, int(rating))
-            await query.edit_message_text("✅ Thanks for your rating!")
-        else:
-            await query.edit_message_text("📌 You've already rated this book.")
-    except Exception as e:
-        logger.exception(f"[rating_callback ERROR] {e}")
-        try:
-            await query.edit_message_text("⚠️ Error while saving your rating.")
-        except Exception:
-            pass
-
-# ------------------ /mock command (intro) ------------------
-@safe_handler
-async def mock_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = (
-        "📝 <b>IELTS Mock Exam</b>\n\n"
-        "⏳ Total duration: <b>~3 hours</b>\n\n"
-        "The test includes 4 parts:\n"
-        "1) <b>Listening</b> (~30–40 min)\n"
-        "2) <b>Reading</b> (60 min)\n"
-        "3) <b>Writing</b> (60 min)\n"
-        "4) <b>Speaking</b> (11–14 min)\n\n"
-        "📍 Please sit in a quiet place and prepare your headphones and notebook.\n"
-        "When you’re ready, press <b>I am ready</b> to begin.\n\n"
-        "Good luck! 🍀"
-    )
-    buttons = InlineKeyboardMarkup([
-        [InlineKeyboardButton("✅ I am ready", callback_data="mock_ready"),
-         InlineKeyboardButton("⏳ Not now, need more time", callback_data="mock_later")]
-    ])
-    await update.message.reply_text(text, parse_mode="HTML", reply_markup=buttons)
-
-# ------------------ "I am ready" → start 10s countdown via JobQueue ------------------
-@safe_handler
-async def mock_ready(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
+    if not q:
+        return
     await q.answer()
 
-    # Cancel any previous countdown jobs for this chat
-    job_name = f"mock_pre_{q.message.chat.id}"
-    for j in context.job_queue.get_jobs_by_name(job_name):
-        j.schedule_removal()
-
-    total = 10
-    context.chat_data[KD_COUNT_LEFT] = total
-    context.chat_data[KD_COUNT_TOTAL] = total
-    context.chat_data[KD_MSG_ID] = q.message.message_id
-    context.chat_data[KD_JOB_NAME] = job_name
-
-    try:
-        await q.edit_message_text(
-            "📝 <b>IELTS Mock Exam</b>\n\n"
-            f"🕒 Exam will start in <b>{total}</b> second(s)...\n"
-            f"[{'-'*10}]\n\n"
-            "Press <b>Cancel</b> if you’re not ready.",
-            parse_mode="HTML",
-            reply_markup=cancel_kb()
-        )
-    except BadRequest:
-        pass
-
-    context.job_queue.run_repeating(
-        mock_pre_tick,
-        interval=1.0,
-        first=1.0,
-        name=job_name,
-        data={"chat_id": q.message.chat.id}
-    )
-
-# ------------------ Countdown tick ------------------
-@safe_handler
-async def mock_pre_tick(context: ContextTypes.DEFAULT_TYPE):
-    chat_id = context.job.data["chat_id"]
-    chat_data = context.application.chat_data.get(chat_id, {})
-
-    left  = chat_data.get(KD_COUNT_LEFT, 0)
-    total = chat_data.get(KD_COUNT_TOTAL, 10)
-    msgid = chat_data.get(KD_MSG_ID)
-
-    # Finished/cancelled
-    if left <= 0 or not msgid:
-        for j in context.job_queue.get_jobs_by_name(chat_data.get(KD_JOB_NAME, "")):
-            j.schedule_removal()
+    parts = (q.data or "").split("|")
+    if len(parts) != 3 or parts[0] != "rate":
         return
 
-    left -= 1
-    chat_data[KD_COUNT_LEFT] = left
-    context.application.chat_data[chat_id] = chat_data  # persist change
-
-    if left > 0:
-        bar = _bar_left(left, total, 10)
-        try:
-            await context.bot.edit_message_text(
-                chat_id=chat_id, message_id=msgid,
-                text=(
-                    "📝 <b>IELTS Mock Exam</b>\n\n"
-                    f"🕒 Exam will start in <b>{left}</b> second(s)...\n"
-                    f"[{bar}]\n\n"
-                    "Press <b>Cancel</b> if you’re not ready."
-                ),
-                parse_mode="HTML",
-                reply_markup=cancel_kb()
-            )
-        except BadRequest:
-            pass
-        return
-
-    # left == 0 → finish, remove cancel, start exam
-    for j in context.job_queue.get_jobs_by_name(chat_data.get(KD_JOB_NAME, "")):
-        j.schedule_removal()
-
+    _, code, rating_str = parts
     try:
-        await context.bot.edit_message_text(
-            chat_id=chat_id, message_id=msgid,
-            text="✅ Ready! Starting <b>Listening — Part 1</b>...",
-            parse_mode="HTML"
-        )
-    except BadRequest:
-        pass
-
-    await mock_begin_listening(context, chat_id)
-
-# ------------------ "Not now" ------------------
-@safe_handler
-async def mock_later(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    q = update.callback_query
-    await q.answer("No rush — come back when you’re ready!")
-    await q.edit_message_text("No problem. You can type /mock whenever you’re ready.", parse_mode="HTML")
-
-# ------------------ Cancel during countdown ------------------
-@safe_handler
-async def mock_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    q = update.callback_query
-    await q.answer("Cancelled.")
-    chat_id = q.message.chat.id
-
-    job_name = context.chat_data.get(KD_JOB_NAME, f"mock_pre_{chat_id}")
-    for j in context.job_queue.get_jobs_by_name(job_name):
-        j.schedule_removal()
-
-    try:
-        await q.edit_message_text(
-            "⛔️ Mock exam cancelled.\nType /mock when you’re ready again.",
-            parse_mode="HTML"
-        )
-    except BadRequest:
-        pass
-
-    for k in [KD_COUNT_LEFT, KD_COUNT_TOTAL, KD_MSG_ID, KD_JOB_NAME]:
-        context.chat_data.pop(k, None)
-
-# ---------------- Google Test ----------------
-# get_test_callback and get_test are both safe-wrapped
-@safe_handler
-async def get_test_callback(query_update: Update, context: ContextTypes.DEFAULT_TYPE):
-    q = query_update.callback_query
-    await q.answer()  # acknowledge button press
-
-    # Reuse existing get_test logic by passing q.message as the message update
-    fake_update = Update(update_id=query_update.update_id, message=q.message)
-    return await get_test(fake_update, context)
-
-@safe_handler
-async def get_test(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-
-    # Check if user already has a token
-    existing = get_token_for_user(user_id)
-    if existing:
-        token = existing
-    else:
-        # Generate a new unique token and save it
-        token = uuid.uuid4().hex[:12]
-        save_token(user_id, token)
-
-    # Build pre-filled Google Form link
-    form_link = f"{GOOGLE_FORM_BASE}?usp=pp_url&{GOOGLE_FORM_ENTRY_TOKEN}={token}"
-
-    # Inline button (prevents Telegram from breaking the URL)
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("📝 Start test", url=form_link)]
-    ])
-
-    # Send message
-    await update.message.reply_text(
-        f"✏️ Testga ulanish havolangiz tayyor!\n\n"
-        f"🔑 Sizning tokeningiz: <code>{token}</code>\n\n",
-        parse_mode="HTML",
-        reply_markup=keyboard
-    )
-
-# --- Constants
-SPAM_HELP_URL = "/mnt/data/voxi-form-responses-823c82ea7719.json"  # uploaded local path (you'll map this to a public URL as needed)
-ADMIN_TG = "Ogabek1106"  # your personal username without @
-ADMIN_TG_LINK = f"https://t.me/{ADMIN_TG}"
-
-# Called when user presses the "I'm spam-blocked" callback button
-@safe_handler
-async def spam_help_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-
-    data = query.data or ""
-    # data format may be "spam_help|<target_user>" or "spam_help_start|<target_user>|<admin_id>"
-    parts = data.split("|")
-
-    # If the button contains admin id (from notify_user), extract it; otherwise link to first admin
-    admin_id = None
-    if len(parts) >= 3 and parts[0] in ("spam_help", "spam_help_start"):
-        # format: spam_help_start|<target_user>|<admin_id>
-        try:
-            admin_id = int(parts[2])
-        except Exception:
-            admin_id = None
-
-    # the target_user from callback (the user who will be bridged) — usually current chat id
-    # prefer to use query.from_user.id (the person pressing) as the user to bridge
-    target_user = query.from_user.id
-
-    if not admin_id:
-        # fallback: pick first admin from ADMIN_IDS set
-        try:
-            admin_id = next(iter(ADMIN_IDS))
-        except StopIteration:
-            admin_id = None
-
-    # create the bridge
-    start_bridge(target_user, admin_id)
-
-    # notify admin that bridge is started
-    try:
-        await context.bot.send_message(
-            chat_id=admin_id,
-            text=(f"🔔 Bridge opened with user <code>{target_user}</code> — they pressed 'I'm spam-blocked'.\n\n"
-                  "You can reply using:\n"
-                  f"<code>/reply {target_user} Your message here</code>\n"
-                  f"When finished, close with: <code>/close_bridge {target_user}</code>"),
-            parse_mode="HTML"
-        )
-    except Exception as e:
-        logger.exception("Failed to notify admin %s about bridge: %s", admin_id, e)
-
-    # confirm to user and provide contact admin button too
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("👤 Contact admin", url=ADMIN_TG_LINK)]
-    ])
-
-    try:
-        await query.edit_message_text(
-            "✅ Bizga xabar yubordik. Endi siz admin bilan bot orqali bog'lanishingiz mumkin.\n\n"
-            "Admin sizga tez orada javob beradi. Agar adminga to'g'ridan-to'g'ri yozmoqchi bo'lsangiz ishlabchi tugmani bosing.",
-            reply_markup=keyboard
-        )
+        rating = int(rating_str)
     except Exception:
-        pass
-
-# Forward user's messages (while bridged) to the linked admin automatically
-@safe_handler
-async def bridge_forward_user_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Only handle messages from users (not channels/groups)
-    user = update.effective_user
-    if not user:
+        await q.edit_message_text("Invalid rating.")
         return
 
-    # Do not forward admin messages here
-    if user.id in ADMIN_IDS:
+    user = q.from_user
+    user_id = user.id if user else None
+    if user_id is None:
+        await q.edit_message_text("Unable to identify you.")
         return
 
-    admin_id = get_bridge_admin(user.id)
-    if not admin_id:
-        return  # no active bridge for this user
-
-    msg = update.message
-    if not msg:
+    if has_rated(user_id, code):
+        await q.edit_message_text("📌 You've already rated this book.")
         return
 
-    # Forward the original message to admin (preserves content and attachments)
     try:
-        await context.bot.forward_message(chat_id=admin_id, from_chat_id=msg.chat.id, message_id=msg.message_id)
-    except Exception as e:
-        # fallback: send a text summary
-        logger.exception("Failed to forward bridged message for user %s: %s", user.id, e)
+        save_rating(user_id, code, rating)
+        await q.edit_message_text("✅ Thanks for your rating!")
+    except Exception:
+        logger.exception("Failed to save rating %s for %s by %s", rating, code, user_id)
         try:
-            await context.bot.send_message(chat_id=admin_id, text=f"[From {user.id}] {msg.text or '<non-text message>'}")
+            await q.edit_message_text("⚠️ Failed to save your rating.")
         except Exception:
             pass
 
-# Admin command: reply to bridged user via bot
-@safe_handler
-async def reply_bridge_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id not in ADMIN_IDS:
-        await update.message.reply_text("❌ You are not allowed to use this command.")
-        return
-
-    if len(context.args) < 2:
-        await update.message.reply_text("❗ Usage: /reply <user_id> <message>")
-        return
-
-    try:
-        target_id = int(context.args[0])
-    except ValueError:
-        await update.message.reply_text("❗ Invalid user_id.")
-        return
-
-    text = " ".join(context.args[1:])
-    try:
-        await context.bot.send_message(chat_id=target_id, text=text)
-        await update.message.reply_text("✅ Sent.")
-    except Exception as e:
-        logger.exception("Failed to send reply via bridge to %s: %s", target_id, e)
-        await update.message.reply_text(f"⚠️ Failed to send: {e}")
-
-# Admin command: close the bridge
-@safe_handler
-async def close_bridge_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id not in ADMIN_IDS:
-        await update.message.reply_text("❌ You are not allowed to use this command.")
-        return
-
-    if not context.args:
-        await update.message.reply_text("❗ Usage: /close_bridge <user_id>")
-        return
-
-    try:
-        target_id = int(context.args[0])
-    except ValueError:
-        await update.message.reply_text("❗ Invalid user_id.")
-        return
-
-    end_bridge(target_id)
-    await update.message.reply_text(f"✅ Bridge with <code>{target_id}</code> closed.", parse_mode="HTML")
-
-    # notify user
-    try:
-        await context.bot.send_message(chat_id=target_id,
-                                       text="🔒 Admin bilan aloqangiz yakunlandi. Agar kerak bo'lsa, yana murojaat qiling.")
-    except Exception:
-        pass
-
-# ------------------ Register ------------------
+# ----------------- Register handlers -----------------
 def register_handlers(app):
-    logger.info("[REGISTER] registering handlers")
-    # Track every user for any message/update — must run before other handlers
+    # Track every user first
     app.add_handler(MessageHandler(filters.ALL, track_every_user), group=0)
-    # Also track users when they press inline buttons (CallbackQuery)
     app.add_handler(CallbackQueryHandler(track_every_user), group=0)
+
+    # Commands
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("stats", stats))
-    app.add_handler(CommandHandler("get_test", get_test))
-    app.add_handler(CommandHandler("whois", whois_token))
-    app.add_handler(CommandHandler("asd", admin_commands))
-    app.add_handler(CommandHandler("all_books", all_books))
     app.add_handler(CommandHandler("book_stats", book_stats))
-    app.add_handler(CommandHandler("broadcast_new", broadcast_new))
-    app.add_handler(CommandHandler("mock", mock_cmd))  # IELTS mock command
-    app.add_handler(MessageHandler(filters.Document.PDF, handle_document))
+
+    # Message handlers
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_code))
-    app.add_handler(CallbackQueryHandler(get_test_callback, pattern=r"^get_test_cmd$"))
+
+    # Callback handlers
     app.add_handler(CallbackQueryHandler(rating_callback, pattern=r"^rate\|"))
-    app.add_handler(CallbackQueryHandler(mock_ready,  pattern=r"^mock_ready$"))
-    app.add_handler(CallbackQueryHandler(mock_later,  pattern=r"^mock_later$"))
-    app.add_handler(CallbackQueryHandler(mock_cancel, pattern=r"^mock_cancel$"))
-    # Callback for spam-help button
-    app.add_handler(CallbackQueryHandler(spam_help_callback, pattern=r"^spam_help"))
 
-    # Admin reply and close commands
-    app.add_handler(CommandHandler("reply", reply_bridge_cmd))
-    app.add_handler(CommandHandler("close_bridge", close_bridge_cmd))
-
-    # Forward user messages to admin if bridge is active — register this AFTER your handle_code and other main handlers
-    app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, bridge_forward_user_messages))
-    logger.info("[REGISTER] handlers registered")
+    logger.info("Minimal handlers registered.")
