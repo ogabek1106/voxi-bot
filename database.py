@@ -158,8 +158,38 @@ def delete_countdown(user_id: int, book_code: str) -> None:
         "DELETE FROM countdowns WHERE user_id = ? AND book_code = ?",
         (user_id, book_code)
     )
-    conn.commit()
+    conn.commit();
     conn.close()
+
+
+# ============================================================
+# Background Countdown Helper (ADDED)
+# ============================================================
+
+def get_expired_countdowns(current_timestamp: int) -> List[dict]:
+    """
+    Returns all countdowns where end_timestamp <= now.
+    Used by background worker to delete messages automatically.
+    """
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("""
+        SELECT user_id, book_code, end_timestamp, message_id
+        FROM countdowns
+        WHERE end_timestamp <= ?
+    """, (current_timestamp,))
+    rows = c.fetchall()
+    conn.close()
+
+    return [
+        {
+            "user_id": r[0],
+            "book_code": r[1],
+            "end_timestamp": r[2],
+            "message_id": r[3],
+        }
+        for r in rows
+    ]
 
 
 # ============================================================
@@ -261,3 +291,4 @@ def end_bridge(user_id: int) -> None:
     c.execute("DELETE FROM bridges WHERE user_id=?", (user_id,))
     conn.commit()
     conn.close()
+
