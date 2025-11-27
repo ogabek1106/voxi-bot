@@ -2,7 +2,7 @@
 import os
 import sqlite3
 import time
-from typing import Dict, List, Optional
+from typing import List, Optional
 
 DB_PATH = os.getenv("DB_PATH", "data.db")
 
@@ -40,7 +40,7 @@ def initialize_db():
         )
     """)
 
-    # Countdowns (UPDATED: now includes message_id)
+    # Countdowns (stores message_id too)
     c.execute("""
         CREATE TABLE IF NOT EXISTS countdowns (
             user_id INTEGER,
@@ -104,22 +104,18 @@ def increment_book_request(book_code: str) -> None:
     c.execute("""
         INSERT INTO book_requests (book_code, count)
         VALUES (?, 1)
-        ON CONFLICT(book_code) DO UPDATE SET count = count + 1
+        ON CONFLICT(book_code)
+        DO UPDATE SET count = count + 1
     """, (book_code,))
     conn.commit()
     conn.close()
 
 
 # ============================================================
-# Countdowns (UPDATED)
+# Countdowns (message auto-delete system)
 # ============================================================
 
 def save_countdown(user_id: int, book_code: str, end_timestamp: int, message_id: int) -> None:
-    """
-    Save or update the countdown timer.
-    end_timestamp = unix timestamp when to delete message
-    message_id = the Telegram message to delete
-    """
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute("""
@@ -142,35 +138,27 @@ def get_all_countdowns() -> List[dict]:
 
     return [
         {
-            "user_id": r[0],
-            "book_code": r[1],
-            "end_timestamp": r[2],
-            "message_id": r[3],
+            "user_id": row[0],
+            "book_code": row[1],
+            "end_timestamp": row[2],
+            "message_id": row[3],
         }
-        for r in rows
+        for row in rows
     ]
 
 
 def delete_countdown(user_id: int, book_code: str) -> None:
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    c.execute(
-        "DELETE FROM countdowns WHERE user_id = ? AND book_code = ?",
-        (user_id, book_code)
-    )
-    conn.commit();
+    c.execute("""
+        DELETE FROM countdowns
+        WHERE user_id = ? AND book_code = ?
+    """, (user_id, book_code))
+    conn.commit()
     conn.close()
 
 
-# ============================================================
-# Background Countdown Helper (ADDED)
-# ============================================================
-
 def get_expired_countdowns(current_timestamp: int) -> List[dict]:
-    """
-    Returns all countdowns where end_timestamp <= now.
-    Used by background worker to delete messages automatically.
-    """
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute("""
@@ -183,12 +171,12 @@ def get_expired_countdowns(current_timestamp: int) -> List[dict]:
 
     return [
         {
-            "user_id": r[0],
-            "book_code": r[1],
-            "end_timestamp": r[2],
-            "message_id": r[3],
+            "user_id": row[0],
+            "book_code": row[1],
+            "end_timestamp": row[2],
+            "message_id": row[3],
         }
-        for r in rows
+        for row in rows
     ]
 
 
@@ -214,9 +202,9 @@ def has_rated(user_id: int, book_code: str) -> bool:
         SELECT 1 FROM ratings
         WHERE user_id = ? AND book_code = ?
     """, (user_id, book_code))
-    ok = c.fetchone()
+    row = c.fetchone()
     conn.close()
-    return ok is not None
+    return row is not None
 
 
 # ============================================================
@@ -291,4 +279,3 @@ def end_bridge(user_id: int) -> None:
     c.execute("DELETE FROM bridges WHERE user_id=?", (user_id,))
     conn.commit()
     conn.close()
-
