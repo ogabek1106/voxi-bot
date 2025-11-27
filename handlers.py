@@ -1,13 +1,9 @@
-# handlers.py — verbose debug logging + minimal handlers for Voxi bot
+# handlers.py — minimal handlers for Voxi bot + improved debug/fallback logic
 import asyncio
 import logging
-import json
-import traceback
 from typing import Optional
 
-import httpx
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, Chat
-from telegram.error import NetworkError
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import (
     ContextTypes,
     CommandHandler,
@@ -30,21 +26,8 @@ from database import (
 
 logger = logging.getLogger(__name__)
 
-# ---- Helper: safe truncation for logs ----
-def _safe_json(obj, max_len=4000):
-    try:
-        s = json.dumps(obj, default=str, ensure_ascii=False)
-    except Exception:
-        try:
-            s = str(obj)
-        except Exception:
-            s = "<unserializable>"
-    if len(s) > max_len:
-        return s[:max_len] + "...(truncated)"
-    return s
 
-
-# ----------------- Safe wrapper -----------------
+# ----------------- Safe wrapper (logs entry/exit) -----------------
 def safe_handler(fn):
     if not asyncio.iscoroutinefunction(fn):
         raise ValueError("safe_handler expects an async function")
@@ -52,25 +35,24 @@ def safe_handler(fn):
     async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             logger.debug("Entering handler %s for update_id=%s", fn.__name__, getattr(update, "update_id", None))
-            return await fn(update, context)
+            result = await fn(update, context)
+            logger.debug("Exiting handler %s for update_id=%s", fn.__name__, getattr(update, "update_id", None))
+            return result
         except Exception as e:
-            tb = traceback.format_exc()
-            # log full traceback (DEBUG) and a short error note (INFO)
-            logger.error("Handler %s raised exception: %s", fn.__name__, e)
-            logger.debug("Traceback for handler %s:\n%s", fn.__name__, tb)
-            # try to inform the user minimally
+            logger.exception("Handler %s failed: %s", fn.__name__, e)
             try:
                 if update and getattr(update, "effective_message", None):
                     await update.effective_message.reply_text("⚠️ Internal error. Admins notified.")
             except Exception:
-                logger.exception("Failed to send error message to user after handler exception")
+                logger.exception("Failed to send error message to user")
     return wrapper
 
 
-# ----------------- Track every user -----------------
+# ----------------- Track every user (group 0) -----------------
 @safe_handler
 async def track_every_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
+    logger.debug("track_every_user called (user=%s)", getattr(user, "id", None))
     if not user:
         return
     try:
@@ -85,6 +67,7 @@ async def track_every_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.effective_message
     user = update.effective_user
+    logger.debug("start handler invoked by user=%s", getattr(user, "id", None))
     if user:
         try:
             add_user_if_not_exists(user.id)
@@ -105,6 +88,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 @safe_handler
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
+    logger.debug("stats handler invoked by %s", getattr(user, "id", None))
     if not user or user.id not in ADMIN_IDS:
         await update.message.reply_text("❌ You are not an admin.")
         return
@@ -116,6 +100,7 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
 @safe_handler
 async def book_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
+    logger.debug("book_stats handler invoked by %s", getattr(user, "id", None))
     if not user or user.id not in ADMIN_IDS:
         await update.message.reply_text("❌ You are not an admin.")
         return
@@ -145,24 +130,26 @@ async def book_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ----------------- Handle text messages as book codes -----------------
 @safe_handler
 async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Main message handler that interprets plain text as a book code.
+    Sets a flag in context.chat_data to prevent the debug fallback from replying.
+    """
     msg = update.message
     if not msg or not msg.text:
-        logger.debug("handle_code called with no message/text")
+        logger.debug("handle_code: no text -> returning")
         return
 
-    # Log raw update payload (truncated)
+    # mark handled flag for this update/chat so debug fallback can skip
     try:
-        payload = update.to_dict() if hasattr(update, "to_dict") else {
-            "update_id": getattr(update, "update_id", None),
-            "message": getattr(update, "message", None)
-        }
-        logger.debug("UPDATE_PAYLOAD: %s", _safe_json(payload, max_len=8000))
+        context.chat_data["voxi_last_handled"] = True
     except Exception:
-        logger.exception("Failed to dump update payload")
+        # context.chat_data may not be available in some rare cases; ignore
+        pass
 
     user = update.effective_user
     user_id = user.id if user else None
     text = msg.text.strip()
+    logger.debug("handle_code: user=%s text=%r", user_id, text)
 
     # If user sent a numeric code that matches a book
     if text.isdigit() and text in BOOKS:
@@ -170,62 +157,21 @@ async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
         book = BOOKS[code]
         try:
             increment_book_request(code)
+            logger.debug("incremented request counter for book %s", code)
         except Exception:
             logger.exception("Failed to increment book request for %s", code)
 
-        # DEBUG: log what we are about to send
         try:
-            logger.info("Preparing to send book code=%s to user=%s file_id=%s filename=%r",
-                        code, user_id, book.get("file_id"), book.get("filename"))
-        except Exception:
-            logger.exception("Failed to log book send info for %s", code)
-
-        # Attempt to send document. Log before and after.
-        try:
-            logger.debug("Calling reply_document for user=%s code=%s", user_id, code)
-            sent = await msg.reply_document(
+            await msg.reply_document(
                 document=book["file_id"],
                 filename=book.get("filename"),
                 caption=book.get("caption"),
                 parse_mode=None,
             )
-            logger.info("reply_document succeeded: chat=%s message_id=%s", getattr(sent, "chat_id", None), getattr(sent, "message_id", None))
-        except NetworkError as ne:
-            # network error — log full details and inform user
-            logger.error("NetworkError when sending book %s to %s: %s", code, user_id, ne)
-            logger.debug("NetworkError repr: %r", ne)
-            # If it's an httpx exception, show the inner details if available
-            try:
-                if isinstance(ne.__cause__, Exception):
-                    logger.debug("NetworkError.__cause__: %s", traceback.format_exc())
-            except Exception:
-                pass
-            try:
-                await msg.reply_text("🔁 Temporary network error while sending the file. Please try again in a moment.")
-            except Exception:
-                logger.exception("Failed to send network error message to user %s", user_id)
-            return
-        except httpx.ReadError as hx:
-            logger.exception("httpx.ReadError sending book %s to %s: %s", code, user_id, hx)
-            try:
-                await msg.reply_text("🔁 Temporary network read error. Try again shortly.")
-            except Exception:
-                logger.exception("Failed to notify user about httpx.ReadError")
-            return
+            logger.debug("Sent book %s to user %s", code, user_id)
         except Exception as e:
-            # Log full traceback and helpful diagnostics
-            tb = traceback.format_exc()
-            logger.error("Failed to send book %s to %s: %s", code, user_id, e)
-            logger.debug("Traceback while sending document:\n%s", tb)
-            # Also dump exception repr and class
-            try:
-                logger.debug("Exception class: %s, repr: %r", e.__class__, e)
-            except Exception:
-                pass
-            try:
-                await msg.reply_text("❌ Failed to send file. Please try again later.")
-            except Exception:
-                logger.exception("Failed to notify user about send failure %s", user_id)
+            logger.exception("Failed to send book %s to %s: %s", code, user_id, e)
+            await msg.reply_text("❌ Failed to send file. Please try again later.")
             return
 
         # Send rating buttons if user hasn't rated this book yet
@@ -233,11 +179,13 @@ async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if user_id is not None and not has_rated(user_id, code):
                 buttons = [[InlineKeyboardButton(f"{i}⭐", callback_data=f"rate|{code}|{i}")] for i in range(1, 6)]
                 await msg.reply_text("How would you rate this book?", reply_markup=InlineKeyboardMarkup(buttons))
+                logger.debug("Sent rating buttons for book %s to user %s", code, user_id)
         except Exception:
             logger.exception("Failed to send rating buttons for %s to %s", code, user_id)
         return
 
     # Not a known code
+    logger.debug("handle_code: unknown code %r from user %s", text, user_id)
     await msg.reply_text("I didn't understand. Send a numeric book code (e.g. `1`).")
 
 
@@ -246,11 +194,14 @@ async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def rating_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     if not q:
+        logger.debug("rating_callback: no callback_query -> return")
         return
     await q.answer()
+    logger.debug("rating_callback invoked by user=%s data=%r", getattr(q.from_user, "id", None), q.data)
 
     parts = (q.data or "").split("|")
     if len(parts) != 3 or parts[0] != "rate":
+        logger.debug("rating_callback: malformed data %r", q.data)
         return
 
     _, code, rating_str = parts
@@ -273,6 +224,7 @@ async def rating_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         save_rating(user_id, code, rating)
         await q.edit_message_text("✅ Thanks for your rating!")
+        logger.debug("Saved rating %s for book %s by user %s", rating, code, user_id)
     except Exception:
         logger.exception("Failed to save rating %s for %s by %s", rating, code, user_id)
         try:
@@ -281,38 +233,60 @@ async def rating_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass
 
 
-# ---- DEBUG: log and reply to any text message (temporary) ----
+# ---- DEBUG: fallback handler (only runs if main handler did not handle) ----
 @safe_handler
 async def debug_log_and_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Log a compact update summary and reply (private chats only)."""
-    try:
-        # Prefer full to_dict if available (very helpful)
-        try:
-            ud = update.to_dict()
-        except Exception:
-            ud = {
-                "update_id": getattr(update, "update_id", None),
-                "message_text": (update.message.text if update.message and update.message.text else None),
-                "callback_data": (update.callback_query.data if update.callback_query else None),
-                "from": getattr(update.effective_user, "id", None),
-                "chat_id": getattr(getattr(update, "effective_chat", None), "id", None),
-            }
-        logger.debug("DEBUG_UPDATE (full): %s", _safe_json(ud, max_len=16000))
+    """
+    This is a low-priority fallback debug handler.
+    It will only reply if handle_code didn't mark the update as handled.
+    Use /ping to verify bot is alive. Otherwise it replies 'debug: received...' only
+    if the main handler did not handle the message.
+    """
+    logger.debug("debug_log_and_reply invoked for update_id=%s", getattr(update, "update_id", None))
 
-        chat = getattr(update, "effective_chat", None)
-        if chat and getattr(chat, "type", None) == Chat.PRIVATE:
-            # respond to /ping explicitly
-            if update.message and update.message.text and update.message.text.strip().lower() == "/ping":
-                await update.message.reply_text("pong — debug handler alive")
-            else:
-                # short confirmation so we know handler ran
-                await update.effective_message.reply_text("debug: received. Check logs.")
+    # If main handler ran for this chat/update, skip reply (pop flag)
+    handled = False
+    try:
+        handled = bool(context.chat_data.pop("voxi_last_handled", False))
     except Exception:
-        logger.exception("debug_log_and_reply failed")
+        handled = False
+
+    # Log compact info for debugging
+    try:
+        info = {
+            "update_id": getattr(update, "update_id", None),
+            "from": getattr(update.effective_user, "id", None),
+            "chat_id": getattr(getattr(update, "effective_chat", None), "id", None),
+            "message_text": (update.message.text if update.message and update.message.text else None),
+            "callback_data": (update.callback_query.data if update.callback_query else None),
+            "handled_by_main": handled,
+        }
+        logger.debug("DEBUG_UPDATE (full): %s", info)
+    except Exception:
+        logger.exception("Failed to log debug update info")
+
+    # If main handler already handled — do nothing
+    if handled:
+        logger.debug("debug_log_and_reply: skipping because main handler already responded")
+        return
+
+    # If user explicitly asked /ping (command) — reply
+    if update.message and update.message.text and update.message.text.strip().lower() == "/ping":
+        await update.message.reply_text("pong — debug handler alive")
+        return
+
+    # Only respond in private chats so we don't spam groups
+    chat = getattr(update, "effective_chat", None)
+    if chat and getattr(chat, "type", None) == "private":
+        await update.effective_message.reply_text("debug: received. Check logs.")
+    else:
+        logger.debug("debug_log_and_reply: not replying because chat is not private")
 
 
 # ----------------- Register handlers -----------------
 def register_handlers(app):
+    logger.info("Registering minimal handlers (track,start,handle_code,ratings,debug)")
+
     # Track every user first (group 0)
     app.add_handler(MessageHandler(filters.ALL, track_every_user), group=0)
     app.add_handler(CallbackQueryHandler(track_every_user), group=0)
@@ -322,13 +296,13 @@ def register_handlers(app):
     app.add_handler(CommandHandler("stats", stats))
     app.add_handler(CommandHandler("book_stats", book_stats))
 
-    # Main message handler: interpret text as book code
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_code))
+    # Main message handler: interpret text as book code (group 1)
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_code), group=1)
 
     # Rating callbacks
     app.add_handler(CallbackQueryHandler(rating_callback, pattern=r"^rate\|"))
 
-    # TEMP DEBUG handlers — low priority group so they don't override core logic (remove later)
+    # TEMP DEBUG handlers — low priority group so they don't override core logic
     app.add_handler(CommandHandler("ping", debug_log_and_reply))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, debug_log_and_reply), group=2)
 
