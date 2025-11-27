@@ -1,4 +1,4 @@
-# bot.py — resilient, minimal polling launcher for Voxi bot
+# bot.py — resilient, minimal polling launcher for Voxi bot (ready to drop in)
 import os
 import sys
 import traceback
@@ -10,15 +10,39 @@ from telegram import Update
 from telegram.ext import ApplicationBuilder, ContextTypes
 
 from config import BOT_TOKEN, ADMIN_IDS
-from handlers import register_handlers
-from database import initialize_db
 
-# Initialize DB (creates tables if needed)
-initialize_db()
+# Database init: try multiple common names for compatibility across your copies
+try:
+    # preferred name used in many of your earlier files
+    from database import initialize_db as _init_db
+except Exception:
+    try:
+        from database import init_db as _init_db
+    except Exception:
+        _init_db = None
 
-# Logging
-logging.basicConfig(level=logging.INFO)
+if _init_db:
+    try:
+        _init_db()
+    except Exception:
+        # ensure startup continues even if DB init has issues (we log below)
+        pass
+
+
+# ---------------- Logging (DEBUG to capture detailed logs) ----------------
+# Use DEBUG so handlers' debug logs are visible in Railway logs.
+logging.basicConfig(
+    level=logging.DEBUG,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
 logger = logging.getLogger(__name__)
+
+# Make httpx and telegram verbose too (helps diagnose Network/Read errors)
+logging.getLogger("httpx").setLevel(logging.DEBUG)
+logging.getLogger("telegram").setLevel(logging.DEBUG)
+# keep urllib3 less noisy by default
+logging.getLogger("urllib3").setLevel(logging.INFO)
+
 
 # Try to import Request (may be unavailable in some environments / package versions)
 try:
@@ -68,6 +92,7 @@ def _make_loop_exception_handler(bot):
             _safe_schedule_coro(_notify_admins(bot, text))
         except Exception:
             logger.exception("Error in loop exception handler")
+
     return _handler
 
 
@@ -84,11 +109,13 @@ def _install_sys_excepthook(bot):
             sys.__excepthook__(type_, value, tb)
         except Exception:
             pass
+
     sys.excepthook = excepthook
 
 
 class AdminLogHandler(logging.Handler):
     """Logging handler that notifies admins on errors, but is safe if loop is closed."""
+
     def __init__(self, bot):
         super().__init__(level=logging.ERROR)
         self.bot = bot
@@ -174,6 +201,13 @@ def main():
         except Exception:
             logger.warning("Builder.request(...) failed; continuing without custom Request.")
     app = builder.build()
+
+    # Import handlers here (after app built so handlers can reference app if needed)
+    try:
+        from handlers import register_handlers  # local import to avoid circular issues
+    except Exception:
+        logger.exception("Failed to import handlers — make sure handlers.py exists and is valid")
+        raise
 
     # global error handler
     app.add_error_handler(error_handler)
