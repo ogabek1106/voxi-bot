@@ -5,7 +5,7 @@ from telegram import Update
 from telegram.ext import ContextTypes, CommandHandler, MessageHandler, filters
 from books import BOOKS
 from database import (
-    save_user,
+    add_user_if_not_exists,
     increment_book_request,
     save_countdown,
     get_all_countdowns,
