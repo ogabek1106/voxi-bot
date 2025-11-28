@@ -7,7 +7,7 @@ from books import BOOKS
 
 logger = logging.getLogger(__name__)
 
-DELETE_SECONDS = 15  # ⬅️ 15 seconds for testing
+DELETE_SECONDS = 15 * 60  # ⬅️ 15 mins
 
 
 def send_book_by_code(chat_id: int, code: str, context: CallbackContext):
