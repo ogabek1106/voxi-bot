@@ -1,22 +1,22 @@
 # features/all_members_command.py
 """
-Admin broadcast feature.
+Admin broadcast feature (robust imports).
 
 Usage:
 - Admin runs /all_members
-- Bot asks: "Send the message you want to broadcast"
-- Admin sends any message (text/photo/video/document/audio/voice/animation/sticker)
-- Bot sends that content to all user IDs returned by database.get_all_users()
+- Bot asks for the content
+- Admin sends any message (text/photo/video/document/voice/audio/animation/sticker)
+- Bot sends that content to all users from database.get_all_users()
 - Skips users who blocked the bot or cause permanent errors
-- Handles RetryAfter by sleeping the requested time then retrying
-- Replies: "Sent to X users! Y failed to send"
+- Handles rate limits by sleeping then retrying
+- Replies summary and ends conversation
 """
 
 import logging
 import time
 from typing import List
 
-from telegram import Update, Message, InputMediaPhoto
+from telegram import Update, Message
 from telegram.ext import (
     CallbackContext,
     ConversationHandler,
@@ -24,7 +24,6 @@ from telegram.ext import (
     MessageHandler,
     Filters,
 )
-from telegram.error import Forbidden, BadRequest, RetryAfter
 
 import admins
 from database import get_all_users  # must exist in your repo
@@ -34,7 +33,7 @@ logger = logging.getLogger(__name__)
 # Conversation state
 WAITING_FOR_BROADCAST = 1
 
-# small pause between sends to avoid hitting Telegram limits too fast (seconds)
+# small pause between sends to reduce hitting limits
 PAUSE_BETWEEN_SENDS = 0.05
 
 
@@ -54,7 +53,9 @@ def all_members_entry(update: Update, context: CallbackContext):
         update.message.reply_text("You are not authorized to use this command.")
         return ConversationHandler.END
 
-    update.message.reply_text("Send the message (text/photo/video/document/voice/audio/animation/sticker) you want to broadcast to ALL users.\n\nSend /cancel to abort.")
+    update.message.reply_text(
+        "Send the message (text/photo/video/document/voice/audio/animation/sticker) you want to broadcast to ALL users.\n\nSend /cancel to abort."
+    )
     return WAITING_FOR_BROADCAST
 
 
@@ -66,10 +67,8 @@ def all_members_cancel(update: Update, context: CallbackContext):
 def _prepare_targets() -> List[int]:
     try:
         users = get_all_users()
-        # expecting list of rows or list of ints: normalize
         ids = []
         for u in users:
-            # if each row is tuple like (user_id, ...) or just int
             if isinstance(u, (list, tuple)):
                 ids.append(int(u[0]))
             else:
@@ -80,23 +79,39 @@ def _prepare_targets() -> List[int]:
         return []
 
 
+def _is_rate_limit_exc(e) -> bool:
+    return e.__class__.__name__ == "RetryAfter"
+
+
+def _is_forbidden_exc(e) -> bool:
+    # Forbidden in some PTB versions; check by name
+    return e.__class__.__name__ in ("Forbidden", "Unauthorized")  # Unauthorized sometimes used
+
+
+def _is_badrequest_exc(e) -> bool:
+    return e.__class__.__name__ == "BadRequest"
+
+
+def _get_retry_after(e) -> int:
+    return int(getattr(e, "retry_after", 1))
+
+
 def _send_to_user(bot, user_id: int, message: Message) -> bool:
     """
     Send the message to single user_id.
     Returns True on success, False on permanent failure.
-    Handles RetryAfter by sleeping required seconds then retrying.
+    Handles rate limits by sleeping required seconds then retrying once.
     """
     try:
-        # Text
-        if message.text or message.caption and not (
-            message.photo or message.video or message.document or message.audio or message.voice or message.animation or message.sticker
+        # Text (or caption-only)
+        if (message.text and not (message.photo or message.video or message.document or message.audio or message.voice or message.animation or message.sticker)) or (
+            not message.text and message.caption and not (message.photo or message.video or message.document or message.audio or message.voice or message.animation)
         ):
-            # If caption present but no media, use caption as text
             text_to_send = message.text if message.text else message.caption
             bot.send_message(chat_id=user_id, text=text_to_send)
             return True
 
-        # Photo (send highest resolution)
+        # Photo
         if message.photo:
             file_id = message.photo[-1].file_id
             bot.send_photo(chat_id=user_id, photo=file_id, caption=message.caption)
@@ -132,33 +147,36 @@ def _send_to_user(bot, user_id: int, message: Message) -> bool:
             bot.send_sticker(chat_id=user_id, sticker=message.sticker.file_id)
             return True
 
-        # Fallback: try forwarding the original message (preserves content but may show "forwarded from")
+        # Fallback: try forwarding the original message
         try:
             bot.forward_message(chat_id=user_id, from_chat_id=message.chat.id, message_id=message.message_id)
             return True
         except Exception:
-            # last resort, fail
             return False
 
-    except RetryAfter as e:
-        wait = int(getattr(e, "retry_after", 1)) + 1
-        logger.warning("Hit rate limit. Sleeping %s seconds before retrying for user %s", wait, user_id)
-        time.sleep(wait)
-        try:
-            # retry once
-            return _send_to_user(bot, user_id, message)
-        except Exception as e2:
-            logger.exception("Retry failed for user %s: %s", user_id, e2)
-            return False
-
-    except Forbidden:
-        # user blocked the bot or chat not available — permanent skip
-        return False
-    except BadRequest as e:
-        # BadRequest may be caused by invalid file, chat not available, etc. treat as permanent failure
-        logger.debug("BadRequest when sending to %s: %s", user_id, e)
-        return False
     except Exception as e:
+        # Rate limit: wait and retry once
+        if _is_rate_limit_exc(e):
+            wait = _get_retry_after(e) + 1
+            logger.warning("Hit rate limit. Sleeping %s seconds before retrying for user %s", wait, user_id)
+            time.sleep(wait)
+            try:
+                return _send_to_user(bot, user_id, message)
+            except Exception as e2:
+                logger.exception("Retry failed for user %s: %s", user_id, e2)
+                return False
+
+        # Forbidden / Unauthorized: user blocked bot or chat impossible — permanent skip
+        if _is_forbidden_exc(e):
+            logger.debug("Forbidden/Unauthorized for user %s: %s", user_id, e)
+            return False
+
+        # BadRequest: treat as permanent failure for this user
+        if _is_badrequest_exc(e):
+            logger.debug("BadRequest for user %s: %s", user_id, e)
+            return False
+
+        # Unknown error — log and treat as failure
         logger.exception("Unexpected error when sending to %s: %s", user_id, e)
         return False
 
@@ -190,10 +208,8 @@ def broadcast_message(update: Update, context: CallbackContext):
         else:
             failed += 1
 
-        # small pause
         time.sleep(PAUSE_BETWEEN_SENDS)
 
-        # optional: progress log every 100 sends
         if idx % 100 == 0:
             logger.info("Broadcast progress: %s/%s (success=%s, failed=%s)", idx, total, success, failed)
 
@@ -202,12 +218,6 @@ def broadcast_message(update: Update, context: CallbackContext):
 
 
 def setup(dispatcher, bot=None):
-    """
-    Register the conversation handler for /all_members.
-    This registers:
-    - /all_members -> ask admin to send broadcast -> WAITING_FOR_BROADCAST
-    - /cancel to abort
-    """
     conv = ConversationHandler(
         entry_points=[CommandHandler("all_members", all_members_entry)],
         states={
