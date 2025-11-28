@@ -9,6 +9,7 @@ from books import BOOKS
 logger = logging.getLogger(__name__)
 
 DELETE_SECONDS = 15 * 60  # ⬅️ 15 mins
+PROGRESS_BAR_LENGTH = 12  # adjust length of bar if you want
 
 
 def _format_mmss(seconds: int) -> str:
@@ -27,10 +28,21 @@ def _wallclock_end_time_str(total_seconds: int) -> str:
     return f"{t.tm_hour:02d}:{t.tm_min:02d}"
 
 
+def _build_progress_bar(remaining: int, total: int, length: int = PROGRESS_BAR_LENGTH) -> str:
+    """Return a bar like █████----- based on remaining/total."""
+    if total <= 0:
+        return "─" * length
+    frac = max(0.0, min(1.0, remaining / total))
+    filled = int(round(frac * length))
+    filled = max(0, min(length, filled))
+    bar = "█" * filled + "─" * (length - filled)
+    return bar
+
+
 def send_book_by_code(chat_id: int, code: str, context: CallbackContext):
     """
     Sends the book (document) and a live-updating countdown message in the format:
-    ⏳ [ MM:SS ] HH:MM
+    ⏳ [█████-----] 04:30 - qolgan vaqt
     Returns tuple (document_message_id, countdown_message_id) if successful, else (None, None).
     """
     book = BOOKS.get(code)
@@ -51,10 +63,10 @@ def send_book_by_code(chat_id: int, code: str, context: CallbackContext):
         logger.exception("Failed to send book: %s", e)
         return None, None
 
-    # Prepare initial countdown text
+    # Prepare initial countdown text (full bar)
     mmss = _format_mmss(DELETE_SECONDS)
-    wallclock = _wallclock_end_time_str(DELETE_SECONDS)
-    countdown_text = f"⏳ [{mmss}] {wallclock}"
+    bar = _build_progress_bar(DELETE_SECONDS, DELETE_SECONDS)
+    countdown_text = f"⏳ [{bar}] {mmss} - qolgan vaqt"
 
     try:
         # send a plain text countdown (no markup)
@@ -86,14 +98,14 @@ def send_book_by_code(chat_id: int, code: str, context: CallbackContext):
 def _countdown_updater_thread(context: CallbackContext, chat_id: int, doc_msg_id: int, countdown_msg_id: int, total_seconds: int):
     """
     Background thread to:
-      - update countdown message roughly every 60 seconds (MM:SS)
+      - update countdown message roughly every 60 seconds (progress bar + MM:SS - qolgan vaqt)
       - at the end, delete both the document message and the countdown message
     """
     start = time.time()
     end = start + total_seconds
     current_countdown_id = countdown_msg_id
 
-    # First update was already sent; now loop until time is up
+    # Loop until time is up
     while True:
         now = time.time()
         remaining = int(end - now)
@@ -111,13 +123,12 @@ def _countdown_updater_thread(context: CallbackContext, chat_id: int, doc_msg_id
             logger.info("Deleted book msg %s and countdown %s in chat %s", doc_msg_id, current_countdown_id, chat_id)
             break
 
-        # Build new countdown text: emoji + [MM:SS] + end HH:MM
+        # Build progress bar and MM:SS text
+        bar = _build_progress_bar(remaining, total_seconds)
         mmss = _format_mmss(remaining)
-        wallclock = _wallclock_end_time_str(remaining)
-        new_text = f"⏳ [{mmss}] {wallclock}"
+        new_text = f"⏳ [{bar}] {mmss} - qolgan vaqt"
 
-        # Try to edit the countdown message. If it fails (deleted by user or edit forbidden),
-        # create a new countdown message and try to delete the old one.
+        # Try to edit the countdown message. If it fails, create a new one and delete old (best-effort).
         try:
             context.bot.edit_message_text(text=new_text, chat_id=chat_id, message_id=current_countdown_id)
         except Exception as e:
