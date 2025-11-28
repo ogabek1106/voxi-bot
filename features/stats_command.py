@@ -20,7 +20,7 @@ import admins
 
 logger = logging.getLogger(__name__)
 
-DB_PATH = os.getenv("SQLITE_PATH", "sqlite.db")
+DB_PATH = os.getenv("DB_PATH", os.getenv("SQLITE_PATH", "/data/data.db"))
 
 
 def _get_admin_ids() -> Set[int]:
