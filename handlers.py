@@ -7,7 +7,7 @@ from books import BOOKS
 
 logger = logging.getLogger(__name__)
 
-DELETE_SECONDS = 15 * 60  # 15 minutes
+DELETE_SECONDS = 15  # ⬅️ 15 seconds for testing
 
 
 def send_book_by_code(chat_id: int, code: str, context: CallbackContext):
@@ -26,7 +26,7 @@ def send_book_by_code(chat_id: int, code: str, context: CallbackContext):
             parse_mode="Markdown",
         )
 
-        # schedule deletion
+        # 🔥 schedule deletion after DELETE_SECONDS
         def delete_message():
             try:
                 context.bot.delete_message(chat_id=chat_id, message_id=sent.message_id)
@@ -46,6 +46,7 @@ def start_handler(update: Update, context: CallbackContext):
     args = context.args or []
     chat_id = update.effective_chat.id
 
+    # deep link: /start 3
     if args:
         code = args[0].strip()
         sent = send_book_by_code(chat_id, code, context)
@@ -56,25 +57,24 @@ def start_handler(update: Update, context: CallbackContext):
 
     user = update.effective_user
     name = user.first_name or "do‘st"
-    update.message.reply_text(f"Assalomu alaykum, {name}!\nMenga faqat kitob kodini yuboring (masalan: 3)")
+    update.message.reply_text(
+        f"Assalomu alaykum, {name}!\nMenga faqat kitob kodini yuboring (masalan: 3)"
+    )
 
 
 def numeric_message_handler(update: Update, context: CallbackContext):
-    """Handles messages that are ONLY a number."""
+    """Handles messages that are ONLY a number like '3'."""
     text = update.message.text.strip()
 
-    # 1) Check if message is a number like "3"
     if not text.isdigit():
-        return  # ignore all non-numeric messages
+        return  # ignore non-numeric messages
 
     chat_id = update.effective_chat.id
 
-    # 2) Check if code exists
     if text not in BOOKS:
         update.message.reply_text("Bunday kod topilmadi.")
         return
 
-    # 3) Send the book
     sent = send_book_by_code(chat_id, text, context)
     if not sent:
         update.message.reply_text("Kitobni yuborishda xatolik yuz berdi.")
