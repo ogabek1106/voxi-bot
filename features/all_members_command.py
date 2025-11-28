@@ -1,10 +1,12 @@
 # features/all_members_command.py
 """
-Admin broadcast feature (slow safe mode).
+Admin broadcast feature with live progress updates.
 
-- Per-send pause set to 5 seconds to avoid rate limits.
-- Extra rest every 100 sends to be extra-safe.
-- Admin-only, uses database.get_all_users() and admins.ADMIN_IDS / ADMINS.
+- Admin runs /all_members
+- Bot asks for broadcast content
+- Admin sends content
+- Bot replies immediately and posts a status message that is edited every 10 processed users
+- Safe sends with long pauses and error handling
 """
 
 import logging
@@ -27,10 +29,13 @@ logger = logging.getLogger(__name__)
 
 WAITING_FOR_BROADCAST = 1
 
-# <-- SAFETY / TIMING -->
-PAUSE_BETWEEN_SENDS = 5        # seconds between each send (you asked for 5s)
+# timing (safe)
+PAUSE_BETWEEN_SENDS = 5        # seconds between each send
 LONG_REST_INTERVAL = 100      # after this many messages take a longer rest
 LONG_REST_SECS = 10           # extra rest seconds every LONG_REST_INTERVAL sends
+
+# progress update frequency
+PROGRESS_BATCH = 10           # update the admin-visible status after every PROGRESS_BATCH processed
 
 
 def _is_admin(user_id: int) -> bool:
@@ -92,8 +97,11 @@ def _get_retry_after(e) -> int:
 
 
 def _send_to_user(bot, user_id: int, message: Message) -> bool:
+    """
+    Send a message to one user. Returns True on success, False on permanent failure.
+    """
     try:
-        # Text or caption-only
+        # Text or caption-only (no media)
         if (message.text and not (message.photo or message.video or message.document or message.audio or message.voice or message.animation or message.sticker)) or (
             not message.text and message.caption and not (message.photo or message.video or message.document or message.audio or message.voice or message.animation)
         ):
@@ -101,43 +109,36 @@ def _send_to_user(bot, user_id: int, message: Message) -> bool:
             bot.send_message(chat_id=user_id, text=text_to_send)
             return True
 
-        # Photo
         if message.photo:
             file_id = message.photo[-1].file_id
             bot.send_photo(chat_id=user_id, photo=file_id, caption=message.caption)
             return True
 
-        # Video
         if message.video:
             bot.send_video(chat_id=user_id, video=message.video.file_id, caption=message.caption)
             return True
 
-        # Document
         if message.document:
             bot.send_document(chat_id=user_id, document=message.document.file_id, caption=message.caption)
             return True
 
-        # Audio
         if message.audio:
             bot.send_audio(chat_id=user_id, audio=message.audio.file_id, caption=message.caption)
             return True
 
-        # Voice
         if message.voice:
             bot.send_voice(chat_id=user_id, voice=message.voice.file_id, caption=message.caption)
             return True
 
-        # Animation (gif)
         if message.animation:
             bot.send_animation(chat_id=user_id, animation=message.animation.file_id, caption=message.caption)
             return True
 
-        # Sticker
         if message.sticker:
             bot.send_sticker(chat_id=user_id, sticker=message.sticker.file_id)
             return True
 
-        # Fallback: forward original message
+        # fallback: forward original message
         try:
             bot.forward_message(chat_id=user_id, from_chat_id=message.chat.id, message_id=message.message_id)
             return True
@@ -145,10 +146,10 @@ def _send_to_user(bot, user_id: int, message: Message) -> bool:
             return False
 
     except Exception as e:
-        # Rate limit: wait and retry once
+        # handle rate limits
         if _is_rate_limit_exc(e):
             wait = _get_retry_after(e) + 1
-            logger.warning("Hit rate limit. Sleeping %s seconds before retrying for user %s", wait, user_id)
+            logger.warning("RetryAfter for user %s: sleeping %s seconds", user_id, wait)
             time.sleep(wait)
             try:
                 return _send_to_user(bot, user_id, message)
@@ -156,21 +157,28 @@ def _send_to_user(bot, user_id: int, message: Message) -> bool:
                 logger.exception("Retry failed for user %s: %s", user_id, e2)
                 return False
 
-        # Forbidden / Unauthorized: user blocked or chat impossible — permanent skip
         if _is_forbidden_exc(e):
-            logger.debug("Forbidden/Unauthorized for user %s: %s", user_id, e)
+            logger.debug("Forbidden for user %s: %s", user_id, e)
             return False
 
-        # BadRequest: treat as permanent failure
         if _is_badrequest_exc(e):
             logger.debug("BadRequest for user %s: %s", user_id, e)
             return False
 
-        logger.exception("Unexpected error when sending to %s: %s", user_id, e)
+        logger.exception("Unexpected error sending to %s: %s", user_id, e)
         return False
 
 
+def _format_status(sent: int, failed: int, processed: int, total: int) -> str:
+    """Return a human-readable status string."""
+    return f"Progress: ✅ {sent} sent  •  ❌ {failed} failed  •  {processed}/{total} processed"
+
+
 def broadcast_message(update: Update, context: CallbackContext):
+    """
+    Triggered when admin sends the broadcast content.
+    Acknowledges admin and posts an editable status message updated every PROGRESS_BATCH processed users.
+    """
     user = update.effective_user
     if not user or not _is_admin(user.id):
         update.message.reply_text("You are not authorized to do that.")
@@ -180,15 +188,30 @@ def broadcast_message(update: Update, context: CallbackContext):
     bot = context.bot
 
     targets = _prepare_targets()
-    if not targets:
+    total = len(targets)
+    if total == 0:
         update.message.reply_text("No users found to send to.")
         return ConversationHandler.END
 
+    # immediate acknowledgement
+    try:
+        update.message.reply_text(f"Broadcast started: sending to {total} users... I will notify you when finished.")
+    except Exception:
+        logger.exception("Failed to send start acknowledgement to admin %s", user.id)
+
+    # create status message that we'll edit
+    status_msg = None
+    try:
+        status_msg = update.message.reply_text(_format_status(0, 0, 0, total))
+    except Exception as e:
+        logger.debug("Failed to send initial status message (admin may have deleted): %s", e)
+        status_msg = None
+
     success = 0
     failed = 0
-    total = len(targets)
+    processed = 0
 
-    update.message.reply_text(f"Broadcast started: sending to {total} users...")
+    logger.info("Broadcast initiated by %s. Targets=%s", user.id, total)
 
     for idx, uid in enumerate(targets, start=1):
         ok = _send_to_user(bot, uid, message)
@@ -196,20 +219,45 @@ def broadcast_message(update: Update, context: CallbackContext):
             success += 1
         else:
             failed += 1
+        processed += 1
 
-        # pause between sends (safe)
+        # update status every PROGRESS_BATCH processed or at the end
+        if (processed % PROGRESS_BATCH == 0) or (processed == total):
+            text = _format_status(success, failed, processed, total)
+            if status_msg:
+                try:
+                    bot.edit_message_text(text=text, chat_id=status_msg.chat.id, message_id=status_msg.message_id)
+                except Exception as e:
+                    # editing might fail (admin deleted message or can't edit) — drop but continue
+                    logger.debug("Failed to edit status message: %s", e)
+                    status_msg = None
+            else:
+                # try to create a new status message if we couldn't earlier or it was deleted
+                try:
+                    status_msg = bot.send_message(chat_id=update.effective_chat.id, text=text)
+                except Exception as e:
+                    logger.debug("Also failed to create status message: %s", e)
+                    status_msg = None
+
+        # pause between sends for safety
         time.sleep(PAUSE_BETWEEN_SENDS)
 
-        # extra rest every LONG_REST_INTERVAL sends
+        # extra long rest occasionally
         if LONG_REST_INTERVAL > 0 and idx % LONG_REST_INTERVAL == 0:
             logger.info("Long rest after %s sends: sleeping %s seconds", idx, LONG_REST_SECS)
             time.sleep(LONG_REST_SECS)
 
-        # progress log
+        # periodic log
         if idx % 50 == 0:
             logger.info("Broadcast progress: %s/%s (success=%s, failed=%s)", idx, total, success, failed)
 
-    update.message.reply_text(f"Sent to {success} users! {failed} failed to send.")
+    # final reply
+    try:
+        update.message.reply_text(f"Sent to {success} users! {failed} failed to send.")
+    except Exception:
+        logger.exception("Failed to send final summary to admin %s", user.id)
+
+    logger.info("Broadcast finished. success=%s failed=%s total=%s", success, failed, total)
     return ConversationHandler.END
 
 
@@ -224,6 +272,7 @@ def setup(dispatcher, bot=None):
     )
     dispatcher.add_handler(conv)
     logger.info(
-        "all_members_command feature loaded (slow mode). Admins=%r",
+        "all_members_command feature loaded (progress updates every %s). Admins=%r",
+        PROGRESS_BATCH,
         list(getattr(admins, "ADMIN_IDS", getattr(admins, "ADMINS", set()))),
     )
