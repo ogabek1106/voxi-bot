@@ -57,7 +57,8 @@ def send_book_by_code(chat_id: int, code: str, context: CallbackContext):
     countdown_text = f"⏳ [{mmss}] {wallclock}"
 
     try:
-        countdown_msg = context.bot.send_message(chat_id=chat_id, text=countdown_text)
+        # send a plain text countdown (no markup)
+        countdown_msg = context.bot.send_message(chat_id=chat_id, text=countdown_text, disable_web_page_preview=True)
     except Exception as e:
         logger.exception("Failed to send countdown message: %s", e)
         # fallback: schedule a simple delete of the document if countdown can't be created
@@ -90,6 +91,7 @@ def _countdown_updater_thread(context: CallbackContext, chat_id: int, doc_msg_id
     """
     start = time.time()
     end = start + total_seconds
+    current_countdown_id = countdown_msg_id
 
     # First update was already sent; now loop until time is up
     while True:
@@ -103,10 +105,10 @@ def _countdown_updater_thread(context: CallbackContext, chat_id: int, doc_msg_id
             except Exception:
                 pass
             try:
-                context.bot.delete_message(chat_id=chat_id, message_id=countdown_msg_id)
+                context.bot.delete_message(chat_id=chat_id, message_id=current_countdown_id)
             except Exception:
                 pass
-            logger.info("Deleted book msg %s and countdown %s in chat %s", doc_msg_id, countdown_msg_id, chat_id)
+            logger.info("Deleted book msg %s and countdown %s in chat %s", doc_msg_id, current_countdown_id, chat_id)
             break
 
         # Build new countdown text: emoji + [MM:SS] + end HH:MM
@@ -114,15 +116,28 @@ def _countdown_updater_thread(context: CallbackContext, chat_id: int, doc_msg_id
         wallclock = _wallclock_end_time_str(remaining)
         new_text = f"⏳ [{mmss}] {wallclock}"
 
-        # Try to edit the countdown message. If it fails (deleted by user), continue but ensure doc will be deleted.
+        # Try to edit the countdown message. If it fails (deleted by user or edit forbidden),
+        # create a new countdown message and try to delete the old one.
         try:
-            context.bot.edit_message_text(text=new_text, chat_id=chat_id, message_id=countdown_msg_id)
+            context.bot.edit_message_text(text=new_text, chat_id=chat_id, message_id=current_countdown_id)
         except Exception as e:
-            logger.debug("Could not edit countdown message %s: %s", countdown_msg_id, e)
-            # If editing fails, we don't stop the loop — we still must delete the document at the end.
-            # Sleep a short time and re-check remaining time so we still delete on schedule.
-            time.sleep(5)
-            continue
+            logger.debug("Could not edit countdown message %s: %s", current_countdown_id, e)
+            # Attempt to post a new countdown message so the user sees the timer
+            try:
+                new_msg = context.bot.send_message(chat_id=chat_id, text=new_text, disable_web_page_preview=True)
+                # best-effort delete old countdown message (ignore any error)
+                try:
+                    context.bot.delete_message(chat_id=chat_id, message_id=current_countdown_id)
+                except Exception:
+                    pass
+                # update current countdown id to the newly created message
+                current_countdown_id = new_msg.message_id
+            except Exception as send_err:
+                # If even sending fails, log and continue — we'll still delete the document at the end
+                logger.debug("Also failed to send new countdown message: %s", send_err)
+                # Sleep a short time and loop again so deletion still happens on schedule
+                time.sleep(5)
+                continue
 
         # Sleep either 60 seconds, or the remaining if less than 60
         sleep_for = 60 if remaining > 60 else remaining
