@@ -1,13 +1,10 @@
 # features/all_members_command.py
 """
-Admin broadcast feature (directly using database.get_all_users).
+Admin broadcast feature (slow safe mode).
 
-- Admin runs /all_members
-- Bot asks for broadcast content
-- Admin sends any message (text/photo/video/document/voice/audio/animation/sticker)
-- Bot sends content to all user IDs from database.get_all_users()
-- Skips blocked users and counts failures
-- Replies summary and ends conversation
+- Per-send pause set to 5 seconds to avoid rate limits.
+- Extra rest every 100 sends to be extra-safe.
+- Admin-only, uses database.get_all_users() and admins.ADMIN_IDS / ADMINS.
 """
 
 import logging
@@ -24,12 +21,16 @@ from telegram.ext import (
 )
 
 import admins
-from database import get_all_users  # direct import now that database.py exists
+from database import get_all_users  # direct import
 
 logger = logging.getLogger(__name__)
 
 WAITING_FOR_BROADCAST = 1
-PAUSE_BETWEEN_SENDS = 0.05
+
+# <-- SAFETY / TIMING -->
+PAUSE_BETWEEN_SENDS = 5        # seconds between each send (you asked for 5s)
+LONG_REST_INTERVAL = 100      # after this many messages take a longer rest
+LONG_REST_SECS = 10           # extra rest seconds every LONG_REST_INTERVAL sends
 
 
 def _is_admin(user_id: int) -> bool:
@@ -92,6 +93,7 @@ def _get_retry_after(e) -> int:
 
 def _send_to_user(bot, user_id: int, message: Message) -> bool:
     try:
+        # Text or caption-only
         if (message.text and not (message.photo or message.video or message.document or message.audio or message.voice or message.animation or message.sticker)) or (
             not message.text and message.caption and not (message.photo or message.video or message.document or message.audio or message.voice or message.animation)
         ):
@@ -99,35 +101,43 @@ def _send_to_user(bot, user_id: int, message: Message) -> bool:
             bot.send_message(chat_id=user_id, text=text_to_send)
             return True
 
+        # Photo
         if message.photo:
             file_id = message.photo[-1].file_id
             bot.send_photo(chat_id=user_id, photo=file_id, caption=message.caption)
             return True
 
+        # Video
         if message.video:
             bot.send_video(chat_id=user_id, video=message.video.file_id, caption=message.caption)
             return True
 
+        # Document
         if message.document:
             bot.send_document(chat_id=user_id, document=message.document.file_id, caption=message.caption)
             return True
 
+        # Audio
         if message.audio:
             bot.send_audio(chat_id=user_id, audio=message.audio.file_id, caption=message.caption)
             return True
 
+        # Voice
         if message.voice:
             bot.send_voice(chat_id=user_id, voice=message.voice.file_id, caption=message.caption)
             return True
 
+        # Animation (gif)
         if message.animation:
             bot.send_animation(chat_id=user_id, animation=message.animation.file_id, caption=message.caption)
             return True
 
+        # Sticker
         if message.sticker:
             bot.send_sticker(chat_id=user_id, sticker=message.sticker.file_id)
             return True
 
+        # Fallback: forward original message
         try:
             bot.forward_message(chat_id=user_id, from_chat_id=message.chat.id, message_id=message.message_id)
             return True
@@ -135,6 +145,7 @@ def _send_to_user(bot, user_id: int, message: Message) -> bool:
             return False
 
     except Exception as e:
+        # Rate limit: wait and retry once
         if _is_rate_limit_exc(e):
             wait = _get_retry_after(e) + 1
             logger.warning("Hit rate limit. Sleeping %s seconds before retrying for user %s", wait, user_id)
@@ -145,10 +156,12 @@ def _send_to_user(bot, user_id: int, message: Message) -> bool:
                 logger.exception("Retry failed for user %s: %s", user_id, e2)
                 return False
 
+        # Forbidden / Unauthorized: user blocked or chat impossible — permanent skip
         if _is_forbidden_exc(e):
             logger.debug("Forbidden/Unauthorized for user %s: %s", user_id, e)
             return False
 
+        # BadRequest: treat as permanent failure
         if _is_badrequest_exc(e):
             logger.debug("BadRequest for user %s: %s", user_id, e)
             return False
@@ -184,9 +197,16 @@ def broadcast_message(update: Update, context: CallbackContext):
         else:
             failed += 1
 
+        # pause between sends (safe)
         time.sleep(PAUSE_BETWEEN_SENDS)
 
-        if idx % 100 == 0:
+        # extra rest every LONG_REST_INTERVAL sends
+        if LONG_REST_INTERVAL > 0 and idx % LONG_REST_INTERVAL == 0:
+            logger.info("Long rest after %s sends: sleeping %s seconds", idx, LONG_REST_SECS)
+            time.sleep(LONG_REST_SECS)
+
+        # progress log
+        if idx % 50 == 0:
             logger.info("Broadcast progress: %s/%s (success=%s, failed=%s)", idx, total, success, failed)
 
     update.message.reply_text(f"Sent to {success} users! {failed} failed to send.")
@@ -204,6 +224,6 @@ def setup(dispatcher, bot=None):
     )
     dispatcher.add_handler(conv)
     logger.info(
-        "all_members_command feature loaded. Admins=%r",
+        "all_members_command feature loaded (slow mode). Admins=%r",
         list(getattr(admins, "ADMIN_IDS", getattr(admins, "ADMINS", set()))),
     )
