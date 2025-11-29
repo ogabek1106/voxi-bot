@@ -1,11 +1,6 @@
 # features/all_members_command.py
 """
-Simpler admin broadcast feature using an in-memory 'awaiting' state.
-
-Why:
-- ConversationHandler sometimes gets filtered/ignored in some setups.
-- This approach is explicit, robust, and easier to debug.
-- Keeps same background sender, status edits, and safety pauses.
+Admin broadcast feature — simple in-memory flow.
 
 Usage:
 1. Admin sends /all_members
@@ -13,6 +8,8 @@ Usage:
 3. Admin sends any message (text/photo/video/document/etc)
 4. Bot immediately replies "Broadcast received..." and "Broadcast started..."
    and starts background worker that sends -> updates status every PROGRESS_BATCH
+
+Drop-in ready. Use with database.py and admins.py present in repo root.
 """
 
 import logging
@@ -102,7 +99,7 @@ def _get_retry_after(e) -> int:
 
 def _send_to_user(bot, user_id: int, message: Message) -> bool:
     try:
-        # text / caption-only
+        # Text or caption-only (no media)
         if (message.text and not (message.photo or message.video or message.document or message.audio or message.voice or message.animation or message.sticker)) or (
             not message.text and message.caption and not (message.photo or message.video or message.document or message.audio or message.voice or message.animation)
         ):
@@ -139,7 +136,7 @@ def _send_to_user(bot, user_id: int, message: Message) -> bool:
             bot.send_sticker(chat_id=user_id, sticker=message.sticker.file_id)
             return True
 
-        # fallback
+        # fallback: forward original message
         try:
             bot.forward_message(chat_id=user_id, from_chat_id=message.chat.id, message_id=message.message_id)
             return True
@@ -147,6 +144,7 @@ def _send_to_user(bot, user_id: int, message: Message) -> bool:
             return False
 
     except Exception as e:
+        # Rate limit: wait and retry once
         if _is_rate_limit_exc(e):
             wait = _get_retry_after(e) + 1
             logger.warning("RetryAfter for user %s: sleeping %s seconds", user_id, wait)
@@ -156,12 +154,15 @@ def _send_to_user(bot, user_id: int, message: Message) -> bool:
             except Exception as e2:
                 logger.exception("Retry failed for user %s: %s", user_id, e2)
                 return False
+
         if _is_forbidden_exc(e):
             logger.debug("Forbidden for user %s: %s", user_id, e)
             return False
+
         if _is_badrequest_exc(e):
             logger.debug("BadRequest for user %s: %s", user_id, e)
             return False
+
         logger.exception("Unexpected error when sending to %s: %s", user_id, e)
         return False
 
@@ -188,6 +189,7 @@ def _background_broadcast(bot, admin_chat_id: int, status_chat_id: int, status_m
             failed += 1
         processed += 1
 
+        # update status every PROGRESS_BATCH processed or at the end
         if (processed % PROGRESS_BATCH == 0) or (processed == total):
             text = _format_status(success, failed, processed, total)
             try:
@@ -201,8 +203,10 @@ def _background_broadcast(bot, admin_chat_id: int, status_chat_id: int, status_m
                 logger.debug("Failed to edit/create status message: %s", e)
                 status_msg_id = None
 
+        # Sleep between sends
         time.sleep(PAUSE_BETWEEN_SENDS)
 
+        # occasional long rest
         if LONG_REST_INTERVAL > 0 and idx % LONG_REST_INTERVAL == 0:
             logger.info("Long rest after %s sends: sleeping %s seconds", idx, LONG_REST_SECS)
             time.sleep(LONG_REST_SECS)
@@ -210,6 +214,7 @@ def _background_broadcast(bot, admin_chat_id: int, status_chat_id: int, status_m
         if idx % 50 == 0:
             logger.info("Broadcast progress: %s/%s (success=%s, failed=%s)", idx, total, success, failed)
 
+    # final summary to admin
     try:
         bot.send_message(chat_id=admin_chat_id, text=f"Sent to {success} users! {failed} failed to send.")
     except Exception as e:
@@ -293,7 +298,7 @@ def message_router(update: Update, context: CallbackContext):
     # immediate return (handler done)
 
 
-def setup(dispatcher):
+def setup(dispatcher, bot=None):
     # register command handlers and a catch-all message handler
     dispatcher.add_handler(CommandHandler("all_members", cmd_all_members))
     dispatcher.add_handler(CommandHandler("cancel", cmd_cancel))
