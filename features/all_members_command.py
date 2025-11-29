@@ -1,20 +1,17 @@
 # features/all_members_command.py
 """
-Admin broadcast feature — simple in-memory flow.
+Admin broadcast feature — persistent waiting flag + debug logging.
 
-Usage:
-1. Admin sends /all_members
-2. Bot replies "Send the message..."
-3. Admin sends any message (text/photo/video/document/etc)
-4. Bot immediately replies "Broadcast received..." and "Broadcast started..."
-   and starts background worker that sends -> updates status every PROGRESS_BATCH
-
-Drop-in ready. Use with database.py and admins.py present in repo root.
+- Persists awaiting state to disk under /data/awaiting_broadcasts so restarts won't clear it.
+- Logs when waiting is set and when message_router runs (so you can inspect Railway logs).
+- Background sender with progress updates every PROGRESS_BATCH and 5s pause between sends.
 """
 
 import logging
 import time
 import threading
+import os
+import json
 from typing import Dict, List, Optional
 
 from telegram import Update, Message
@@ -31,10 +28,64 @@ LONG_REST_INTERVAL = 100      # after this many messages take a longer rest
 LONG_REST_SECS = 10           # extra rest seconds every LONG_REST_INTERVAL sends
 PROGRESS_BATCH = 10           # update admin-visible status every PROGRESS_BATCH processed
 
-# in-memory state: admin_id -> waiting flag
+# storage for persistence of awaiting flags
+_AWAIT_DIR = os.getenv("AWAIT_DIR", "/data/awaiting_broadcasts")
+os.makedirs(_AWAIT_DIR, exist_ok=True)
+
+# in-memory state (kept for speed) and backed on disk
 awaiting_broadcast: Dict[int, bool] = {}
 
 
+def _await_file_path(admin_id: int) -> str:
+    return os.path.join(_AWAIT_DIR, f"{admin_id}.json")
+
+
+def _persist_set(admin_id: int):
+    path = _await_file_path(admin_id)
+    try:
+        with open(path, "w") as f:
+            json.dump({"admin_id": int(admin_id), "ts": int(time.time())}, f)
+        awaiting_broadcast[admin_id] = True
+        logger.info("awaiting set persisted for admin %s -> %s", admin_id, path)
+    except Exception as e:
+        logger.exception("Failed to persist awaiting flag for %s: %s", admin_id, e)
+        # still set in memory
+        awaiting_broadcast[admin_id] = True
+
+
+def _persist_pop(admin_id: int):
+    path = _await_file_path(admin_id)
+    awaiting_broadcast.pop(admin_id, None)
+    try:
+        if os.path.exists(path):
+            os.remove(path)
+            logger.info("awaiting file removed for admin %s -> %s", admin_id, path)
+    except Exception as e:
+        logger.debug("Could not remove awaiting file %s: %s", path, e)
+
+
+def _load_persisted():
+    try:
+        for fname in os.listdir(_AWAIT_DIR):
+            if not fname.endswith(".json"):
+                continue
+            path = os.path.join(_AWAIT_DIR, fname)
+            try:
+                with open(path, "r") as f:
+                    data = json.load(f)
+                admin_id = int(data.get("admin_id"))
+                awaiting_broadcast[admin_id] = True
+                logger.info("Loaded persisted awaiting flag for admin %s from %s", admin_id, path)
+            except Exception as e:
+                logger.debug("Failed to load awaiting file %s: %s", path, e)
+    except Exception as e:
+        logger.debug("Failed to list/load awaiting dir %s: %s", _AWAIT_DIR, e)
+
+
+# load persisted awaiting flags at import
+_load_persisted()
+
+# helper: admins check
 def _is_admin(user_id: int) -> bool:
     try:
         raw = getattr(admins, "ADMIN_IDS", None) or getattr(admins, "ADMINS", None)
@@ -51,7 +102,12 @@ def cmd_all_members(update: Update, context: CallbackContext):
         context.bot.send_message(chat_id=update.effective_chat.id, text="You are not authorized to use this command.")
         return
 
-    awaiting_broadcast[user.id] = True
+    # persist waiting state
+    _persist_set(user.id)
+
+    # log explicit debug line
+    logger.info("Admin %s issued /all_members — awaiting broadcast content (persisted)", user.id)
+
     context.bot.send_message(
         chat_id=update.effective_chat.id,
         text="Send the message (text/photo/video/document/voice/audio/animation/sticker) you want to broadcast to ALL users.\n\nSend /cancel to abort."
@@ -62,8 +118,9 @@ def cmd_cancel(update: Update, context: CallbackContext):
     user = update.effective_user
     if not user or not _is_admin(user.id):
         return
-    awaiting_broadcast.pop(user.id, None)
+    _persist_pop(user.id)
     context.bot.send_message(chat_id=update.effective_chat.id, text="Broadcast cancelled.")
+    logger.info("Admin %s cancelled broadcast (awaiting cleared).", user.id)
 
 
 def _prepare_targets() -> List[int]:
@@ -227,21 +284,44 @@ def message_router(update: Update, context: CallbackContext):
     """Catch normal messages — if admin is waiting, treat it as broadcast content."""
     user = update.effective_user
     if not user:
+        logger.debug("message_router: no effective_user; ignoring")
         return
 
+    logger.info("message_router invoked by user=%s chat=%s", user.id, update.effective_chat.id)
+
     if not _is_admin(user.id):
+        logger.debug("message_router: user %s is not admin; ignoring", user.id)
         return  # ignore non-admin messages here
 
+    # check persisted/in-memory waiting flag
     waiting = awaiting_broadcast.pop(user.id, False)
     if not waiting:
+        # also check persisted file just in case
+        path = _await_file_path(user.id)
+        if os.path.exists(path):
+            # load it and treat as waiting
+            try:
+                awaiting_broadcast[user.id] = True
+                waiting = True
+                logger.info("message_router: found persisted awaiting file for admin %s; continuing", user.id)
+            except Exception:
+                waiting = False
+
+    if not waiting:
+        logger.info("message_router: admin %s is not awaiting broadcast (no flag); returning", user.id)
         return  # admin isn't in broadcast flow; ignore
+
+    # clear persisted flag now
+    try:
+        _persist_pop(user.id)
+    except Exception:
+        pass
 
     message = update.message
     bot = context.bot
 
     # debug ack (ensures admin always sees immediate feedback)
     try:
-        # identify message type for debug so UI isn't silent
         types = []
         if message.text:
             types.append("text")
@@ -262,6 +342,7 @@ def message_router(update: Update, context: CallbackContext):
         msg_type = "+".join(types) if types else "unknown"
 
         bot.send_message(chat_id=update.effective_chat.id, text=f"Broadcast received. Detected message type: {msg_type}")
+        logger.info("Broadcast content received from admin %s (type=%s)", user.id, msg_type)
     except Exception as e:
         logger.debug("Failed to send debug ack to admin %s: %s", user.id, e)
 
@@ -270,6 +351,7 @@ def message_router(update: Update, context: CallbackContext):
     total = len(targets)
     if total == 0:
         bot.send_message(chat_id=update.effective_chat.id, text="No users found to send to.")
+        logger.info("Broadcast aborted: no target users found.")
         return
 
     try:
@@ -302,6 +384,9 @@ def setup(dispatcher, bot=None):
     # register command handlers and a catch-all message handler
     dispatcher.add_handler(CommandHandler("all_members", cmd_all_members))
     dispatcher.add_handler(CommandHandler("cancel", cmd_cancel))
-    # MessageHandler for admin messages when they are in 'awaiting' state
     dispatcher.add_handler(MessageHandler(Filters.all & ~Filters.command, message_router))
-    logger.info("all_members_simple feature loaded. Admins=%r", list(getattr(admins, "ADMIN_IDS", getattr(admins, "ADMINS", set()))))
+    logger.info(
+        "all_members_simple feature loaded. Admins=%r. Await dir=%s",
+        list(getattr(admins, "ADMIN_IDS", getattr(admins, "ADMINS", set()))),
+        _AWAIT_DIR,
+    )
