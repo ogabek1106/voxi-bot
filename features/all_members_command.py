@@ -1,17 +1,10 @@
 # features/all_members_command.py
 """
-Admin broadcast feature (background sender + live status).
+Debug-friendly broadcast feature.
 
-Behavior:
-- Admin runs /all_members
-- Bot asks for broadcast content
-- Admin sends content
-- Bot immediately acknowledges and starts a background thread that:
-  - sends the content to all user IDs from database.get_all_users()
-  - edits a status message every PROGRESS_BATCH processed
-  - handles RetryAfter, Forbidden, BadRequest
-  - logs progress
-- Admin receives final summary when finished
+- Immediately acknowledges receipt of admin content and prints message type.
+- Starts background thread to send to users and update status every 10 processed.
+- Logs rich debug info to help diagnose "silent" behavior.
 """
 
 import logging
@@ -29,7 +22,7 @@ from telegram.ext import (
 )
 
 import admins
-from database import get_all_users  # now you have database.py
+from database import get_all_users
 
 logger = logging.getLogger(__name__)
 
@@ -84,6 +77,36 @@ def _prepare_targets() -> List[int]:
     except Exception as e:
         logger.exception("Failed to fetch users from DB: %s", e)
         return []
+
+
+def _identify_msg_type(msg: Message) -> str:
+    """Return a short string describing the received message type for debugging."""
+    types = []
+    if msg.text:
+        types.append("text")
+    if msg.photo:
+        types.append("photo")
+    if msg.video:
+        types.append("video")
+    if msg.document:
+        types.append("document")
+    if msg.audio:
+        types.append("audio")
+    if msg.voice:
+        types.append("voice")
+    if msg.animation:
+        types.append("animation")
+    if msg.sticker:
+        types.append("sticker")
+    if msg.contact:
+        types.append("contact")
+    if msg.location:
+        types.append("location")
+    if msg.caption and not types:
+        types.append("caption-only")
+    if not types:
+        return "unknown"
+    return "+".join(types)
 
 
 def _is_rate_limit_exc(e) -> bool:
@@ -176,19 +199,10 @@ def _send_to_user(bot, user_id: int, message: Message) -> bool:
 
 
 def _format_status(sent: int, failed: int, processed: int, total: int) -> str:
-    """Return a human-readable status string."""
     return f"Progress: ✅ {sent} sent  •  ❌ {failed} failed  •  {processed}/{total} processed"
 
 
 def _background_broadcast(bot, admin_chat_id: int, status_chat_id: int, status_message_id: int, message: Message, targets: List[int]):
-    """
-    Background worker that performs the broadcast and edits status.
-    - bot: Bot instance
-    - admin_chat_id: where to send final summary
-    - status_chat_id/message_id: message to edit for live status (may be None)
-    - message: original admin message to forward/send
-    - targets: list of user ids
-    """
     total = len(targets)
     success = 0
     failed = 0
@@ -206,26 +220,22 @@ def _background_broadcast(bot, admin_chat_id: int, status_chat_id: int, status_m
             failed += 1
         processed += 1
 
-        # update status every PROGRESS_BATCH processed or at the end
         if (processed % PROGRESS_BATCH == 0) or (processed == total):
             text = _format_status(success, failed, processed, total)
             try:
                 if status_msg_id is not None:
                     bot.edit_message_text(text=text, chat_id=status_chat, message_id=status_msg_id)
                 else:
-                    # create a status message if none
                     m = bot.send_message(chat_id=admin_chat_id, text=text)
                     status_msg_id = m.message_id
                     status_chat = m.chat.id
             except Exception as e:
                 logger.debug("Failed to edit/create status message: %s", e)
-                # drop status_msg_id so we don't keep trying to edit same message
                 status_msg_id = None
 
         # pause between sends
         time.sleep(PAUSE_BETWEEN_SENDS)
 
-        # occasional long rest
         if LONG_REST_INTERVAL > 0 and idx % LONG_REST_INTERVAL == 0:
             logger.info("Long rest after %s sends: sleeping %s seconds", idx, LONG_REST_SECS)
             time.sleep(LONG_REST_SECS)
@@ -233,7 +243,6 @@ def _background_broadcast(bot, admin_chat_id: int, status_chat_id: int, status_m
         if idx % 50 == 0:
             logger.info("Broadcast progress: %s/%s (success=%s, failed=%s)", idx, total, success, failed)
 
-    # final summary to admin
     try:
         bot.send_message(chat_id=admin_chat_id, text=f"Sent to {success} users! {failed} failed to send.")
     except Exception as e:
@@ -245,7 +254,7 @@ def _background_broadcast(bot, admin_chat_id: int, status_chat_id: int, status_m
 def broadcast_message(update: Update, context: CallbackContext):
     """
     Triggered when admin sends the broadcast content.
-    Starts a background thread to avoid blocking the handler.
+    This handler immediately ACKs (with debug info) and launches background worker.
     """
     user = update.effective_user
     if not user or not _is_admin(user.id):
@@ -255,19 +264,29 @@ def broadcast_message(update: Update, context: CallbackContext):
     message = update.message
     bot = context.bot
 
+    # debug: always acknowledge with message type (so UI never looks silent)
+    msg_type = _identify_msg_type(message)
+    try:
+        update.message.reply_text(f"Broadcast received. Detected message type: {msg_type}")
+    except Exception as e:
+        logger.debug("Failed to send debug ack to admin %s: %s", user.id, e)
+
     targets = _prepare_targets()
     total = len(targets)
     if total == 0:
-        update.message.reply_text("No users found to send to.")
+        try:
+            update.message.reply_text("No users found to send to.")
+        except Exception:
+            pass
         return ConversationHandler.END
 
-    # immediate acknowledgement
+    # immediate start ack
     try:
         update.message.reply_text(f"Broadcast started: sending to {total} users... I will notify you when finished.")
     except Exception:
         logger.exception("Failed to send start acknowledgement to admin %s", user.id)
 
-    # send initial status message that background thread will edit
+    # create initial status message for edits
     status_msg = None
     try:
         status_msg = update.message.reply_text(_format_status(0, 0, 0, total))
@@ -301,6 +320,6 @@ def setup(dispatcher, bot=None):
     )
     dispatcher.add_handler(conv)
     logger.info(
-        "all_members_command feature loaded (background sender). Admins=%r",
+        "all_members_command feature loaded (debug mode). Admins=%r",
         list(getattr(admins, "ADMIN_IDS", getattr(admins, "ADMINS", set()))),
     )
