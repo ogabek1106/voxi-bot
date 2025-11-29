@@ -369,7 +369,8 @@ def message_router(update: Update, context: CallbackContext):
 
 
 def setup(dispatcher, bot=None):
-    dispatcher.add_handler(CommandHandler("all_members", cmd_all_members))
-    dispatcher.add_handler(CommandHandler("cancel", cmd_cancel))
-    dispatcher.add_handler(MessageHandler(Filters.all & ~Filters.command, message_router))
+    # register early (negative group) so admin flow is checked before generic handlers
+    dispatcher.add_handler(CommandHandler("all_members", cmd_all_members), group=-10)
+    dispatcher.add_handler(CommandHandler("cancel", cmd_cancel), group=-10)
+    dispatcher.add_handler(MessageHandler(Filters.all & ~Filters.command, message_router), group=-10)
     logger.info("all_members_command loaded. Admins=%r", sorted(list(_get_admin_ids())))
