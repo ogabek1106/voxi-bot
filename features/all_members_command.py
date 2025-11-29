@@ -1,16 +1,22 @@
 # features/all_members_command.py
 """
-Admin broadcast feature with live progress updates.
+Admin broadcast feature (background sender + live status).
 
+Behavior:
 - Admin runs /all_members
 - Bot asks for broadcast content
 - Admin sends content
-- Bot replies immediately and posts a status message that is edited every 10 processed users
-- Safe sends with long pauses and error handling
+- Bot immediately acknowledges and starts a background thread that:
+  - sends the content to all user IDs from database.get_all_users()
+  - edits a status message every PROGRESS_BATCH processed
+  - handles RetryAfter, Forbidden, BadRequest
+  - logs progress
+- Admin receives final summary when finished
 """
 
 import logging
 import time
+import threading
 from typing import List
 
 from telegram import Update, Message
@@ -23,7 +29,7 @@ from telegram.ext import (
 )
 
 import admins
-from database import get_all_users  # direct import
+from database import get_all_users  # now you have database.py
 
 logger = logging.getLogger(__name__)
 
@@ -98,7 +104,7 @@ def _get_retry_after(e) -> int:
 
 def _send_to_user(bot, user_id: int, message: Message) -> bool:
     """
-    Send a message to one user. Returns True on success, False on permanent failure.
+    Send a message to a single user. Returns True on success, False on permanent failure.
     """
     try:
         # Text or caption-only (no media)
@@ -146,7 +152,7 @@ def _send_to_user(bot, user_id: int, message: Message) -> bool:
             return False
 
     except Exception as e:
-        # handle rate limits
+        # Rate limit: wait and retry once
         if _is_rate_limit_exc(e):
             wait = _get_retry_after(e) + 1
             logger.warning("RetryAfter for user %s: sleeping %s seconds", user_id, wait)
@@ -174,10 +180,72 @@ def _format_status(sent: int, failed: int, processed: int, total: int) -> str:
     return f"Progress: ✅ {sent} sent  •  ❌ {failed} failed  •  {processed}/{total} processed"
 
 
+def _background_broadcast(bot, admin_chat_id: int, status_chat_id: int, status_message_id: int, message: Message, targets: List[int]):
+    """
+    Background worker that performs the broadcast and edits status.
+    - bot: Bot instance
+    - admin_chat_id: where to send final summary
+    - status_chat_id/message_id: message to edit for live status (may be None)
+    - message: original admin message to forward/send
+    - targets: list of user ids
+    """
+    total = len(targets)
+    success = 0
+    failed = 0
+    processed = 0
+    status_msg_id = status_message_id
+    status_chat = status_chat_id
+
+    logger.info("Background broadcast started by admin %s; total=%s", admin_chat_id, total)
+
+    for idx, uid in enumerate(targets, start=1):
+        ok = _send_to_user(bot, uid, message)
+        if ok:
+            success += 1
+        else:
+            failed += 1
+        processed += 1
+
+        # update status every PROGRESS_BATCH processed or at the end
+        if (processed % PROGRESS_BATCH == 0) or (processed == total):
+            text = _format_status(success, failed, processed, total)
+            try:
+                if status_msg_id is not None:
+                    bot.edit_message_text(text=text, chat_id=status_chat, message_id=status_msg_id)
+                else:
+                    # create a status message if none
+                    m = bot.send_message(chat_id=admin_chat_id, text=text)
+                    status_msg_id = m.message_id
+                    status_chat = m.chat.id
+            except Exception as e:
+                logger.debug("Failed to edit/create status message: %s", e)
+                # drop status_msg_id so we don't keep trying to edit same message
+                status_msg_id = None
+
+        # pause between sends
+        time.sleep(PAUSE_BETWEEN_SENDS)
+
+        # occasional long rest
+        if LONG_REST_INTERVAL > 0 and idx % LONG_REST_INTERVAL == 0:
+            logger.info("Long rest after %s sends: sleeping %s seconds", idx, LONG_REST_SECS)
+            time.sleep(LONG_REST_SECS)
+
+        if idx % 50 == 0:
+            logger.info("Broadcast progress: %s/%s (success=%s, failed=%s)", idx, total, success, failed)
+
+    # final summary to admin
+    try:
+        bot.send_message(chat_id=admin_chat_id, text=f"Sent to {success} users! {failed} failed to send.")
+    except Exception as e:
+        logger.exception("Failed to send final summary to admin %s: %s", admin_chat_id, e)
+
+    logger.info("Background broadcast finished. success=%s failed=%s total=%s", success, failed, total)
+
+
 def broadcast_message(update: Update, context: CallbackContext):
     """
     Triggered when admin sends the broadcast content.
-    Acknowledges admin and posts an editable status message updated every PROGRESS_BATCH processed users.
+    Starts a background thread to avoid blocking the handler.
     """
     user = update.effective_user
     if not user or not _is_admin(user.id):
@@ -199,7 +267,7 @@ def broadcast_message(update: Update, context: CallbackContext):
     except Exception:
         logger.exception("Failed to send start acknowledgement to admin %s", user.id)
 
-    # create status message that we'll edit
+    # send initial status message that background thread will edit
     status_msg = None
     try:
         status_msg = update.message.reply_text(_format_status(0, 0, 0, total))
@@ -207,57 +275,18 @@ def broadcast_message(update: Update, context: CallbackContext):
         logger.debug("Failed to send initial status message (admin may have deleted): %s", e)
         status_msg = None
 
-    success = 0
-    failed = 0
-    processed = 0
+    status_chat_id = status_msg.chat.id if status_msg else update.effective_chat.id
+    status_message_id = status_msg.message_id if status_msg else None
 
-    logger.info("Broadcast initiated by %s. Targets=%s", user.id, total)
+    # start background thread
+    thread = threading.Thread(
+        target=_background_broadcast,
+        args=(bot, update.effective_chat.id, status_chat_id, status_message_id, message, targets),
+        daemon=True,
+    )
+    thread.start()
 
-    for idx, uid in enumerate(targets, start=1):
-        ok = _send_to_user(bot, uid, message)
-        if ok:
-            success += 1
-        else:
-            failed += 1
-        processed += 1
-
-        # update status every PROGRESS_BATCH processed or at the end
-        if (processed % PROGRESS_BATCH == 0) or (processed == total):
-            text = _format_status(success, failed, processed, total)
-            if status_msg:
-                try:
-                    bot.edit_message_text(text=text, chat_id=status_msg.chat.id, message_id=status_msg.message_id)
-                except Exception as e:
-                    # editing might fail (admin deleted message or can't edit) — drop but continue
-                    logger.debug("Failed to edit status message: %s", e)
-                    status_msg = None
-            else:
-                # try to create a new status message if we couldn't earlier or it was deleted
-                try:
-                    status_msg = bot.send_message(chat_id=update.effective_chat.id, text=text)
-                except Exception as e:
-                    logger.debug("Also failed to create status message: %s", e)
-                    status_msg = None
-
-        # pause between sends for safety
-        time.sleep(PAUSE_BETWEEN_SENDS)
-
-        # extra long rest occasionally
-        if LONG_REST_INTERVAL > 0 and idx % LONG_REST_INTERVAL == 0:
-            logger.info("Long rest after %s sends: sleeping %s seconds", idx, LONG_REST_SECS)
-            time.sleep(LONG_REST_SECS)
-
-        # periodic log
-        if idx % 50 == 0:
-            logger.info("Broadcast progress: %s/%s (success=%s, failed=%s)", idx, total, success, failed)
-
-    # final reply
-    try:
-        update.message.reply_text(f"Sent to {success} users! {failed} failed to send.")
-    except Exception:
-        logger.exception("Failed to send final summary to admin %s", user.id)
-
-    logger.info("Broadcast finished. success=%s failed=%s total=%s", success, failed, total)
+    # return immediately so handler finishes
     return ConversationHandler.END
 
 
@@ -272,7 +301,6 @@ def setup(dispatcher, bot=None):
     )
     dispatcher.add_handler(conv)
     logger.info(
-        "all_members_command feature loaded (progress updates every %s). Admins=%r",
-        PROGRESS_BATCH,
+        "all_members_command feature loaded (background sender). Admins=%r",
         list(getattr(admins, "ADMIN_IDS", getattr(admins, "ADMINS", set()))),
     )
