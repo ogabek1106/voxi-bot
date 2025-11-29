@@ -1,17 +1,23 @@
 # features/all_members_command.py
 """
-Admin broadcast feature — synchronous, background sender, visible feedback.
+Robust admin broadcast feature with immediate ACK and detailed debug logging.
 
-Behavior:
-- Admin runs /all_members
-- Bot replies immediately: "Command received! Preparing..."
-- Bot asks admin to send the broadcast content (or you can implement inline message sending).
-- When admin sends content, bot replies "Broadcast received" and "Starting..." and posts a status message.
-- Status message is edited every PROGRESS_BATCH (10) processed users and at the end.
-- Uses admins.ADMIN_IDS (falls back to admins.ADMINS) and database.get_all_users().
+Flow:
+1) Admin /all_members -> bot replies "Command received..."
+2) Admin sends any message (text/photo/video/document/...)
+3) Bot ACKs immediately "Broadcast received..." and starts background sending.
+4) Bot edits a status message every PROGRESS_BATCH processed (10).
+5) Bot sends final summary.
+
+This file is defensive:
+ - Persists awaiting flags to /data/awaiting_broadcasts (so restarts won't lose state)
+ - Logs every invocation so you can read Railway logs
+ - If the handler doesn't fire, the logs will show it.
 """
 
 import logging
+import os
+import json
 import time
 import threading
 from typing import List, Optional
@@ -24,14 +30,61 @@ from database import get_all_users
 
 logger = logging.getLogger(__name__)
 
-# timing / safety
-PAUSE_BETWEEN_SENDS = 5        # seconds between each send
-LONG_REST_INTERVAL = 100      # after this many messages take a longer rest
-LONG_REST_SECS = 10           # extra rest seconds every LONG_REST_INTERVAL sends
-PROGRESS_BATCH = 10           # update admin-visible status every PROGRESS_BATCH processed
+# pause and batching
+PAUSE_BETWEEN_SENDS = 5
+PROGRESS_BATCH = 10
+LONG_REST_INTERVAL = 100
+LONG_REST_SECS = 10
 
-# in-memory awaiting state (keeps flow simple)
-awaiting_broadcast = {}  # admin_id -> True
+# persistent awaiting storage
+_AWAIT_DIR = os.getenv("AWAIT_DIR", "/data/awaiting_broadcasts")
+os.makedirs(_AWAIT_DIR, exist_ok=True)
+
+
+def _await_path(admin_id: int) -> str:
+    return os.path.join(_AWAIT_DIR, f"{admin_id}.json")
+
+
+def _persist_await(admin_id: int):
+    try:
+        with open(_await_path(admin_id), "w") as f:
+            json.dump({"admin_id": int(admin_id), "ts": int(time.time())}, f)
+        logger.info("Persisted awaiting flag for admin %s", admin_id)
+    except Exception as e:
+        logger.exception("Failed to persist awaiting for %s: %s", admin_id, e)
+
+
+def _clear_persist(admin_id: int):
+    p = _await_path(admin_id)
+    try:
+        if os.path.exists(p):
+            os.remove(p)
+            logger.info("Removed persisted awaiting for admin %s", admin_id)
+    except Exception:
+        logger.debug("Failed to remove persisted awaiting file %s", p)
+
+
+def _load_persisted() -> set:
+    ids = set()
+    try:
+        for fn in os.listdir(_AWAIT_DIR):
+            if not fn.endswith(".json"):
+                continue
+            try:
+                p = os.path.join(_AWAIT_DIR, fn)
+                with open(p, "r") as f:
+                    d = json.load(f)
+                ids.add(int(d.get("admin_id")))
+                logger.info("Loaded persisted awaiting for admin %s", d.get("admin_id"))
+            except Exception:
+                logger.debug("Bad awaiting file %s", fn)
+    except Exception as e:
+        logger.debug("Could not list awaiting dir: %s", e)
+    return ids
+
+
+# in-memory awaiting flags (fast) - populated from persisted files at import
+awaiting_broadcast = {aid: True for aid in _load_persisted()}
 
 
 def _get_admin_ids() -> set:
@@ -39,45 +92,53 @@ def _get_admin_ids() -> set:
     try:
         return {int(x) for x in raw}
     except Exception:
-        s = set()
+        out = set()
         for x in raw:
             try:
-                s.add(int(x))
+                out.add(int(x))
             except Exception:
-                pass
-        return s
+                logger.debug("Ignoring bad admin id %r", x)
+        return out
 
 
 def _is_admin(user_id: int) -> bool:
-    return int(user_id) in _get_admin_ids()
+    try:
+        return int(user_id) in _get_admin_ids()
+    except Exception:
+        return False
 
 
 def cmd_all_members(update: Update, context: CallbackContext):
     user = update.effective_user
-    if not user or not _is_admin(user.id):
-        context.bot.send_message(chat_id=update.effective_chat.id, text="❌ You are not authorized to use this command.")
+    if not user:
+        return
+    if not _is_admin(user.id):
+        update.message.reply_text("❌ You are not authorized to use this command.")
+        logger.info("Unauthorized /all_members attempt by %s", user.id)
         return
 
-    # mark admin as awaiting broadcast content
     awaiting_broadcast[user.id] = True
-    context.bot.send_message(
-        chat_id=update.effective_chat.id,
-        text="📩 *Command received!* Send the message (text/photo/video/document/voice/audio/animation/sticker) you want to broadcast to ALL users.\n\nSend /cancel to abort.",
-        parse_mode="Markdown",
+    _persist_await(user.id)
+    update.message.reply_text(
+        "📩 Command received! Send the message (text/photo/video/document/voice/audio/animation/sticker) "
+        "you want to broadcast to ALL users.\n\nSend /cancel to abort."
     )
     logger.info("Admin %s started all_members flow; awaiting content.", user.id)
 
 
 def cmd_cancel(update: Update, context: CallbackContext):
     user = update.effective_user
-    if not user or not _is_admin(user.id):
+    if not user:
+        return
+    if not _is_admin(user.id):
         return
     awaiting_broadcast.pop(user.id, None)
-    context.bot.send_message(chat_id=update.effective_chat.id, text="🛑 Broadcast cancelled.")
+    _clear_persist(user.id)
+    update.message.reply_text("🛑 Broadcast cancelled.")
     logger.info("Admin %s cancelled all_members flow.", user.id)
 
 
-# -- low-level send helpers -------------------------------------------------
+# low-level send helpers
 def _is_rate_limit_exc(e) -> bool:
     return e.__class__.__name__ == "RetryAfter"
 
@@ -95,19 +156,17 @@ def _get_retry_after(e) -> int:
 
 
 def _send_to_user(bot, user_id: int, message: Message) -> bool:
-    """Try to send the admin message to one user. Returns True on success, False on permanent failure."""
     try:
-        # text / caption-only
+        # text/caption-only
         if (message.text and not (message.photo or message.video or message.document or message.audio or message.voice or message.animation or message.sticker)) or (
             not message.text and message.caption and not (message.photo or message.video or message.document or message.audio or message.voice or message.animation)
         ):
-            text_to_send = message.text if message.text else message.caption
-            bot.send_message(chat_id=user_id, text=text_to_send)
+            text = message.text if message.text else message.caption
+            bot.send_message(chat_id=user_id, text=text)
             return True
 
         if message.photo:
-            file_id = message.photo[-1].file_id
-            bot.send_photo(chat_id=user_id, photo=file_id, caption=message.caption)
+            bot.send_photo(chat_id=user_id, photo=message.photo[-1].file_id, caption=message.caption)
             return True
 
         if message.video:
@@ -123,7 +182,7 @@ def _send_to_user(bot, user_id: int, message: Message) -> bool:
             return True
 
         if message.voice:
-            bot.send_voice(chat_id=user_id, voice=message.voice.file_id, caption=message.caption)
+            bot.send_voice(chat_id=user_id, voice=message.voice.file_id)
             return True
 
         if message.animation:
@@ -134,7 +193,7 @@ def _send_to_user(bot, user_id: int, message: Message) -> bool:
             bot.send_sticker(chat_id=user_id, sticker=message.sticker.file_id)
             return True
 
-        # fallback: forward original message
+        # fallback: forward original
         try:
             bot.forward_message(chat_id=user_id, from_chat_id=message.chat.id, message_id=message.message_id)
             return True
@@ -142,10 +201,10 @@ def _send_to_user(bot, user_id: int, message: Message) -> bool:
             return False
 
     except Exception as e:
-        # handle rate limits: sleep and retry once
+        # handle rate limit
         if _is_rate_limit_exc(e):
             wait = _get_retry_after(e) + 1
-            logger.warning("RetryAfter for user %s: sleeping %s seconds", user_id, wait)
+            logger.warning("RetryAfter for user %s: sleeping %s", user_id, wait)
             time.sleep(wait)
             try:
                 return _send_to_user(bot, user_id, message)
@@ -153,15 +212,11 @@ def _send_to_user(bot, user_id: int, message: Message) -> bool:
                 logger.exception("Retry failed for user %s: %s", user_id, e2)
                 return False
 
-        # forbidden / badrequest => permanent skip
-        if _is_forbidden_exc(e):
-            logger.debug("Forbidden/Unauthorized for user %s: %s", user_id, e)
-            return False
-        if _is_badrequest_exc(e):
-            logger.debug("BadRequest for user %s: %s", user_id, e)
+        if _is_forbidden_exc(e) or _is_badrequest_exc(e):
+            logger.debug("Skipping user %s due to %s", user_id, e)
             return False
 
-        logger.exception("Unexpected error when sending to %s: %s", user_id, e)
+        logger.exception("Error sending to %s: %s", user_id, e)
         return False
 
 
@@ -169,10 +224,9 @@ def _format_status(sent: int, failed: int, processed: int, total: int) -> str:
     return f"Progress: ✅ {sent} sent  •  ❌ {failed} failed  •  {processed}/{total} processed"
 
 
-# background worker
 def _background_broadcast(bot, admin_chat_id: int, status_chat_id: int, status_message_id: Optional[int], message: Message, targets: List[int]):
     total = len(targets)
-    success = 0
+    sent = 0
     failed = 0
     processed = 0
     status_msg_id = status_message_id
@@ -183,131 +237,139 @@ def _background_broadcast(bot, admin_chat_id: int, status_chat_id: int, status_m
     for idx, uid in enumerate(targets, start=1):
         ok = _send_to_user(bot, uid, message)
         if ok:
-            success += 1
+            sent += 1
         else:
             failed += 1
         processed += 1
 
-        # update status every PROGRESS_BATCH processed or at the end
         if (processed % PROGRESS_BATCH == 0) or (processed == total):
-            text = _format_status(success, failed, processed, total)
+            text = _format_status(sent, failed, processed, total)
             try:
-                if status_msg_id is not None:
+                if status_msg_id:
                     bot.edit_message_text(text=text, chat_id=status_chat, message_id=status_msg_id)
                 else:
                     m = bot.send_message(chat_id=admin_chat_id, text=text)
                     status_msg_id = m.message_id
                     status_chat = m.chat.id
             except Exception as e:
-                logger.debug("Failed to edit/create status message: %s", e)
+                logger.debug("Status edit/send failed: %s", e)
                 status_msg_id = None
 
-        # sleep between sends
         time.sleep(PAUSE_BETWEEN_SENDS)
 
-        # occasional long rest
         if LONG_REST_INTERVAL > 0 and idx % LONG_REST_INTERVAL == 0:
-            logger.info("Long rest after %s sends: sleeping %s seconds", idx, LONG_REST_SECS)
+            logger.info("Long rest after %s sends", idx)
             time.sleep(LONG_REST_SECS)
 
         if idx % 50 == 0:
-            logger.info("Broadcast progress: %s/%s (success=%s, failed=%s)", idx, total, success, failed)
+            logger.info("Progress log: %s/%s (sent=%s failed=%s)", idx, total, sent, failed)
 
-    # final summary to admin
     try:
-        bot.send_message(chat_id=admin_chat_id, text=f"🎉 Broadcast finished!\n✅ Sent to {success} users! ❌ {failed} failed to send.")
-    except Exception as e:
-        logger.exception("Failed to send final summary to admin %s: %s", admin_chat_id, e)
+        bot.send_message(chat_id=admin_chat_id, text=f"🎉 Broadcast finished! ✅ {sent} sent, ❌ {failed} failed.")
+    except Exception:
+        logger.exception("Could not send final summary to admin %s", admin_chat_id)
 
-    logger.info("Background broadcast finished. success=%s failed=%s total=%s", success, failed, total)
+    logger.info("Broadcast done. sent=%s failed=%s total=%s", sent, failed, total)
 
 
-# router for admin messages (the actual broadcast content)
 def message_router(update: Update, context: CallbackContext):
+    # debug - always log and ack when admin sends content while awaiting
     user = update.effective_user
+    chat = update.effective_chat
     if not user:
-        logger.debug("message_router: no effective_user; ignoring")
+        logger.debug("message_router: no user")
         return
 
-    logger.info("message_router invoked by user=%s chat=%s", user.id, update.effective_chat.id)
+    logger.info("message_router invoked by user=%s chat=%s", getattr(user, "id", None), getattr(chat, "id", None))
 
     if not _is_admin(user.id):
-        logger.debug("message_router: user %s is not admin; ignoring", user.id)
+        logger.debug("message_router: user %s not admin", user.id)
         return
 
+    # check in-memory awaiting first
     waiting = awaiting_broadcast.pop(user.id, False)
+    # if not set in memory, check persisted file
     if not waiting:
-        logger.info("message_router: admin %s is not awaiting broadcast (no flag); returning", user.id)
+        p = _await_path(user.id)
+        if os.path.exists(p):
+            waiting = True
+            try:
+                os.remove(p)
+            except Exception:
+                pass
+            logger.info("message_router: found persisted awaiting for admin %s", user.id)
+
+    if not waiting:
+        logger.info("message_router: admin %s is not awaiting broadcast", user.id)
         return
 
-    message = update.message
-    bot = context.bot
-
-    # immediate debug ACKs
+    # immediate ACK so admin can't be left wondering
     try:
-        # detect message type for debug
         types = []
-        if message.text:
+        msg = update.message
+        if msg.text:
             types.append("text")
-        if message.photo:
+        if msg.photo:
             types.append("photo")
-        if message.video:
+        if msg.video:
             types.append("video")
-        if message.document:
+        if msg.document:
             types.append("document")
-        if message.audio:
+        if msg.audio:
             types.append("audio")
-        if message.voice:
+        if msg.voice:
             types.append("voice")
-        if message.animation:
+        if msg.animation:
             types.append("animation")
-        if message.sticker:
+        if msg.sticker:
             types.append("sticker")
         msg_type = "+".join(types) if types else "unknown"
-
-        bot.send_message(chat_id=update.effective_chat.id, text=f"📨 Broadcast received. Detected type: {msg_type}")
-        logger.info("Broadcast content received from admin %s (type=%s)", user.id, msg_type)
-    except Exception as e:
-        logger.debug("Failed to send debug ack to admin %s: %s", user.id, e)
+        context.bot.send_message(chat_id=chat.id, text=f"📨 Broadcast received (type: {msg_type}). Starting send...")
+        logger.info("Broadcast received from admin %s type=%s", user.id, msg_type)
+    except Exception:
+        logger.exception("Failed to ACK admin %s", user.id)
 
     # prepare targets
-    targets = _prepare_targets()
+    targets = []
+    try:
+        raw_targets = get_all_users()
+        for r in raw_targets:
+            if isinstance(r, (list, tuple)):
+                targets.append(int(r[0]))
+            else:
+                targets.append(int(r))
+    except Exception:
+        logger.exception("Failed to load targets")
+        targets = []
+
     total = len(targets)
     if total == 0:
-        bot.send_message(chat_id=update.effective_chat.id, text="⚠️ No users found to send to.")
-        logger.info("Broadcast aborted: no target users found.")
+        context.bot.send_message(chat_id=chat.id, text="⚠️ No users found to send to.")
+        logger.info("No target users for broadcast")
         return
 
-    # immediate "starting" ack
-    try:
-        bot.send_message(chat_id=update.effective_chat.id, text=f"🚀 Broadcast started: sending to {total} users... I will notify you when finished.")
-    except Exception:
-        logger.exception("Failed to send start ack to admin %s", user.id)
-
-    # initial status message for edits
+    # initial status
     status_msg = None
     try:
-        status_msg = bot.send_message(chat_id=update.effective_chat.id, text=_format_status(0, 0, 0, total))
+        status_msg = context.bot.send_message(chat_id=chat.id, text=_format_status(0, 0, 0, total))
     except Exception as e:
-        logger.debug("Failed to create initial status message: %s", e)
+        logger.debug("Couldn't create initial status message: %s", e)
         status_msg = None
 
-    status_chat_id = status_msg.chat.id if status_msg else update.effective_chat.id
+    status_chat_id = status_msg.chat.id if status_msg else chat.id
     status_message_id = status_msg.message_id if status_msg else None
 
-    # start background thread
-    thread = threading.Thread(
+    # start background sender
+    t = threading.Thread(
         target=_background_broadcast,
-        args=(bot, update.effective_chat.id, status_chat_id, status_message_id, message, targets),
+        args=(context.bot, chat.id, status_chat_id, status_message_id, update.message, targets),
         daemon=True,
     )
-    thread.start()
-    # handler returns immediately
+    t.start()
 
 
 def setup(dispatcher, bot=None):
-    # register handlers
     dispatcher.add_handler(CommandHandler("all_members", cmd_all_members))
     dispatcher.add_handler(CommandHandler("cancel", cmd_cancel))
     dispatcher.add_handler(MessageHandler(Filters.all & ~Filters.command, message_router))
-    logger.info("all_members_command feature loaded. Admins=%r", sorted(list(_get_admin_ids())))
+    logger.info("all_members_command loaded. Admins=%r", sorted(list(_get_admin_ids())))
