@@ -60,7 +60,6 @@ def _connect():
             try:
                 cur.execute(f"PRAGMA {key} = {val};")
             except Exception:
-                # some pragmas require different syntax, try quoted value
                 try:
                     cur.execute(f"PRAGMA {key} = '{val}';")
                 except Exception:
@@ -71,6 +70,17 @@ def _connect():
     return conn
 
 
+def _table_columns(conn: sqlite3.Connection, table: str) -> List[str]:
+    """Return list of column names for table (empty list if no table or error)."""
+    try:
+        cur = conn.execute(f"PRAGMA table_info({table});")
+        rows = cur.fetchall()
+        return [r[1] for r in rows] if rows else []
+    except Exception as e:
+        logger.debug("Failed to read table_info for %s: %s", table, e)
+        return []
+
+
 def ensure_db():
     """
     Create necessary tables if they don't exist. Safe to call multiple times.
@@ -79,7 +89,9 @@ def ensure_db():
       - first_name TEXT
       - username TEXT
       - added_at INTEGER (unix epoch)
+    If table exists but lacks columns, attempt to ALTER TABLE ADD COLUMN (non-destructive).
     """
+    _ensure_db_dir()
     conn = _connect()
     try:
         with conn:
@@ -93,6 +105,24 @@ def ensure_db():
                 );
                 """
             )
+
+        # inspect columns and add missing ones if needed
+        cols = _table_columns(conn, "users")
+        required = {
+            "first_name": "TEXT",
+            "username": "TEXT",
+            "added_at": "INTEGER",
+        }
+        missing = [c for c in required.keys() if c not in cols]
+        if missing:
+            logger.info("users table missing columns %s; attempting ALTER TABLE to add them.", missing)
+            try:
+                for c in missing:
+                    with conn:
+                        conn.execute(f"ALTER TABLE users ADD COLUMN {c} {required[c]};")
+                        logger.info("Added column %s to users table", c)
+            except Exception as e:
+                logger.exception("Failed to add missing columns %s: %s", missing, e)
     except Exception as e:
         logger.exception("Failed to ensure DB schema: %s", e)
     finally:
@@ -108,6 +138,7 @@ def add_user_if_new(user_id: int, first_name: Optional[str] = None, username: Op
     Returns True if inserted (new), False if already present or on error.
     """
     ensure_db()
+    conn = None
     try:
         conn = _connect()
         with conn:
@@ -115,7 +146,6 @@ def add_user_if_new(user_id: int, first_name: Optional[str] = None, username: Op
                 "INSERT OR IGNORE INTO users (user_id, first_name, username, added_at) VALUES (?, ?, ?, ?);",
                 (int(user_id), first_name, username, int(time.time())),
             )
-            # cur.rowcount == 1 when inserted, 0 when ignored
             inserted = cur.rowcount == 1
             if inserted:
                 logger.info("New user added to DB: %s (%s / @%s)", user_id, first_name, username)
@@ -124,10 +154,11 @@ def add_user_if_new(user_id: int, first_name: Optional[str] = None, username: Op
         logger.exception("Failed to add user %s: %s", user_id, e)
         return False
     finally:
-        try:
-            conn.close()
-        except Exception:
-            pass
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
 
 def user_exists(user_id: int) -> bool:
@@ -174,21 +205,46 @@ def get_all_users(as_rows: bool = False) -> List[Union[int, Tuple]]:
     - as_rows=False -> [user_id, ...]
     - as_rows=True  -> [(user_id, first_name, username, added_at), ...]
     WARNING: this loads all results into memory; for large lists use get_all_users_in_chunks().
+    This function is defensive: if added_at or other columns are missing it will adapt.
     """
     if not os.path.exists(DB_PATH):
         return []
     conn = _connect()
     try:
+        cols = _table_columns(conn, "users")
+        # decide ordering
+        order_by = "added_at DESC" if "added_at" in cols else "user_id DESC"
+
         if as_rows:
-            cur = conn.execute(
-                "SELECT user_id, first_name, username, added_at FROM users ORDER BY added_at DESC;"
-            )
+            # pick columns in expected order, fall back to NULL if missing
+            select_cols = []
+            for c in ("user_id", "first_name", "username", "added_at"):
+                if c in cols:
+                    select_cols.append(c)
+                else:
+                    # create placeholder so returned tuple shape is stable
+                    select_cols.append(f"NULL AS {c}")
+            sql = "SELECT " + ", ".join(select_cols) + f" FROM users ORDER BY {order_by};"
+            cur = conn.execute(sql)
             rows = cur.fetchall()
             return rows
         else:
-            cur = conn.execute("SELECT user_id FROM users ORDER BY added_at DESC;")
-            rows = cur.fetchall()
-            return [int(r[0]) for r in rows]
+            if "user_id" in cols:
+                cur = conn.execute(f"SELECT user_id FROM users ORDER BY {order_by};")
+                rows = cur.fetchall()
+                return [int(r[0]) for r in rows]
+            else:
+                # fallback: return first column values
+                cur = conn.execute("SELECT * FROM users;")
+                rows = cur.fetchall()
+                ids = []
+                for r in rows:
+                    if r:
+                        try:
+                            ids.append(int(r[0]))
+                        except Exception:
+                            continue
+                return ids
     except Exception as e:
         logger.exception("Failed to fetch users: %s", e)
         return []
@@ -206,13 +262,15 @@ def get_all_users_in_chunks(chunk_size: int = 1000) -> Generator[List[int], None
     """
     if not os.path.exists(DB_PATH):
         return
-        yield  # type: ignore[misc] - keeps generator type
-    offset = 0
+        yield  # keeps generator type
     conn = _connect()
     try:
+        cols = _table_columns(conn, "users")
+        order_by = "added_at DESC" if "added_at" in cols else "user_id DESC"
+        offset = 0
         while True:
             cur = conn.execute(
-                "SELECT user_id FROM users ORDER BY added_at DESC LIMIT ? OFFSET ?;",
+                f"SELECT user_id FROM users ORDER BY {order_by} LIMIT ? OFFSET ?;",
                 (chunk_size, offset),
             )
             rows = cur.fetchall()
@@ -252,16 +310,53 @@ def sample_users(limit: int = 10) -> List[Tuple]:
     """
     Return sample rows for admin debugging:
       [(user_id, first_name, username, added_at_human_readable), ...]
+    Works even if first_name/username/added_at are missing.
     """
     if not os.path.exists(DB_PATH):
         return []
     conn = _connect()
     try:
-        cur = conn.execute(
-            "SELECT user_id, first_name, username, datetime(added_at, 'unixepoch') FROM users ORDER BY added_at DESC LIMIT ?;",
-            (limit,),
-        )
-        return cur.fetchall()
+        cols = _table_columns(conn, "users")
+        # build select list depending on available columns
+        select_cols = []
+        out_cols = []
+        if "user_id" in cols:
+            select_cols.append("user_id")
+            out_cols.append("user_id")
+        if "first_name" in cols:
+            select_cols.append("first_name")
+            out_cols.append("first_name")
+        if "username" in cols:
+            select_cols.append("username")
+            out_cols.append("username")
+        if "added_at" in cols:
+            select_cols.append("added_at")
+            out_cols.append("added_at")
+        if select_cols:
+            sql = "SELECT " + ", ".join(select_cols) + " FROM users ORDER BY " + ("added_at" if "added_at" in cols else "user_id") + " DESC LIMIT ?;"
+            cur = conn.execute(sql, (limit,))
+            rows = cur.fetchall()
+            # If added_at present and is integer, convert it to human-readable in returned tuples (if included)
+            out = []
+            for r in rows:
+                # map to stable tuple of length equal to number of out_cols
+                tup = list(r)
+                # if added_at is present and it's the last element, convert it
+                if "added_at" in out_cols:
+                    idx = out_cols.index("added_at")
+                    try:
+                        val = tup[idx]
+                        if val is not None:
+                            tup[idx] = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(int(val)))
+                    except Exception:
+                        pass
+                out.append(tuple(tup))
+            return out
+        else:
+            # fallback: select * and return raw rows (limited)
+            cur = conn.execute("SELECT * FROM users LIMIT ?;", (limit,))
+            rows = cur.fetchall()
+            return rows
     except Exception as e:
         logger.exception("Failed to sample users: %s", e)
         return []
