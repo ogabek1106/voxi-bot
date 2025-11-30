@@ -27,7 +27,10 @@ import admins
 logger = logging.getLogger(__name__)
 
 # Read storage chat id from env if set; fallback to your hardcoded value
-STORAGE_CHAT_ID = int(os.getenv("STORAGE_CHAT_ID", "-1002714023986"))
+try:
+    STORAGE_CHAT_ID = int(os.getenv("STORAGE_CHAT_ID", "-1002714023986"))
+except Exception:
+    STORAGE_CHAT_ID = -1002714023986
 
 
 def _get_admin_ids():
@@ -94,25 +97,30 @@ def _has_media(msg: Message) -> bool:
     ])
 
 
-def _extract_file_id_from_message(msg: Message) -> str:
+def _extract_file_id_from_message(msg: Message):
     """
     Return the most relevant file_id contained in the message.
     Preference order: document, photo (largest), video, audio, voice, animation.
     Returns None if nothing found.
     """
-    if msg.document:
-        return msg.document.file_id
-    if msg.photo:
-        # photo is a list of sizes — return the biggest
-        return msg.photo[-1].file_id
-    if msg.video:
-        return msg.video.file_id
-    if msg.audio:
-        return msg.audio.file_id
-    if msg.voice:
-        return msg.voice.file_id
-    if msg.animation:
-        return msg.animation.file_id
+    if not msg:
+        return None
+    try:
+        if getattr(msg, "document", None):
+            return msg.document.file_id
+        if getattr(msg, "photo", None):
+            # photo is a list of sizes — return the biggest
+            return msg.photo[-1].file_id
+        if getattr(msg, "video", None):
+            return msg.video.file_id
+        if getattr(msg, "audio", None):
+            return msg.audio.file_id
+        if getattr(msg, "voice", None):
+            return msg.voice.file_id
+        if getattr(msg, "animation", None):
+            return msg.animation.file_id
+    except Exception as e:
+        logger.debug("Error extracting file_id from message: %s", e)
     return None
 
 
@@ -148,16 +156,12 @@ def upload_router(update: Update, context: CallbackContext):
         logger.exception("Failed to forward file to storage channel: %s", e)
         update.message.reply_text(
             "❌ Error: failed to forward file to storage channel. "
-            "Check that the bot is an admin/member of the storage channel and STORAGE_CHAT_ID is correct."
+            "Check that the bot is a member of the storage channel and STORAGE_CHAT_ID is correct."
         )
         return
 
     # Extract file_id from forwarded message (sometimes forward preserves media fields)
-    file_id = None
-    try:
-        file_id = _extract_file_id_from_message(forwarded)
-    except Exception:
-        file_id = None
+    file_id = _extract_file_id_from_message(forwarded)
 
     # If forwarded object didn't have media, try to inspect the original message
     if not file_id:
@@ -166,14 +170,20 @@ def upload_router(update: Update, context: CallbackContext):
     # Compose reply: primary is FILE_ID (for books.py); also include storage message id
     try:
         storage_mid = getattr(forwarded, "message_id", None)
-        reply_parts = []
+        reply_lines = []
         if file_id:
-            reply_parts.append(f"✅ File uploaded.\n\n📂 *FILE_ID* (use this in books.py):\n`{file_id}`")
+            reply_lines.append("✅ File uploaded.")
+            reply_lines.append("📂 FILE_ID (use this in books.py):")
+            reply_lines.append(file_id)
         else:
-            reply_parts.append("✅ File forwarded to storage channel, but I couldn't extract file_id automatically.")
+            reply_lines.append("✅ File forwarded to storage channel, but I couldn't extract a FILE_ID automatically.")
         if storage_mid is not None:
-            reply_parts.append(f"\n📨 Storage message_id: `{storage_mid}` (optional reference)")
-        update.message.reply_text("\n\n".join(reply_parts), parse_mode="Markdown")
+            reply_lines.append("")
+            reply_lines.append("📨 Storage message_id (optional reference):")
+            reply_lines.append(str(storage_mid))
+
+        # Use plain text reply to avoid entity parsing errors
+        update.message.reply_text("\n".join(reply_lines))
         logger.info("Admin %s uploaded file. file_id=%r storage_mid=%r", user.id, file_id, storage_mid)
     except Exception as e:
         logger.exception("Failed to reply to admin after upload: %s", e)
