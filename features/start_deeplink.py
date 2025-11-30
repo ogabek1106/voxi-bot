@@ -1,19 +1,15 @@
 # features/start_deeplink.py
 """
-Feature: Lightweight deep-link (/start <payload>) handler.
+Start deeplink handler.
 
 Behavior:
- - If /start is called WITHOUT a payload, this handler does NOTHING
-   (so your core start handler continues to handle plain /start).
- - If /start <payload> is called, this handler will try to handle it:
-    * If a books.py with BOOKS mapping exists and payload matches a key,
-      it will send a short message about the book (customize as needed).
-    * Otherwise it replies: "Bu kod bo‘yicha kitob topilmadi."
- - Register using CommandHandler("start", start_handler, pass_args=True)
-   to ensure context.args is available (python-telegram-bot v13).
+ - plain /start -> do nothing (core handler handles it)
+ - /start start  -> send the friendly casual start reply (so deep link ?start=start looks like plain /start)
+ - /start <other> -> try to find book by code in books.py and send it; otherwise reply "Bu kod bo‘yicha kitob topilmadi."
 """
 
 import logging
+import time
 from typing import Optional
 
 from telegram import Update
@@ -23,11 +19,7 @@ logger = logging.getLogger(__name__)
 
 
 def _read_payload(update: Update, context: CallbackContext) -> Optional[str]:
-    """
-    Robustly obtain the /start payload.
-    Returns None if no payload present.
-    """
-    # 1) try context.args (works with CommandHandler(..., pass_args=True) on PTB v13)
+    # Try context.args first (PTB v13 pass_args=True)
     try:
         args = getattr(context, "args", None)
         if args:
@@ -37,99 +29,144 @@ def _read_payload(update: Update, context: CallbackContext) -> Optional[str]:
     except Exception:
         logger.debug("start_deeplink: context.args read failed", exc_info=True)
 
-    # 2) fallback: parse raw text "/start payload"
+    # Fallback to parsing raw text "/start payload"
     try:
-        text = update.message.text or ""
-        parts = text.split(maxsplit=1)
-        if len(parts) > 1:
-            payload = parts[1].strip()
-            if payload:
-                return payload
+        text = (update.message.text or "").strip()
+        if text:
+            parts = text.split(maxsplit=1)
+            if len(parts) > 1:
+                payload = parts[1].strip()
+                if payload:
+                    return payload
     except Exception:
-        logger.debug("start_deeplink: fallback raw text parse failed", exc_info=True)
+        logger.debug("start_deeplink: fallback parse failed", exc_info=True)
 
     return None
 
 
-def _handle_book_code(payload: str, update: Update, context: CallbackContext) -> bool:
+def _send_book_to_user(payload: str, update: Update, context: CallbackContext) -> bool:
     """
-    Try to handle payload as a book code using books.py -> BOOKS mapping.
-    Returns True if handled (reply was sent), False otherwise.
+    Try to locate BOOKS[payload] in books.py and send/forward the book.
+    Return True if we handled (sent something), otherwise False.
     """
     try:
-        # attempt to import BOOKS if present in repo
-        import books  # type: ignore
+        import books  # your repo's books.py
     except Exception:
-        # books.py not available — nothing to do here
+        logger.debug("books.py not available", exc_info=True)
         return False
 
     BOOKS = getattr(books, "BOOKS", None)
     if not isinstance(BOOKS, dict):
+        logger.debug("BOOKS not found or not dict in books.py")
         return False
 
-    # payload could be provided with extra slashes or params, normalize
     code = payload.strip()
-
     book = BOOKS.get(code)
-    if not book:
-        # try case-insensitive keys if you want
+    if book is None:
+        # try case-insensitive fallback
         lower_map = {k.lower(): v for k, v in BOOKS.items()}
         book = lower_map.get(code.lower())
+        if book is None:
+            return False
 
-    if not book:
-        return False
+    chat_id = update.effective_chat.id
+    bot = context.bot
 
-    # Customize this reply to match your BOOKS structure.
-    # Here we send a short confirmation that the code was found and show title / brief info.
-    title = book.get("title") if isinstance(book, dict) else None
-    caption = f"Kitob topildi: `{code}`"
-    if title:
-        caption += f"\nTitle: {title}"
-    try:
-        update.message.reply_text(caption, parse_mode="Markdown")
-    except Exception:
+    # If book is a simple string, just reply with it
+    if isinstance(book, str):
         try:
-            update.message.reply_text(caption)
+            bot.send_message(chat_id=chat_id, text=book)
+            return True
         except Exception:
-            logger.exception("start_deeplink: failed to notify admin about found book")
-    return True
+            logger.exception("Failed to send simple string book reply")
+            return False
+
+    # If dict, prefer forwarding from storage channel (if provided)
+    if isinstance(book, dict):
+        storage_chat = book.get("storage_chat_id") or book.get("storage_chat") or book.get("storage_channel")
+        storage_mid = book.get("storage_message_id") or book.get("storage_mid") or book.get("message_id")
+        if storage_chat and storage_mid:
+            try:
+                bot.forward_message(chat_id=chat_id, from_chat_id=int(storage_chat), message_id=int(storage_mid))
+                logger.info("Forwarded book %s to user %s from storage %s/%s", code, chat_id, storage_chat, storage_mid)
+                return True
+            except Exception:
+                logger.exception("Failed to forward stored message for code %s", code)
+
+        # try file_id
+        file_id = book.get("file_id") or book.get("fileid") or book.get("file")
+        if file_id:
+            try:
+                bot.send_document(chat_id=chat_id, document=file_id)
+                logger.info("Sent file_id for book %s to user %s", code, chat_id)
+                return True
+            except Exception:
+                logger.exception("Failed to send file_id for code %s", code)
+
+        # fallback: send title/info if present
+        title = book.get("title") or book.get("name")
+        if title:
+            try:
+                bot.send_message(chat_id=chat_id, text=f"Kitob topildi: {title}")
+                return True
+            except Exception:
+                logger.exception("Failed to send title for code %s", code)
+
+    return False
+
+
+def _send_casual_start(update: Update, context: CallbackContext):
+    """Send the casual /start reply so ?start=start looks identical to plain /start."""
+    user = update.effective_user
+    name = (getattr(user, "first_name", None) or "").strip()
+    if name:
+        greeting = f"Assalomu alaykum, {name}!"
+    else:
+        greeting = "Assalomu alaykum!"
+
+    # This is the friendly prompt you displayed in screenshots:
+    text = (
+        f"{greeting}\n"
+        "Menga faqat kitob kodini yuboring (masalan: 3)"
+    )
+    try:
+        update.message.reply_text(text)
+    except Exception:
+        logger.exception("Failed to send casual start reply")
 
 
 def start_handler(update: Update, context: CallbackContext):
-    """
-    Intercept /start <payload>. If payload absent -> return (do nothing),
-    if payload present -> try to handle (book lookup), else reply 'not found'.
-    """
     payload = _read_payload(update, context)
-    logger.info("start_deeplink: invoked by user=%s payload=%r", getattr(update.effective_user, "id", None), payload)
+    logger.info("start_deeplink invoked by user=%s payload=%r", getattr(update.effective_user, "id", None), payload)
 
-    # if no payload - we don't touch plain /start (let core handle it)
+    # No payload -> let core start handler handle it
     if not payload:
-        logger.debug("start_deeplink: no payload, skipping to core start handler")
+        logger.debug("no payload, skipping (letting core /start run)")
         return
 
-    # try to handle as book code
+    # If payload is the literal "start", treat it as casual /start
+    if payload.strip().lower() == "start":
+        _send_casual_start(update, context)
+        return
+
+    # Try to handle as book code
     try:
-        handled = _handle_book_code(payload, update, context)
+        handled = _send_book_to_user(payload, update, context)
     except Exception:
-        logger.exception("start_deeplink: error while handling book code")
+        logger.exception("Error in _send_book_to_user")
         handled = False
 
     if handled:
         return
 
-    # fallback: unknown payload -> user message (same text you reported)
+    # fallback not found message
     try:
         update.message.reply_text("Bu kod bo‘yicha kitob topilmadi.")
     except Exception:
-        try:
-            update.message.reply_text("Bu kod bo‘yicha kitob topilmadi.")
-        except Exception:
-            logger.exception("start_deeplink: failed to send fallback 'not found' reply")
+        logger.exception("Failed to send fallback not-found reply")
 
 
 def setup(dispatcher):
-    # Register handler for /start. We only respond when payload exists.
-    # Use pass_args=True (v13) so context.args is populated.
+    # register so context.args works (PTB v13 style)
     dispatcher.add_handler(CommandHandler("start", start_handler, pass_args=True))
     logger.info("start_deeplink feature loaded")
