@@ -90,10 +90,38 @@ def _connect():
         raise
 
 
+def _format_moscow_short(dt: datetime) -> str:
+    """
+    Format Moscow datetime as: "hhmmss / ddmmyy (Moscow time)"
+    Example: "163323 / 011225 (Moscow time)"
+    """
+    try:
+        return dt.strftime("%H%M%S / %d%m%y") + " (Moscow time)"
+    except Exception:
+        return time.strftime("%H%M%S / %d%m%y", time.localtime()) + " (Moscow time)"
+
+
+def _now_moscow() -> datetime:
+    """
+    Return timezone-aware current datetime in Moscow timezone.
+    Falls back to UTC-aware now if zoneinfo not available (still labeled Moscow).
+    """
+    try:
+        if HAVE_ZONEINFO and ZoneInfo is not None:
+            return datetime.now(timezone.utc).astimezone(ZoneInfo(MOSCOW_TZ_NAME))
+    except Exception:
+        logger.debug("zoneinfo failed for %s; falling back to UTC", MOSCOW_TZ_NAME, exc_info=True)
+    return datetime.now(timezone.utc)
+
+
 def _ensure_table():
     """
-    Ensure users DB is prepared by core database utilities and ensure the
-    local `tests` table exists (non-destructive). Try to add missing columns.
+    Ensure tests table exists and required columns are present.
+    Also perform a safe one-time migration:
+      - If start_ts_human contains a pure-digit epoch, convert it to formatted Moscow string.
+      - If start_ts_human is missing but start_ts epoch exists, fill formatted string.
+      - Clear form_url for migrated rows so new prefill URL is rebuilt.
+    This migration is best-effort and idempotent.
     """
     try:
         if core_database is not None:
@@ -121,6 +149,7 @@ def _ensure_table():
                 );
                 """
             )
+        # verify columns and add missing ones
         cur = conn.execute("PRAGMA table_info(tests);")
         cols = {r[1] for r in cur.fetchall()}
         needed = {
@@ -136,6 +165,43 @@ def _ensure_table():
                         logger.info("Added missing column %s to tests table", col)
                 except Exception:
                     logger.exception("Failed adding column %s", col)
+
+        # One-time best-effort migration to normalize start_ts_human and clear form_url for those rows.
+        try:
+            cur = conn.execute("SELECT token, start_ts, start_ts_human FROM tests;")
+            rows = cur.fetchall()
+            updates = []
+            for token, start_ts, start_human in rows:
+                new_human = None
+                # If start_ts_human is digits (likely epoch) -> convert
+                if start_human and str(start_human).strip().isdigit() and len(str(start_human).strip()) >= 9:
+                    try:
+                        ts = int(str(start_human).strip())
+                        if HAVE_ZONEINFO and ZoneInfo is not None:
+                            dt = datetime.fromtimestamp(ts, tz=ZoneInfo(MOSCOW_TZ_NAME))
+                        else:
+                            dt = datetime.fromtimestamp(ts, tz=timezone.utc)
+                        new_human = _format_moscow_short(dt)
+                    except Exception:
+                        new_human = None
+                # If no start_ts_human but start_ts epoch exists -> create formatted
+                if not new_human and start_ts:
+                    try:
+                        ts = int(start_ts)
+                        if HAVE_ZONEINFO and ZoneInfo is not None:
+                            dt = datetime.fromtimestamp(ts, tz=ZoneInfo(MOSCOW_TZ_NAME))
+                        else:
+                            dt = datetime.fromtimestamp(ts, tz=timezone.utc)
+                        new_human = _format_moscow_short(dt)
+                    except Exception:
+                        new_human = None
+                # If we have a normalized string and it's different from stored, update and clear form_url
+                if new_human and (str(start_human).strip() != new_human):
+                    with conn:
+                        conn.execute("UPDATE tests SET start_ts_human = ?, form_url = NULL WHERE token = ?;", (new_human, token))
+                        logger.info("Migrated token %s: normalized start_ts_human and cleared form_url", token)
+        except Exception:
+            logger.exception("Migration of tests.start_ts_human failed (non-fatal)")
     except Exception:
         logger.exception("Failed to ensure tests table")
     finally:
@@ -301,18 +367,17 @@ def _build_prefill_url(token: str, start_human: str, user_id: int) -> str:
     Replace placeholders {token}, {start_ts}, {user_id} in FORM_PREFILL_URL.
     Uses URL-encoding for inserted values.
     start_human here is intended to be MOSCOW human-readable time (for the form).
+    If a pure-epoch string finds its way here, convert it to formatted string first.
     """
     if not FORM_PREFILL_URL:
         return ""
     import urllib.parse
-    if start_human is None:
-        start_human = ""
-    # Make sure we never pass a pure-digit epoch here accidentally.
-    # If start_human contains only digits and length looks like epoch (>=9), convert it.
-    s_val = str(start_human).strip()
+
+    s_val = "" if start_human is None else str(start_human).strip()
+
+    # If start_human is epoch-like (digits length >=9), convert to formatted string
     if s_val.isdigit() and len(s_val) >= 9:
         try:
-            # interpret as epoch seconds in Moscow and convert to formatted string
             if HAVE_ZONEINFO and ZoneInfo is not None:
                 moscow_dt = datetime.fromtimestamp(int(s_val), tz=ZoneInfo(MOSCOW_TZ_NAME))
             else:
@@ -327,34 +392,6 @@ def _build_prefill_url(token: str, start_human: str, user_id: int) -> str:
     u = urllib.parse.quote_plus(str(user_id))
     url = FORM_PREFILL_URL.replace("{token}", t).replace("{start_ts}", s).replace("{user_id}", u)
     return url
-
-
-# --- handlers / time helpers ---
-
-
-def _now_moscow() -> datetime:
-    """
-    Return timezone-aware current datetime in Moscow timezone.
-    Falls back to UTC-aware now if zoneinfo not available (still labeled Moscow).
-    """
-    try:
-        if HAVE_ZONEINFO and ZoneInfo is not None:
-            return datetime.now(timezone.utc).astimezone(ZoneInfo(MOSCOW_TZ_NAME))
-    except Exception:
-        logger.debug("zoneinfo failed for %s; falling back to UTC", MOSCOW_TZ_NAME, exc_info=True)
-    return datetime.now(timezone.utc)
-
-
-def _format_moscow_short(dt: datetime) -> str:
-    """
-    Format Moscow datetime as: "hhmmss / ddmmyy (Moscow time)"
-    Example: "163323 / 011225 (Moscow time)"
-    """
-    try:
-        return dt.strftime("%H%M%S / %d%m%y") + " (Moscow time)"
-    except Exception:
-        # fallback simple
-        return time.strftime("%H%M%S / %d%m%y", time.localtime()) + " (Moscow time)"
 
 
 def _parse_moscow_time_to_epoch(value: str) -> Optional[int]:
@@ -377,12 +414,10 @@ def _parse_moscow_time_to_epoch(value: str) -> Optional[int]:
 
     # If our formatted string "HHMMSS / DDMMYY" or "HHMMSS / DDMMYY (Moscow time)" handle it first
     try:
-        # strip optional "(Moscow time)"
         if "(Moscow" in v:
             v_clean = v.split("(")[0].strip()
         else:
             v_clean = v
-        # handle "HHMMSS / DDMMYY"
         if "/" in v_clean:
             left, right = [p.strip() for p in v_clean.split("/", 1)]
             if left.isdigit() and right.isdigit():
@@ -390,10 +425,9 @@ def _parse_moscow_time_to_epoch(value: str) -> Optional[int]:
                 ddmmyy = right
                 if len(hhmmss) == 6 and len(ddmmyy) == 6:
                     HH = int(hhmmss[0:2]); MM = int(hhmmss[2:4]); SS = int(hhmmss[4:6])
-                    DD = int(ddmmyy[0:2]); MM2 = int(ddmmyy[2:4]); YY = int(ddmmyy[4:6])
-                    # year correction: assume 20YY
+                    DD = int(ddmmyy[0:2]); MON = int(ddmmyy[2:4]); YY = int(ddmmyy[4:6])
                     year = 2000 + YY
-                    month = MM2
+                    month = MON
                     dt = datetime(year, month, DD, HH, MM, SS)
                     if HAVE_ZONEINFO and ZoneInfo is not None:
                         dt = dt.replace(tzinfo=ZoneInfo(MOSCOW_TZ_NAME))
@@ -425,7 +459,6 @@ def _parse_moscow_time_to_epoch(value: str) -> Optional[int]:
     for fmt in candidates:
         try:
             dt = datetime.strptime(v, fmt)
-            # localize/interpret as MOSCOW time
             if HAVE_ZONEINFO and ZoneInfo is not None:
                 moscow = ZoneInfo(MOSCOW_TZ_NAME)
                 dt = dt.replace(tzinfo=moscow)
@@ -480,47 +513,62 @@ def get_test_handler(update: Update, context: CallbackContext):
         except Exception:
             return _now_moscow()
 
-    # Build human-readable requested-at (Moscow) string
+    # requested-at (Moscow) for display/debug
     req_moscow_dt = _request_dt_moscow()
     req_moscow_short = _format_moscow_short(req_moscow_dt)
 
-    # If user already has an unused token (completed=0) reuse it
+    # If user already has an unused token (completed=0) reuse it, but NORMALIZE stored values
     existing = _find_unused_token_for_user(user.id)
     if existing:
         token = existing["token"]
 
-        # Prefer stored start_ts_human if present (should be Moscow-format from previous runs)
+        # Normalize start_ts_human: if it looks like epoch, convert; if missing use start_ts
         start_human = existing.get("start_ts_human")
-        # If stored human is a pure epoch number for some reason, convert to formatted Moscow string
         try:
             if start_human and str(start_human).strip().isdigit() and len(str(start_human).strip()) >= 9:
+                ts_candidate = int(str(start_human).strip())
                 if HAVE_ZONEINFO and ZoneInfo is not None:
-                    moscow_dt = datetime.fromtimestamp(int(str(start_human).strip()), tz=ZoneInfo(MOSCOW_TZ_NAME))
+                    moscow_dt = datetime.fromtimestamp(ts_candidate, tz=ZoneInfo(MOSCOW_TZ_NAME))
                 else:
-                    moscow_dt = datetime.fromtimestamp(int(str(start_human).strip()), tz=timezone.utc)
+                    moscow_dt = datetime.fromtimestamp(ts_candidate, tz=timezone.utc)
                 start_human = _format_moscow_short(moscow_dt)
         except Exception:
-            # ignore conversion error and fallback below
             start_human = existing.get("start_ts_human")
 
         if not start_human:
-            # try to derive from stored epoch (assume it is Moscow epoch)
+            # try to derive from stored epoch
             try:
                 if existing.get("start_ts"):
+                    ts_candidate = int(existing.get("start_ts"))
                     if HAVE_ZONEINFO and ZoneInfo is not None:
-                        moscow_dt = datetime.fromtimestamp(int(existing["start_ts"]), tz=ZoneInfo(MOSCOW_TZ_NAME))
+                        moscow_dt = datetime.fromtimestamp(ts_candidate, tz=ZoneInfo(MOSCOW_TZ_NAME))
                     else:
-                        moscow_dt = datetime.fromtimestamp(int(existing["start_ts"]), tz=timezone.utc)
+                        moscow_dt = datetime.fromtimestamp(ts_candidate, tz=timezone.utc)
                     start_human = _format_moscow_short(moscow_dt)
             except Exception:
                 start_human = None
 
         if not start_human:
-            # final fallback: current Moscow time
             start_human = _format_moscow_short(_now_moscow())
 
-        # Ensure prefill URL uses the formatted (non-epoch) start_human
-        form_url = existing.get("form_url") or _build_prefill_url(token, start_human, user.id)
+        # Always rebuild form_url from normalized start_human (do not reuse old form_url)
+        form_url = _build_prefill_url(token, start_human, user.id)
+
+        # Update stored normalized values (best-effort) so next reuse is consistent
+        try:
+            conn = _connect()
+            with conn:
+                conn.execute(
+                    "UPDATE tests SET start_ts_human = ?, form_url = ? WHERE token = ?;",
+                    (start_human, form_url, token),
+                )
+            try:
+                conn.close()
+            except Exception:
+                pass
+        except Exception:
+            logger.exception("Failed to persist normalized start_human for token %s", token)
+
         kb = InlineKeyboardMarkup([[InlineKeyboardButton("🔗 Open test (prefilled)", url=form_url)]])
         update.message.reply_text(
             f"🔐 You already have an active test token.\n\nToken: {token}\nStart (Moscow): {start_human}\nRequested at (Moscow): {req_moscow_short}\n\nUse the button below to open the test.",
@@ -544,10 +592,9 @@ def get_test_handler(update: Update, context: CallbackContext):
     # human-readable Moscow string in required short format
     moscow_human_short = _format_moscow_short(moscow_dt)
 
-    # Build form URL with Moscow human time so form receives Moscow time (we ensure this is a formatted string)
+    # Build form URL with Moscow human time so form receives Moscow time
     form_url = _build_prefill_url(token, moscow_human_short, user.id)
 
-    # debug log to confirm what we put into URL
     logger.info("test_form: built form_url=%s for token=%s (moscow=%s epoch=%s)", form_url, token, moscow_human_short, start_ts)
 
     # Insert token with start_ts (Moscow epoch) and visible human shown to user (Moscow)
@@ -578,13 +625,13 @@ def find_token_handler(update: Update, context: CallbackContext):
 
     # Prefer stored human string (Moscow short); if missing try to derive from epoch
     start_h = row.get("start_ts_human")
-    # if stored human is epoch-like, convert to formatted string
     try:
         if start_h and str(start_h).strip().isdigit() and len(str(start_h).strip()) >= 9:
+            ts_candidate = int(str(start_h).strip())
             if HAVE_ZONEINFO and ZoneInfo is not None:
-                moscow_dt = datetime.fromtimestamp(int(str(start_h).strip()), tz=ZoneInfo(MOSCOW_TZ_NAME))
+                moscow_dt = datetime.fromtimestamp(ts_candidate, tz=ZoneInfo(MOSCOW_TZ_NAME))
             else:
-                moscow_dt = datetime.fromtimestamp(int(str(start_h).strip()), tz=timezone.utc)
+                moscow_dt = datetime.fromtimestamp(ts_candidate, tz=timezone.utc)
             start_h = _format_moscow_short(moscow_dt)
     except Exception:
         start_h = row.get("start_ts_human")
@@ -592,7 +639,11 @@ def find_token_handler(update: Update, context: CallbackContext):
     if not start_h:
         try:
             if row.get("start_ts"):
-                moscow_dt = datetime.fromtimestamp(int(row["start_ts"]), tz=ZoneInfo(MOSCOW_TZ_NAME)) if HAVE_ZONEINFO else datetime.fromtimestamp(int(row["start_ts"]), tz=timezone.utc)
+                ts_candidate = int(row["start_ts"])
+                if HAVE_ZONEINFO and ZoneInfo is not None:
+                    moscow_dt = datetime.fromtimestamp(ts_candidate, tz=ZoneInfo(MOSCOW_TZ_NAME))
+                else:
+                    moscow_dt = datetime.fromtimestamp(ts_candidate, tz=timezone.utc)
                 start_h = _format_moscow_short(moscow_dt)
             else:
                 start_h = _format_moscow_short(_now_moscow())
@@ -656,7 +707,6 @@ def report_handler(update: Update, context: CallbackContext):
     # Compute start time: prefer stored epoch; if missing attempt to parse stored human string
     start_epoch = row.get("start_ts")
     if not start_epoch:
-        # try parse start_ts_human (if exists)
         start_human = row.get("start_ts_human")
         if start_human:
             parsed = _parse_moscow_time_to_epoch(start_human)
