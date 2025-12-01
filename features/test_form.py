@@ -268,7 +268,7 @@ def get_test_handler(update: Update, context: CallbackContext):
 
     # create new token
     token = _gen_token()
-    start_ts = int(time.time())
+    start_ts = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
     # human readable local time
     start_human = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(start_ts))
     form_url = _build_prefill_url(token, start_human, user.id)
