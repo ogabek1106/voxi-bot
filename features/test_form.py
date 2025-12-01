@@ -19,8 +19,8 @@ import time
 import random
 import string
 from typing import Optional
-
 from datetime import datetime, timezone
+
 try:
     from zoneinfo import ZoneInfo  # Python 3.9+
     HAVE_ZONEINFO = True
@@ -49,8 +49,8 @@ REWARD_MESSAGE = os.getenv(
 )
 TOKEN_LENGTH = int(os.getenv("TOKEN_LENGTH", "8"))
 
-# Optional environment: visible user timezone (IANA). If not set, default to Asia/Tashkent.
-USER_TIMEZONE = os.getenv("USER_TIMEZONE", "Asia/Tashkent").strip() or "Asia/Tashkent"
+# All times will be Moscow time
+MOSCOW_TZ_NAME = "Europe/Moscow"
 
 # make sure DB folder exists (best-effort)
 try:
@@ -69,7 +69,6 @@ def _connect():
     use the same pragmas / timeout / DB path. Otherwise fall back to local connect.
     Caller must close the connection.
     """
-    # If core_database exposes a _connect helper, use it (best-effort)
     try:
         if core_database is not None:
             core_conn_fn = getattr(core_database, "_connect", None)
@@ -78,7 +77,6 @@ def _connect():
     except Exception:
         logger.debug("Could not use core_database._connect(), falling back to local _connect()", exc_info=True)
 
-    # Fallback local connection (kept compatible with DB_PATH env)
     try:
         return sqlite3.connect(DB_PATH, timeout=10, check_same_thread=False)
     except Exception:
@@ -91,7 +89,6 @@ def _ensure_table():
     Ensure users DB is prepared by core database utilities and ensure the
     local `tests` table exists (non-destructive). Try to add missing columns.
     """
-    # Let the central database module ensure DB dir and users table + pragmas
     try:
         if core_database is not None:
             ensure_fn = getattr(core_database, "ensure_db", None)
@@ -100,7 +97,6 @@ def _ensure_table():
     except Exception:
         logger.debug("core_database.ensure_db failed or not callable; continuing", exc_info=True)
 
-    # Now create tests table and add missing columns if needed (best-effort)
     conn = _connect()
     try:
         with conn:
@@ -119,7 +115,6 @@ def _ensure_table():
                 );
                 """
             )
-        # verify columns and add missing ones
         cur = conn.execute("PRAGMA table_info(tests);")
         cols = {r[1] for r in cur.fetchall()}
         needed = {
@@ -155,12 +150,10 @@ def _is_admin(uid: int) -> bool:
 
 def _gen_token(length: int = TOKEN_LENGTH) -> str:
     alphabet = string.ascii_uppercase + string.digits
-    # try a few times to avoid collision
     for _ in range(10):
         t = "".join(random.choice(alphabet) for _ in range(length))
         if not _get_test_row(t):
             return t
-    # fallback to time-based token
     return f"T{int(time.time())}"
 
 
@@ -174,18 +167,16 @@ def _get_test_row(token: str) -> Optional[dict]:
         r = cur.fetchone()
         if not r:
             return None
-        # Note: some older rows might have start_ts stored as TEXT; try to normalize
         start_ts_val = r[2]
         try:
             start_ts_val = int(start_ts_val) if start_ts_val is not None else None
         except Exception:
             try:
-                # try parsing as float-string
                 start_ts_val = int(float(start_ts_val))
             except Exception:
                 start_ts_val = None
 
-        rewarded_val = None
+        rewarded_val = False
         try:
             rewarded_val = bool(r[8]) if len(r) > 8 else False
         except Exception:
@@ -314,18 +305,29 @@ def _build_prefill_url(token: str, start_human: str, user_id: int) -> str:
 # --- handlers ---
 
 
-def _now_in_zone(tz_name: str) -> datetime:
+def _now_moscow() -> datetime:
     """
-    Return timezone-aware current datetime for tz_name.
-    Falls back to UTC-aware now if zoneinfo not available.
+    Return timezone-aware current datetime in Moscow timezone.
+    Falls back to UTC-aware now if zoneinfo not available (still labeled Moscow).
     """
     try:
         if HAVE_ZONEINFO and ZoneInfo is not None:
-            return datetime.now(timezone.utc).astimezone(ZoneInfo(tz_name))
+            return datetime.now(timezone.utc).astimezone(ZoneInfo(MOSCOW_TZ_NAME))
     except Exception:
-        logger.debug("zoneinfo failed for %s; falling back to UTC", tz_name, exc_info=True)
-    # fallback UTC-aware now
+        logger.debug("zoneinfo failed for %s; falling back to UTC", MOSCOW_TZ_NAME, exc_info=True)
     return datetime.now(timezone.utc)
+
+
+def _format_moscow_short(dt: datetime) -> str:
+    """
+    Format Moscow datetime as: "hhmmss / ddmmyy (Moscow time)"
+    Example: "163323 / 011225 (Moscow time)"
+    """
+    try:
+        return dt.strftime("%H%M%S / %d%m%y") + " (Moscow time)"
+    except Exception:
+        # fallback simple
+        return time.strftime("%H%M%S / %d%m%y", time.localtime()) + " (Moscow time)"
 
 
 def get_test_handler(update: Update, context: CallbackContext):
@@ -345,35 +347,28 @@ def get_test_handler(update: Update, context: CallbackContext):
     if existing:
         token = existing["token"]
 
-        # Determine visible (user) human time.
-        visible_human = None
-        try:
-            # If DB stored start_ts as epoch (Moscow epoch), convert to user's timezone for display
-            if existing.get("start_ts"):
-                # Interpret stored start_ts as epoch seconds representing Moscow time.
-                # Build Moscow-aware datetime and convert to user timezone.
-                try:
-                    moscow_dt = datetime.fromtimestamp(int(existing["start_ts"]), tz=ZoneInfo("Europe/Moscow")) if HAVE_ZONEINFO else datetime.fromtimestamp(int(existing["start_ts"]), tz=timezone.utc)
-                except Exception:
-                    # fallback: assume epoch is UTC
-                    moscow_dt = datetime.fromtimestamp(int(existing["start_ts"]), tz=timezone.utc)
+        # Prefer stored start_ts_human if present (should be Moscow-format from previous runs)
+        start_human = existing.get("start_ts_human")
+        if not start_human:
+            # try to derive from stored epoch (assume it is Moscow epoch)
+            try:
+                if existing.get("start_ts"):
+                    if HAVE_ZONEINFO and ZoneInfo is not None:
+                        moscow_dt = datetime.fromtimestamp(int(existing["start_ts"]), tz=ZoneInfo(MOSCOW_TZ_NAME))
+                    else:
+                        moscow_dt = datetime.fromtimestamp(int(existing["start_ts"]), tz=timezone.utc)
+                    start_human = _format_moscow_short(moscow_dt)
+            except Exception:
+                start_human = None
 
-                try:
-                    user_dt = moscow_dt.astimezone(ZoneInfo(USER_TIMEZONE)) if HAVE_ZONEINFO else moscow_dt
-                    visible_human = user_dt.strftime("%Y-%m-%d %H:%M:%S")
-                except Exception:
-                    visible_human = moscow_dt.strftime("%Y-%m-%d %H:%M:%S")
-        except Exception:
-            visible_human = None
+        if not start_human:
+            # final fallback: current Moscow time
+            start_human = _format_moscow_short(_now_moscow())
 
-        if not visible_human:
-            # fallback to stored human string or localtime now
-            visible_human = existing.get("start_ts_human") or time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
-
-        form_url = existing.get("form_url") or _build_prefill_url(token, existing.get("start_ts_human") or visible_human, user.id)
+        form_url = existing.get("form_url") or _build_prefill_url(token, start_human, user.id)
         kb = InlineKeyboardMarkup([[InlineKeyboardButton("🔗 Open test (prefilled)", url=form_url)]])
         update.message.reply_text(
-            f"🔐 You already have an active test token.\n\nToken: {token}\nStart (your local time): {visible_human}\n\nUse the button below to open the test.",
+            f"🔐 You already have an active test token.\n\nToken: {token}\nStart (Moscow): {start_human}\n\nUse the button below to open the test.",
             reply_markup=kb
         )
         logger.info("Reused existing token for user %s: %s", user.id, token)
@@ -382,12 +377,8 @@ def get_test_handler(update: Update, context: CallbackContext):
     # create new token
     token = _gen_token()
 
-    # compute Moscow time (for storing & prefill) and user's visible time (for message)
-    moscow_dt = _now_in_zone("Europe/Moscow")
-    try:
-        user_dt = moscow_dt.astimezone(ZoneInfo(USER_TIMEZONE)) if HAVE_ZONEINFO else _now_in_zone(USER_TIMEZONE)
-    except Exception:
-        user_dt = _now_in_zone(USER_TIMEZONE)
+    # compute Moscow time (for storing & prefill)
+    moscow_dt = _now_moscow()
 
     # store epoch seconds from Moscow time (int)
     try:
@@ -395,19 +386,18 @@ def get_test_handler(update: Update, context: CallbackContext):
     except Exception:
         start_ts = int(time.time())
 
-    # human-readable strings
-    moscow_human = moscow_dt.strftime("%Y-%m-%d %H:%M:%S")
-    visible_human = user_dt.strftime("%Y-%m-%d %H:%M:%S")
+    # human-readable Moscow string in required short format
+    moscow_human_short = _format_moscow_short(moscow_dt)
 
     # Build form URL with Moscow human time so form receives Moscow time
-    form_url = _build_prefill_url(token, moscow_human, user.id)
+    form_url = _build_prefill_url(token, moscow_human_short, user.id)
 
-    # Insert token with start_ts (Moscow epoch) and visible human shown to user
-    _insert_token(token, user.id, start_ts, visible_human, form_url)
+    # Insert token with start_ts (Moscow epoch) and visible human shown to user (Moscow)
+    _insert_token(token, user.id, start_ts, moscow_human_short, form_url)
 
     kb = InlineKeyboardMarkup([[InlineKeyboardButton("🔗 Open test (prefilled)", url=form_url)]])
     update.message.reply_text(
-        f"✅ Your token: {token}\nStart (your local time): {visible_human}\n\nClick the button below to open the test (fields should be prefilled).",
+        f"✅ Your token: {token}\nStart (Moscow): {moscow_human_short}\n\nClick the button below to open the test (fields should be prefilled).",
         reply_markup=kb
     )
     logger.info("Created new token for user %s: %s (moscow_ts=%s)", user.id, token, start_ts)
@@ -428,27 +418,22 @@ def find_token_handler(update: Update, context: CallbackContext):
         update.message.reply_text(f"Token {token} not found.")
         return
 
-    # show human-friendly time: prefer stored start_ts_human (visible), otherwise derive
+    # Prefer stored human string (Moscow short); if missing try to derive from epoch
     start_h = row.get("start_ts_human")
     if not start_h:
         try:
             if row.get("start_ts"):
-                moscow_dt = datetime.fromtimestamp(int(row["start_ts"]), tz=ZoneInfo("Europe/Moscow")) if HAVE_ZONEINFO else datetime.fromtimestamp(int(row["start_ts"]), tz=timezone.utc)
-                # convert to USER_TIMEZONE for admin view as well (keeps consistent)
-                try:
-                    admin_visible = moscow_dt.astimezone(ZoneInfo(USER_TIMEZONE)) if HAVE_ZONEINFO else moscow_dt
-                    start_h = admin_visible.strftime("%Y-%m-%d %H:%M:%S")
-                except Exception:
-                    start_h = moscow_dt.strftime("%Y-%m-%d %H:%M:%S")
+                moscow_dt = datetime.fromtimestamp(int(row["start_ts"]), tz=ZoneInfo(MOSCOW_TZ_NAME)) if HAVE_ZONEINFO else datetime.fromtimestamp(int(row["start_ts"]), tz=timezone.utc)
+                start_h = _format_moscow_short(moscow_dt)
             else:
-                start_h = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+                start_h = _format_moscow_short(_now_moscow())
         except Exception:
             start_h = "(unknown)"
 
     txt = (
         f"Token: {row['token']}\n"
         f"User id: {row['user_id']}\n"
-        f"Start time: {start_h}\n"
+        f"Start (Moscow): {start_h}\n"
         f"Completed: {row['completed']}\n"
         f"Score: {row['score']}\n"
         f"Rewarded: {row.get('rewarded', False)}\n"
@@ -478,25 +463,22 @@ def report_handler(update: Update, context: CallbackContext):
 
     _mark_completed(token, score)
     row = _get_test_row(token)
+
     start_h = row.get("start_ts_human")
     if not start_h:
         try:
             if row.get("start_ts"):
-                moscow_dt = datetime.fromtimestamp(int(row["start_ts"]), tz=ZoneInfo("Europe/Moscow")) if HAVE_ZONEINFO else datetime.fromtimestamp(int(row["start_ts"]), tz=timezone.utc)
-                try:
-                    admin_visible = moscow_dt.astimezone(ZoneInfo(USER_TIMEZONE)) if HAVE_ZONEINFO else moscow_dt
-                    start_h = admin_visible.strftime("%Y-%m-%d %H:%M:%S")
-                except Exception:
-                    start_h = moscow_dt.strftime("%Y-%m-%d %H:%M:%S")
+                moscow_dt = datetime.fromtimestamp(int(row["start_ts"]), tz=ZoneInfo(MOSCOW_TZ_NAME)) if HAVE_ZONEINFO else datetime.fromtimestamp(int(row["start_ts"]), tz=timezone.utc)
+                start_h = _format_moscow_short(moscow_dt)
             else:
-                start_h = "(unknown)"
+                start_h = _format_moscow_short(_now_moscow())
         except Exception:
             start_h = "(unknown)"
 
     report_text = (
         f"Report for {token}:\n"
         f"User id: {row['user_id']}\n"
-        f"Start time: {start_h}\n"
+        f"Start (Moscow): {start_h}\n"
         f"Score: {score}"
     )
 
