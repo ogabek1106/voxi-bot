@@ -170,7 +170,6 @@ def _ensure_table():
         try:
             cur = conn.execute("SELECT token, start_ts, start_ts_human FROM tests;")
             rows = cur.fetchall()
-            updates = []
             for token, start_ts, start_human in rows:
                 new_human = None
                 # If start_ts_human is digits (likely epoch) -> convert
@@ -797,11 +796,16 @@ def start_handler(update: Update, context: CallbackContext):
     args = context.args if getattr(context, "args", None) is not None else []
     if args and str(args[0]).strip().lower() == "get_test":
         # Dispatch to the same handler we use for /get_test
-        return get_test_handler(update, context)
+        try:
+            return get_test_handler(update, context)
+        except Exception:
+            logger.exception("Failed to dispatch deep link to get_test_handler")
+            # fall through to a safe reply
 
     # Default /start response (non-intrusive)
     try:
-        if update.message:
+        # prefer reply on private start messages only
+        if update.message and update.message.chat and update.message.chat.type in ("private",):
             update.message.reply_text("Welcome! Use /get_test to receive a test token.")
     except Exception:
         pass
@@ -809,12 +813,19 @@ def start_handler(update: Update, context: CallbackContext):
 
 def setup(dispatcher):
     _ensure_table()
+    # Register start handler first so deep links are intercepted by this feature.
+    # If your bot registers a /start handler in core, registering here usually works;
+    # if the core registers in the same group and also responds, you may get both replies.
+    # In that case consider registering this handler with an earlier group in bot.py.
+    try:
+        dispatcher.add_handler(CommandHandler("start", start_handler))
+    except Exception:
+        # fallback: still try to add other handlers if start fails
+        logger.exception("Failed to register start handler; continuing")
+
     dispatcher.add_handler(CommandHandler("get_test", get_test_handler))
     dispatcher.add_handler(CommandHandler("find_token", find_token_handler))
     dispatcher.add_handler(CommandHandler("report", report_handler))
     dispatcher.add_handler(CallbackQueryHandler(callback_query_handler))
-
-    # Register start handler here so deep links can be handled by this feature
-    dispatcher.add_handler(CommandHandler("start", start_handler))
 
     logger.info("test_form feature loaded. FORM_PREFILL_URL set? %s", bool(FORM_PREFILL_URL))
