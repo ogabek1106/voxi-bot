@@ -813,12 +813,12 @@ def start_handler(update: Update, context: CallbackContext):
 
 def setup(dispatcher):
     _ensure_table()
-    # Register start handler first so deep links are intercepted by this feature.
-    # If your bot registers a /start handler in core, registering here usually works;
-    # if the core registers in the same group and also responds, you may get both replies.
-    # In that case consider registering this handler with an earlier group in bot.py.
+    # Register start handler with higher priority (earlier group) so deep links are intercepted by this feature.
+    # This avoids the core handlers misinterpreting the payload (e.g. numeric handler in core).
     try:
-        dispatcher.add_handler(CommandHandler("start", start_handler))
+        # use pass_args=True to ensure context.args is populated in older PTB versions;
+        # register in an earlier group so this handler runs before core's handlers.
+        dispatcher.add_handler(CommandHandler("start", start_handler, pass_args=True), group=-20)
     except Exception:
         # fallback: still try to add other handlers if start fails
         logger.exception("Failed to register start handler; continuing")
