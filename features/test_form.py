@@ -788,10 +788,33 @@ def callback_query_handler(update: Update, context: CallbackContext):
             pass
 
 
+# --- new: start handler to support deep links like ?start=get_test ---
+def start_handler(update: Update, context: CallbackContext):
+    """
+    Handle /start <payload> deep link. If payload == 'get_test' call get_test_handler.
+    This lets you create deep link: https://t.me/YOUR_BOT_USERNAME?start=get_test
+    """
+    args = context.args if getattr(context, "args", None) is not None else []
+    if args and str(args[0]).strip().lower() == "get_test":
+        # Dispatch to the same handler we use for /get_test
+        return get_test_handler(update, context)
+
+    # Default /start response (non-intrusive)
+    try:
+        if update.message:
+            update.message.reply_text("Welcome! Use /get_test to receive a test token.")
+    except Exception:
+        pass
+
+
 def setup(dispatcher):
     _ensure_table()
     dispatcher.add_handler(CommandHandler("get_test", get_test_handler))
     dispatcher.add_handler(CommandHandler("find_token", find_token_handler))
     dispatcher.add_handler(CommandHandler("report", report_handler))
     dispatcher.add_handler(CallbackQueryHandler(callback_query_handler))
+
+    # Register start handler here so deep links can be handled by this feature
+    dispatcher.add_handler(CommandHandler("start", start_handler))
+
     logger.info("test_form feature loaded. FORM_PREFILL_URL set? %s", bool(FORM_PREFILL_URL))
