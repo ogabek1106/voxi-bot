@@ -305,8 +305,25 @@ def _build_prefill_url(token: str, start_human: str, user_id: int) -> str:
     if not FORM_PREFILL_URL:
         return ""
     import urllib.parse
+    if start_human is None:
+        start_human = ""
+    # Make sure we never pass a pure-digit epoch here accidentally.
+    # If start_human contains only digits and length looks like epoch (>=9), convert it.
+    s_val = str(start_human).strip()
+    if s_val.isdigit() and len(s_val) >= 9:
+        try:
+            # interpret as epoch seconds in Moscow and convert to formatted string
+            if HAVE_ZONEINFO and ZoneInfo is not None:
+                moscow_dt = datetime.fromtimestamp(int(s_val), tz=ZoneInfo(MOSCOW_TZ_NAME))
+            else:
+                moscow_dt = datetime.fromtimestamp(int(s_val), tz=timezone.utc)
+            s_val = _format_moscow_short(moscow_dt)
+        except Exception:
+            # keep original if conversion fails
+            pass
+
     t = urllib.parse.quote_plus(token)
-    s = urllib.parse.quote_plus(start_human)
+    s = urllib.parse.quote_plus(s_val)
     u = urllib.parse.quote_plus(str(user_id))
     url = FORM_PREFILL_URL.replace("{token}", t).replace("{start_ts}", s).replace("{user_id}", u)
     return url
@@ -350,12 +367,42 @@ def _parse_moscow_time_to_epoch(value: str) -> Optional[int]:
       - "HH:MM:SS DD.MM.YY" or "HH:MM:SS DD.MM.YYYY"
       - "YYYY-MM-DD HH:MM:SS" (common DB format)
       - "DD.MM.YYYY HH:MM:SS"
+      - "HHMMSS / DDMMYY (Moscow time)" (our format) — will parse correctly
       - and several similar variants
     Returns epoch seconds (Moscow tz) or None on failure.
     """
     if not value:
         return None
     v = value.strip()
+
+    # If our formatted string "HHMMSS / DDMMYY" or "HHMMSS / DDMMYY (Moscow time)" handle it first
+    try:
+        # strip optional "(Moscow time)"
+        if "(Moscow" in v:
+            v_clean = v.split("(")[0].strip()
+        else:
+            v_clean = v
+        # handle "HHMMSS / DDMMYY"
+        if "/" in v_clean:
+            left, right = [p.strip() for p in v_clean.split("/", 1)]
+            if left.isdigit() and right.isdigit():
+                hhmmss = left
+                ddmmyy = right
+                if len(hhmmss) == 6 and len(ddmmyy) == 6:
+                    HH = int(hhmmss[0:2]); MM = int(hhmmss[2:4]); SS = int(hhmmss[4:6])
+                    DD = int(ddmmyy[0:2]); MM2 = int(ddmmyy[2:4]); YY = int(ddmmyy[4:6])
+                    # year correction: assume 20YY
+                    year = 2000 + YY
+                    month = MM2
+                    dt = datetime(year, month, DD, HH, MM, SS)
+                    if HAVE_ZONEINFO and ZoneInfo is not None:
+                        dt = dt.replace(tzinfo=ZoneInfo(MOSCOW_TZ_NAME))
+                    else:
+                        dt = dt.replace(tzinfo=timezone.utc)
+                    return int(dt.timestamp())
+    except Exception:
+        pass
+
     # digits -> assume epoch seconds
     if v.isdigit():
         try:
@@ -384,8 +431,6 @@ def _parse_moscow_time_to_epoch(value: str) -> Optional[int]:
                 dt = dt.replace(tzinfo=moscow)
                 return int(dt.timestamp())
             else:
-                # Without zoneinfo we treat parsed time as UTC-equivalent (best-effort),
-                # but log a warning.
                 logger.warning("zoneinfo not available; parsed submission time as UTC fallback")
                 dt = dt.replace(tzinfo=timezone.utc)
                 return int(dt.timestamp())
@@ -419,6 +464,26 @@ def get_test_handler(update: Update, context: CallbackContext):
         logger.warning("FORM_PREFILL_URL not set")
         return
 
+    # Helper: convert Telegram message date -> Moscow-aware datetime
+    def _request_dt_moscow() -> datetime:
+        try:
+            msg_dt = update.effective_message.date  # type: ignore[attr-defined]
+            if msg_dt is None:
+                return _now_moscow()
+            if msg_dt.tzinfo is None:
+                msg_dt = msg_dt.replace(tzinfo=timezone.utc)
+            if HAVE_ZONEINFO and ZoneInfo is not None:
+                return msg_dt.astimezone(ZoneInfo(MOSCOW_TZ_NAME))
+            else:
+                logger.debug("zoneinfo unavailable; using UTC as Moscow fallback for request time")
+                return msg_dt
+        except Exception:
+            return _now_moscow()
+
+    # Build human-readable requested-at (Moscow) string
+    req_moscow_dt = _request_dt_moscow()
+    req_moscow_short = _format_moscow_short(req_moscow_dt)
+
     # If user already has an unused token (completed=0) reuse it
     existing = _find_unused_token_for_user(user.id)
     if existing:
@@ -426,6 +491,18 @@ def get_test_handler(update: Update, context: CallbackContext):
 
         # Prefer stored start_ts_human if present (should be Moscow-format from previous runs)
         start_human = existing.get("start_ts_human")
+        # If stored human is a pure epoch number for some reason, convert to formatted Moscow string
+        try:
+            if start_human and str(start_human).strip().isdigit() and len(str(start_human).strip()) >= 9:
+                if HAVE_ZONEINFO and ZoneInfo is not None:
+                    moscow_dt = datetime.fromtimestamp(int(str(start_human).strip()), tz=ZoneInfo(MOSCOW_TZ_NAME))
+                else:
+                    moscow_dt = datetime.fromtimestamp(int(str(start_human).strip()), tz=timezone.utc)
+                start_human = _format_moscow_short(moscow_dt)
+        except Exception:
+            # ignore conversion error and fallback below
+            start_human = existing.get("start_ts_human")
+
         if not start_human:
             # try to derive from stored epoch (assume it is Moscow epoch)
             try:
@@ -442,13 +519,14 @@ def get_test_handler(update: Update, context: CallbackContext):
             # final fallback: current Moscow time
             start_human = _format_moscow_short(_now_moscow())
 
+        # Ensure prefill URL uses the formatted (non-epoch) start_human
         form_url = existing.get("form_url") or _build_prefill_url(token, start_human, user.id)
         kb = InlineKeyboardMarkup([[InlineKeyboardButton("🔗 Open test (prefilled)", url=form_url)]])
         update.message.reply_text(
-            f"🔐 You already have an active test token.\n\nToken: {token}\nStart (Moscow): {start_human}\n\nUse the button below to open the test.",
+            f"🔐 You already have an active test token.\n\nToken: {token}\nStart (Moscow): {start_human}\nRequested at (Moscow): {req_moscow_short}\n\nUse the button below to open the test.",
             reply_markup=kb
         )
-        logger.info("Reused existing token for user %s: %s", user.id, token)
+        logger.info("Reused existing token for user %s: %s (requested_at=%s)", user.id, token, req_moscow_short)
         return
 
     # create new token
@@ -466,7 +544,7 @@ def get_test_handler(update: Update, context: CallbackContext):
     # human-readable Moscow string in required short format
     moscow_human_short = _format_moscow_short(moscow_dt)
 
-    # Build form URL with Moscow human time so form receives Moscow time
+    # Build form URL with Moscow human time so form receives Moscow time (we ensure this is a formatted string)
     form_url = _build_prefill_url(token, moscow_human_short, user.id)
 
     # debug log to confirm what we put into URL
@@ -477,7 +555,7 @@ def get_test_handler(update: Update, context: CallbackContext):
 
     kb = InlineKeyboardMarkup([[InlineKeyboardButton("🔗 Open test (prefilled)", url=form_url)]])
     update.message.reply_text(
-        f"✅ Your token: {token}\nStart (Moscow): {moscow_human_short}\n\nClick the button below to open the test (fields should be prefilled).",
+        f"✅ Your token: {token}\nStart (Moscow): {moscow_human_short}\nRequested at (Moscow): {req_moscow_short}\n\nClick the button below to open the test (fields should be prefilled).",
         reply_markup=kb
     )
     logger.info("Created new token for user %s: %s (moscow_ts=%s)", user.id, token, start_ts)
@@ -500,6 +578,17 @@ def find_token_handler(update: Update, context: CallbackContext):
 
     # Prefer stored human string (Moscow short); if missing try to derive from epoch
     start_h = row.get("start_ts_human")
+    # if stored human is epoch-like, convert to formatted string
+    try:
+        if start_h and str(start_h).strip().isdigit() and len(str(start_h).strip()) >= 9:
+            if HAVE_ZONEINFO and ZoneInfo is not None:
+                moscow_dt = datetime.fromtimestamp(int(str(start_h).strip()), tz=ZoneInfo(MOSCOW_TZ_NAME))
+            else:
+                moscow_dt = datetime.fromtimestamp(int(str(start_h).strip()), tz=timezone.utc)
+            start_h = _format_moscow_short(moscow_dt)
+    except Exception:
+        start_h = row.get("start_ts_human")
+
     if not start_h:
         try:
             if row.get("start_ts"):
@@ -529,6 +618,7 @@ def report_handler(update: Update, context: CallbackContext):
     Submission time can be:
       - epoch seconds: 1764592123
       - Google Sheets string: "2025-12-02 22:45:12" or "22:45:12 02.12.2025" etc.
+      - our bot prefill string: "HHMMSS / DDMMYY (Moscow time)"
     If provided, we use it (interpreted as Moscow time) to compute elapsed time.
     """
     user = update.effective_user
@@ -556,7 +646,7 @@ def report_handler(update: Update, context: CallbackContext):
     if submission_arg:
         submission_epoch = _parse_moscow_time_to_epoch(submission_arg)
         if submission_epoch is None:
-            update.message.reply_text("Could not parse submission time. Provide epoch or a known format (e.g. 'YYYY-MM-DD HH:MM:SS' or 'HH:MM:SS DD.MM.YYYY').")
+            update.message.reply_text("Could not parse submission time. Provide epoch or a known format (e.g. 'YYYY-MM-DD HH:MM:SS' or 'HH:MM:SS DD.MM.YYYY' or 'HHMMSS / DDMMYY (Moscow time)').")
             return
     else:
         # If admin didn't provide submission time, default to current Moscow time (less preferred)
