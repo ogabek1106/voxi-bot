@@ -156,27 +156,42 @@ def _countdown_updater_thread(context: CallbackContext, chat_id: int, doc_msg_id
 
 
 def start_handler(update: Update, context: CallbackContext):
-    """Handles /start and deep links."""
+    """Handles /start and deep links.
+
+    Important changes:
+    - If payload == 'get_test' -> do nothing here (feature handles it).
+    - If payload is numeric -> treat as book code (unchanged).
+    - If payload is non-numeric and not 'get_test' -> ignore (do not reply "Bu kod bo‘yicha kitob topilmadi.").
+    """
     args = context.args or []
     chat_id = update.effective_chat.id
 
-    # deep link: /start 3  -> only treat numeric payloads as book codes
     if args:
-        code = str(args[0]).strip()
-        # Only treat payload as book code when it is purely numeric.
-        # This prevents non-numeric deep-link payloads (e.g. 'get_test') from being
-        # misinterpreted as a book request and avoids the "Bu kod bo‘yicha kitob topilmadi." reply.
-        if code.isdigit():
+        payload = str(args[0]).strip()
+
+        # If deep link is explicitly for test feature, let the feature handle it.
+        if payload.lower() == "get_test":
+            # Do nothing here so features/test_form.py (or features/deep_link.py) can respond.
+            # This prevents the core handler from sending greetings or "book not found" replies.
+            return
+
+        # Normal numeric deep-link -> book code (keep existing behaviour)
+        if payload.isdigit():
+            code = payload
             doc_id, countdown_id = send_book_by_code(chat_id, code, context)
             if doc_id:
                 return
             update.message.reply_text("Bu kod bo‘yicha kitob topilmadi.")
             return
-        # Non-numeric payload: ignore here so feature handlers (e.g. test_form) can handle it.
-        # Do not send a "not found" reply.
 
+        # Non-numeric payload (not get_test) -> ignore (no reply).
+        # This avoids misinterpreting arbitrary deep-link payloads and prevents unwanted replies.
+        return
+
+    # No payload: regular /start invoked by user — keep original greeting behaviour.
     user = update.effective_user
-    name = user.first_name or "do‘st"
+    # use user's first name (or fallback 'do‘st')
+    name = (user.first_name or "do‘st") if user else "do‘st"
     update.message.reply_text(
         f"Assalomu alaykum, {name}!\nMenga faqat kitob kodini yuboring (masalan: 3)"
     )
