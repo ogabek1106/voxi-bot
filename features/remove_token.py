@@ -1,111 +1,184 @@
 # features/remove_token.py
+"""
+Admin feature to remove test tokens stored in the `tests` table.
+
+Usage:
+ - Admin sends /remove_token
+ - Bot asks: send a user id or ALL
+ - Reply "ALL" -> deletes all rows in tests (clears tokens)
+ - Reply "<user_id>" -> deletes tokens for that user_id
+"""
 import logging
+import os
+import sqlite3
+from typing import Optional
+
 from telegram import Update
 from telegram.ext import (
-    Dispatcher,
-    ConversationHandler,
     CommandHandler,
     MessageHandler,
     Filters,
+    ConversationHandler,
     CallbackContext,
+    Dispatcher,
 )
 
-import database  # your existing database.py
+import admins
 
 logger = logging.getLogger(__name__)
 
-ASK_ID = 1
+# Conversation state
+ASK_USER_OR_ALL = 1
 
-#   IMPORTANT:
-#   Your TEST TOKEN table must have something like:
-#   tokens(user_id INTEGER PRIMARY KEY, token TEXT)
-#   If different name → tell me and I will adjust.
-
-
-# ---- CHECK ADMIN ----
-def is_admin(user_id: int) -> bool:
-    # Put your real admin ID here
-    ADMIN_ID = 123456789
-    return user_id == ADMIN_ID
+# Use same DB path as other features
+DB_PATH = os.getenv("DB_PATH", os.getenv("SQLITE_PATH", "/data/data.db"))
+SQLITE_TIMEOUT = 5
 
 
-# ---- ENTRY COMMAND ----
-def remove_token_command(update: Update, context: CallbackContext):
-    user_id = update.effective_user.id
+def _connect():
+    """
+    Minimal sqlite3 connect helper. Caller must close.
+    Matches pattern used in other feature files.
+    """
+    try:
+        return sqlite3.connect(DB_PATH, timeout=SQLITE_TIMEOUT, check_same_thread=False)
+    except Exception:
+        logger.exception("Failed to connect to sqlite DB at %s", DB_PATH)
+        raise
 
-    if not is_admin(user_id):
-        update.message.reply_text("⛔ Bu buyruq faqat admin uchun.")
+
+def _is_admin(uid: Optional[int]) -> bool:
+    if uid is None:
+        return False
+    raw = getattr(admins, "ADMIN_IDS", None) or getattr(admins, "ADMINS", None) or []
+    try:
+        s = {int(x) for x in raw}
+        return int(uid) in s
+    except Exception:
+        return False
+
+
+# Entry point
+def remove_token_start(update: Update, context: CallbackContext):
+    user = update.effective_user
+    if not user or not _is_admin(user.id):
+        update.message.reply_text("⛔ Bu buyruq faqat adminlar uchun.")
         return ConversationHandler.END
 
     update.message.reply_text(
-        "🧹 Qaysi tokenlarni o‘chiramiz?\n\n"
-        "👉 *ALL* deb yuboring — barcha foydalanuvchilarning tokenlari o‘chiriladi\n"
-        "👉 Yoki *foydalanuvchi ID* yuboring",
+        "🧹 Tokenlarni o‘chirish — yuboring *ALL* yoki aniq *user_id*.\n\n"
+        "• ALL — barcha tokenlar o‘chiriladi\n"
+        "• 12345678 — shu user_id uchun token/lar o‘chiriladi\n\n"
+        "Bekor qilish uchun /cancel yuboring.",
         parse_mode="Markdown",
     )
-    return ASK_ID
+    return ASK_USER_OR_ALL
 
 
-# ---- PROCESS ADMIN INPUT ----
-def process_token_removal(update: Update, context: CallbackContext):
-    admin_id = update.effective_user.id
-    text = update.message.text.strip()
+def _delete_all_tests() -> int:
+    conn = None
+    try:
+        conn = _connect()
+        cur = conn.cursor()
+        cur.execute("DELETE FROM tests;")
+        deleted = cur.rowcount  # sqlite3 rowcount may be -1 for some implementations; we'll compute via changes()
+        conn.commit()
+        # get number of changes in this connection
+        try:
+            cur.execute("SELECT changes();")
+            r = cur.fetchone()
+            if r:
+                return int(r[0])
+        except Exception:
+            pass
+        return deleted if deleted is not None else 0
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
-    if not is_admin(admin_id):
-        update.message.reply_text("⛔ Sizga ruxsat yo‘q.")
+
+def _delete_tests_for_user(user_id: int) -> int:
+    conn = None
+    try:
+        conn = _connect()
+        cur = conn.cursor()
+        cur.execute("DELETE FROM tests WHERE user_id = ?;", (int(user_id),))
+        conn.commit()
+        try:
+            cur.execute("SELECT changes();")
+            r = cur.fetchone()
+            if r:
+                return int(r[0])
+        except Exception:
+            pass
+        return cur.rowcount if cur.rowcount is not None else 0
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
+def remove_token_process(update: Update, context: CallbackContext):
+    user = update.effective_user
+    if not user or not _is_admin(user.id):
+        update.message.reply_text("⛔ Ruxsat yo'q.")
         return ConversationHandler.END
 
-    # ---- REMOVE ALL TOKENS ----
+    text = (update.message.text or "").strip()
+    if not text:
+        update.message.reply_text("❗ Iltimos, 'ALL' yoki foydalanuvchi ID yuboring.")
+        return ASK_USER_OR_ALL
+
     if text.upper() == "ALL":
         try:
-            database.clear_all_tokens()  # <-- YOU MUST HAVE THIS FUNCTION
-            update.message.reply_text("✅ Barcha tokenlar muvaffaqiyatli o‘chirildi.")
+            deleted = _delete_all_tests()
+            update.message.reply_text(f"✅ Barcha tokenlar o‘chirildi. O‘chirildi: {deleted} qator(lar).")
         except Exception as e:
-            logger.exception(e)
-            update.message.reply_text("❌ Tokenlarni o‘chirishda xatolik.")
+            logger.exception("Failed to delete all tests: %s", e)
+            update.message.reply_text("❌ Tokenlarni o‘chirishda xatolik yuz berdi. Logga qarang.")
         return ConversationHandler.END
 
-    # ---- REMOVE SPECIFIC USER TOKEN ----
-    if not text.isdigit():
-        update.message.reply_text("❗ Iltimos, faqat ID yoki 'ALL' yuboring.")
-        return ASK_ID
+    # Try numeric user id
+    if text.isdigit():
+        target_id = int(text)
+        try:
+            deleted = _delete_tests_for_user(target_id)
+            if deleted > 0:
+                update.message.reply_text(f"✅ Foydalanuvchi {target_id} uchun {deleted} token o‘chirildi.")
+            else:
+                update.message.reply_text(f"ℹ️ Foydalanuvchi {target_id} uchun token topilmadi.")
+        except Exception as e:
+            logger.exception("Failed to delete tests for user %s: %s", target_id, e)
+            update.message.reply_text("❌ Tokenni o‘chirishda xatolik yuz berdi. Logga qarang.")
+        return ConversationHandler.END
 
-    target_id = int(text)
-
-    try:
-        ok = database.clear_user_token(target_id)  # <-- YOU MUST HAVE THIS FUNCTION
-        if ok:
-            update.message.reply_text(f"✅ Foydalanuvchi {target_id} tokeni o‘chirildi.")
-        else:
-            update.message.reply_text(f"ℹ️ Bu foydalanuvchi uchun token topilmadi.")
-    except Exception as e:
-        logger.exception(e)
-        update.message.reply_text("❌ Tokenni o‘chirishda xatolik.")
-
-    return ConversationHandler.END
+    update.message.reply_text("❗ Notog'ri format. Iltimos 'ALL' yoki raqamli user_id yuboring.")
+    return ASK_USER_OR_ALL
 
 
-# ---- CANCEL ----
 def cancel(update: Update, context: CallbackContext):
     update.message.reply_text("Bekor qilindi.")
     return ConversationHandler.END
 
 
-# ---- SETUP ----
 def setup(dispatcher: Dispatcher):
-
+    """
+    Register handlers.
+    This uses a ConversationHandler so admin can input user id or ALL.
+    """
     conv = ConversationHandler(
-        entry_points=[CommandHandler("remove_token", remove_token_command)],
+        entry_points=[CommandHandler("remove_token", remove_token_start)],
         states={
-            ASK_ID: [
-                MessageHandler(Filters.text & ~Filters.command, process_token_removal)
-            ],
+            ASK_USER_OR_ALL: [MessageHandler(Filters.text & ~Filters.command, remove_token_process)]
         },
         fallbacks=[CommandHandler("cancel", cancel)],
+        allow_reentry=False,
         name="remove_token_conv",
-        persistent=False,
     )
-
     dispatcher.add_handler(conv)
-
     logger.info("Feature loaded: remove_token")
