@@ -156,24 +156,63 @@ def _countdown_updater_thread(context: CallbackContext, chat_id: int, doc_msg_id
 
 
 def start_handler(update: Update, context: CallbackContext):
-    """Handles /start and deep links."""
+    """Handles /start and deep links.
+
+    - /start get_test  -> forwards to features.test_form.get_test_handler
+    - /start <digits>  -> original book-by-code behavior
+    - /start <other>   -> show welcome message (do NOT send "Bu kod bo‘yicha kitob topilmadi.")
+    - /start (no args) -> show welcome message
+    """
     args = context.args or []
     chat_id = update.effective_chat.id
 
-    # deep link: /start 3
     if args:
-        code = args[0].strip()
-        doc_id, countdown_id = send_book_by_code(chat_id, code, context)
-        if doc_id:
+        payload = args[0].strip()
+
+        # deep link for test flow
+        if payload.lower() == "get_test":
+            try:
+                # lazy import to avoid circular import at module import time
+                from features import test_form
+                return test_form.get_test_handler(update, context)
+            except Exception:
+                logger.exception("Failed to dispatch deep link 'get_test' to test_form.get_test_handler")
+                # fall through to welcome reply if dispatch fails
+
+        # only treat numeric payloads as book codes (preserves original behaviour)
+        if payload.isdigit():
+            doc_id, countdown_id = send_book_by_code(chat_id, payload, context)
+            if doc_id:
+                return
+            # if numeric code not found, keep the old numeric-not-found reply
+            try:
+                update.message.reply_text("Bu kod bo‘yicha kitob topilmadi.")
+            except Exception:
+                pass
             return
-        update.message.reply_text("Bu kod bo‘yicha kitob topilmadi.")
+
+        # for any other (non-numeric, non-get_test) payload do NOT call book logic.
+        # Show welcome message in private chats only.
+        try:
+            if update.message and update.message.chat and update.message.chat.type in ("private",):
+                user = update.effective_user
+                name = user.first_name or "do‘st"
+                update.message.reply_text(
+                    f"Assalomu alaykum, {name}!\nMenga faqat kitob kodini yuboring (masalan: 3)"
+                )
+        except Exception:
+            pass
         return
 
+    # No args: default welcome reply (same as before)
     user = update.effective_user
     name = user.first_name or "do‘st"
-    update.message.reply_text(
-        f"Assalomu alaykum, {name}!\nMenga faqat kitob kodini yuboring (masalan: 3)"
-    )
+    try:
+        update.message.reply_text(
+            f"Assalomu alaykum, {name}!\nMenga faqat kitob kodini yuboring (masalan: 3)"
+        )
+    except Exception:
+        pass
 
 
 def numeric_message_handler(update: Update, context: CallbackContext):
@@ -195,3 +234,4 @@ def numeric_message_handler(update: Update, context: CallbackContext):
     doc_id, countdown_id = send_book_by_code(chat_id, text, context)
     if not doc_id:
         update.message.reply_text("Kitobni yuborishda xatolik yuz berdi.")
+
