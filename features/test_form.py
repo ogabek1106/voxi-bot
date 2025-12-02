@@ -599,9 +599,9 @@ def get_test_handler(update: Update, context: CallbackContext):
     # Insert token with start_ts (Moscow epoch) and visible human shown to user (Moscow)
     _insert_token(token, user.id, start_ts, moscow_human_short, form_url)
 
-    kb = InlineKeyboardMarkup([[InlineKeyboardButton("🔗 Open test (prefilled)", url=form_url)]])
+    kb = InlineKeyboardMarkup([[InlineKeyboardButton("🔗 Testga kirish ", url=form_url)]])
     update.message.reply_text(
-        f"✅ Your token: {token}\nStart (Moscow): {moscow_human_short}\nRequested at (Moscow): {req_moscow_short}\n\nClick the button below to open the test (fields should be prefilled).",
+        f"✅ Sizning tokeningiz: {token}\nStart (Moscow): {moscow_human_short}\nRequested at (Moscow): {req_moscow_short}\n\nTestga kirish uchun tugmachani bosing ",
         reply_markup=kb
     )
     logger.info("Created new token for user %s: %s (moscow_ts=%s)", user.id, token, start_ts)
