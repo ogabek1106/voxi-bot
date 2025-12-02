@@ -601,7 +601,7 @@ def get_test_handler(update: Update, context: CallbackContext):
 
     kb = InlineKeyboardMarkup([[InlineKeyboardButton("🔗 Testga kirish ", url=form_url)]])
     update.message.reply_text(
-        f"✅ Sizning tokeningiz: {token}\nStart (Moscow): {moscow_human_short}\nRequested at (Moscow): {req_moscow_short}\n\n**Testga kirish uchun tugmachani bosing** 👇 ",
+        f"✅ Sizning tokeningiz: {token}\nStart (Moscow): {moscow_human_short}\nRequested at (Moscow): {req_moscow_short}\n\n*Testga kirish uchun tugmachani bosing* 👇 ",
         reply_markup=kb
     )
     logger.info("Created new token for user %s: %s (moscow_ts=%s)", user.id, token, start_ts)
