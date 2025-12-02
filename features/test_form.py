@@ -47,7 +47,7 @@ DB_PATH = os.getenv("DB_PATH", os.getenv("SQLITE_PATH", "/data/data.db"))
 FORM_PREFILL_URL = os.getenv("FORM_PREFILL_URL", "").strip()  # required to open prefilled form
 REWARD_MESSAGE = os.getenv(
     "REWARD_MESSAGE",
-    "Siz testa eng yuqori ballni qo'lga kiritdingiz! Yutuqni olish uchun @Ogabek1106 ga yozing!"
+    "🥳 *Siz testa eng yuqori ballni qo'lga kiritdingiz! Yutuqni olish uchun @Ogabek1106 ga yozing!*"
 )
 TOKEN_LENGTH = int(os.getenv("TOKEN_LENGTH", "8"))
 
