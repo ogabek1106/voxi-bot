@@ -1,5 +1,4 @@
 # features/create_test.py
-
 import os
 import json
 import time
@@ -21,19 +20,13 @@ logger = logging.getLogger(__name__)
 
 TESTS_DIR = "tests"
 
-ASK_NAME = 1
-ASK_LEVEL = 2
-ASK_COUNT = 3
-ASK_TIME = 4
-
-MODE_KEY = "MODE"
-MODE_CREATE_TEST = "CREATE_TEST"
+ASK_NAME, ASK_LEVEL, ASK_COUNT, ASK_TIME = range(4)
 
 
 # ---------- helpers ----------
 
 def _is_admin(user_id: Optional[int]) -> bool:
-    raw = getattr(admins, "ADMIN_IDS", None) or []
+    raw = getattr(admins, "ADMIN_IDS", []) or []
     return user_id is not None and int(user_id) in {int(x) for x in raw}
 
 
@@ -56,15 +49,7 @@ def _unknown_command(update: Update, context: CallbackContext):
     return None
 
 
-def _set_mode(context: CallbackContext):
-    context.user_data[MODE_KEY] = MODE_CREATE_TEST
-
-
-def _clear_mode(context: CallbackContext):
-    context.user_data.pop(MODE_KEY, None)
-
-
-# ---------- conversation ----------
+# ---------- start ----------
 
 def start(update: Update, context: CallbackContext):
     user = update.effective_user
@@ -74,8 +59,6 @@ def start(update: Update, context: CallbackContext):
 
     _ensure_tests_dir()
     context.user_data.clear()
-    _set_mode(context)
-
     context.user_data["test_id"] = _gen_test_id()
 
     update.message.reply_text(
@@ -91,16 +74,16 @@ def start(update: Update, context: CallbackContext):
 
 def name_text(update: Update, context: CallbackContext):
     value = update.message.text.strip()
-    context.user_data["name"] = value or None
+    context.user_data["name"] = value
 
-    update.message.reply_text(f"✅ Test name saved: {value}")
+    update.message.reply_text(f"✅ Received name: {value}")
     update.message.reply_text("Send test level (A2 / B1 / B2 / C1) or /skip.")
     return ASK_LEVEL
 
 
 def name_skip(update: Update, context: CallbackContext):
     context.user_data["name"] = None
-    update.message.reply_text("⏭ Test name skipped.")
+    update.message.reply_text("⏭ Name skipped.")
     update.message.reply_text("Send test level (A2 / B1 / B2 / C1) or /skip.")
     return ASK_LEVEL
 
@@ -109,16 +92,16 @@ def name_skip(update: Update, context: CallbackContext):
 
 def level_text(update: Update, context: CallbackContext):
     value = update.message.text.strip()
-    context.user_data["level"] = value or None
+    context.user_data["level"] = value
 
-    update.message.reply_text(f"✅ Test level saved: {value}")
+    update.message.reply_text(f"✅ Received level: {value}")
     update.message.reply_text("Send number of questions or /skip.")
     return ASK_COUNT
 
 
 def level_skip(update: Update, context: CallbackContext):
     context.user_data["level"] = None
-    update.message.reply_text("⏭ Test level skipped.")
+    update.message.reply_text("⏭ Level skipped.")
     update.message.reply_text("Send number of questions or /skip.")
     return ASK_COUNT
 
@@ -129,18 +112,18 @@ def count_text(update: Update, context: CallbackContext):
     try:
         value = int(update.message.text.strip())
     except ValueError:
-        update.message.reply_text("❗ Please send a number or /skip.")
+        update.message.reply_text("❗ Please send a NUMBER or /skip.")
         return ASK_COUNT
 
     context.user_data["question_count"] = value
-    update.message.reply_text(f"✅ Number of questions saved: {value}")
+    update.message.reply_text(f"✅ Received number of questions: {value}")
     update.message.reply_text("Send time limit (minutes) or /skip.")
     return ASK_TIME
 
 
 def count_skip(update: Update, context: CallbackContext):
     context.user_data["question_count"] = None
-    update.message.reply_text("⏭ Number of questions skipped.")
+    update.message.reply_text("⏭ Question count skipped.")
     update.message.reply_text("Send time limit (minutes) or /skip.")
     return ASK_TIME
 
@@ -151,23 +134,23 @@ def time_text(update: Update, context: CallbackContext):
     try:
         value = int(update.message.text.strip())
     except ValueError:
-        update.message.reply_text("❗ Please send a number or /skip.")
+        update.message.reply_text("❗ Please send a NUMBER or /skip.")
         return ASK_TIME
 
     context.user_data["time_limit"] = value
-    update.message.reply_text(f"✅ Time limit saved: {value} minutes")
-    return _finish(update, context)
+    update.message.reply_text(f"✅ Received time limit: {value} minutes")
+    return finish(update, context)
 
 
 def time_skip(update: Update, context: CallbackContext):
     context.user_data["time_limit"] = None
     update.message.reply_text("⏭ Time limit skipped.")
-    return _finish(update, context)
+    return finish(update, context)
 
 
 # ---------- FINISH ----------
 
-def _finish(update: Update, context: CallbackContext):
+def finish(update: Update, context: CallbackContext):
     test_id = context.user_data["test_id"]
 
     data = {
@@ -192,7 +175,6 @@ def _finish(update: Update, context: CallbackContext):
         f"Time limit: {data['time_limit']} min"
     )
 
-    _clear_mode(context)
     context.user_data.clear()
     return ConversationHandler.END
 
@@ -234,5 +216,7 @@ def setup(dispatcher, bot=None):
         name="create_test_conv",
     )
 
-    dispatcher.add_handler(conv)
-    logger.info("Feature loaded: create_test")
+    # 🔴 THIS LINE IS THE FIX
+    dispatcher.add_handler(conv, group=-10)
+
+    logger.info("Feature loaded: create_test (locked admin flow)")
