@@ -74,58 +74,72 @@ def start(update: Update, context: CallbackContext):
 
 
 def name_text(update: Update, context: CallbackContext):
-    context.user_data["name"] = update.message.text.strip() or None
+    value = update.message.text.strip()
+    context.user_data["name"] = value or None
+
+    update.message.reply_text(f"✅ Test name saved: {value}")
     update.message.reply_text("Send test level (A2 / B1 / B2 / C1) or /skip.")
     return ASK_LEVEL
 
 
 def name_skip(update: Update, context: CallbackContext):
     _skip_step(context, "name")
+    update.message.reply_text("⏭ Test name skipped.")
     update.message.reply_text("Send test level (A2 / B1 / B2 / C1) or /skip.")
     return ASK_LEVEL
 
 
 def level_text(update: Update, context: CallbackContext):
-    context.user_data["level"] = update.message.text.strip() or None
+    value = update.message.text.strip()
+    context.user_data["level"] = value or None
+
+    update.message.reply_text(f"✅ Test level saved: {value}")
     update.message.reply_text("Send number of questions or /skip.")
     return ASK_COUNT
 
 
 def level_skip(update: Update, context: CallbackContext):
     _skip_step(context, "level")
+    update.message.reply_text("⏭ Test level skipped.")
     update.message.reply_text("Send number of questions or /skip.")
     return ASK_COUNT
 
 
 def count_text(update: Update, context: CallbackContext):
     try:
-        context.user_data["question_count"] = int(update.message.text.strip())
+        value = int(update.message.text.strip())
+        context.user_data["question_count"] = value
     except ValueError:
         update.message.reply_text("❗ Send a number or /skip.")
         return ASK_COUNT
 
+    update.message.reply_text(f"✅ Number of questions saved: {value}")
     update.message.reply_text("Send time limit (minutes) or /skip.")
     return ASK_TIME
 
 
 def count_skip(update: Update, context: CallbackContext):
     _skip_step(context, "question_count")
+    update.message.reply_text("⏭ Number of questions skipped.")
     update.message.reply_text("Send time limit (minutes) or /skip.")
     return ASK_TIME
 
 
 def time_text(update: Update, context: CallbackContext):
     try:
-        context.user_data["time_limit"] = int(update.message.text.strip())
+        value = int(update.message.text.strip())
+        context.user_data["time_limit"] = value
     except ValueError:
         update.message.reply_text("❗ Send a number or /skip.")
         return ASK_TIME
 
+    update.message.reply_text(f"✅ Time limit saved: {value} minutes")
     return _finish(update, context)
 
 
 def time_skip(update: Update, context: CallbackContext):
     _skip_step(context, "time_limit")
+    update.message.reply_text("⏭ Time limit skipped.")
     return _finish(update, context)
 
 
@@ -147,7 +161,7 @@ def _finish(update: Update, context: CallbackContext):
         json.dump(data, f, indent=4, ensure_ascii=False)
 
     update.message.reply_text(
-        "✅ Test created!\n\n"
+        "✅ Test created successfully!\n\n"
         f"ID: {test_id}\n"
         f"Name: {data['name']}\n"
         f"Level: {data['level']}\n"
