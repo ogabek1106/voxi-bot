@@ -48,8 +48,9 @@ def _abort(update: Update, context: CallbackContext):
     return ConversationHandler.END
 
 
-def _skip_step(context: CallbackContext, key: str):
-    context.user_data[key] = None
+def _block_other_commands(update: Update, context: CallbackContext):
+    update.message.reply_text("⛔ Finish the test creation or use /abort.")
+    return None
 
 
 # ---------- conversation ----------
@@ -83,7 +84,7 @@ def name_text(update: Update, context: CallbackContext):
 
 
 def name_skip(update: Update, context: CallbackContext):
-    _skip_step(context, "name")
+    context.user_data["name"] = None
     update.message.reply_text("⏭ Test name skipped.")
     update.message.reply_text("Send test level (A2 / B1 / B2 / C1) or /skip.")
     return ASK_LEVEL
@@ -99,7 +100,7 @@ def level_text(update: Update, context: CallbackContext):
 
 
 def level_skip(update: Update, context: CallbackContext):
-    _skip_step(context, "level")
+    context.user_data["level"] = None
     update.message.reply_text("⏭ Test level skipped.")
     update.message.reply_text("Send number of questions or /skip.")
     return ASK_COUNT
@@ -108,18 +109,18 @@ def level_skip(update: Update, context: CallbackContext):
 def count_text(update: Update, context: CallbackContext):
     try:
         value = int(update.message.text.strip())
-        context.user_data["question_count"] = value
     except ValueError:
         update.message.reply_text("❗ Send a number or /skip.")
         return ASK_COUNT
 
+    context.user_data["question_count"] = value
     update.message.reply_text(f"✅ Number of questions saved: {value}")
     update.message.reply_text("Send time limit (minutes) or /skip.")
     return ASK_TIME
 
 
 def count_skip(update: Update, context: CallbackContext):
-    _skip_step(context, "question_count")
+    context.user_data["question_count"] = None
     update.message.reply_text("⏭ Number of questions skipped.")
     update.message.reply_text("Send time limit (minutes) or /skip.")
     return ASK_TIME
@@ -128,17 +129,17 @@ def count_skip(update: Update, context: CallbackContext):
 def time_text(update: Update, context: CallbackContext):
     try:
         value = int(update.message.text.strip())
-        context.user_data["time_limit"] = value
     except ValueError:
         update.message.reply_text("❗ Send a number or /skip.")
         return ASK_TIME
 
+    context.user_data["time_limit"] = value
     update.message.reply_text(f"✅ Time limit saved: {value} minutes")
     return _finish(update, context)
 
 
 def time_skip(update: Update, context: CallbackContext):
-    _skip_step(context, "time_limit")
+    context.user_data["time_limit"] = None
     update.message.reply_text("⏭ Time limit skipped.")
     return _finish(update, context)
 
@@ -156,7 +157,6 @@ def _finish(update: Update, context: CallbackContext):
     }
 
     path = os.path.join(TESTS_DIR, f"{test_id}.json")
-
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=4, ensure_ascii=False)
 
@@ -183,25 +183,31 @@ def setup(dispatcher, bot=None):
                 CommandHandler("skip", name_skip),
                 CommandHandler("abort", _abort),
                 MessageHandler(Filters.text & ~Filters.command, name_text),
+                MessageHandler(Filters.command, _block_other_commands),
             ],
             ASK_LEVEL: [
                 CommandHandler("skip", level_skip),
                 CommandHandler("abort", _abort),
                 MessageHandler(Filters.text & ~Filters.command, level_text),
+                MessageHandler(Filters.command, _block_other_commands),
             ],
             ASK_COUNT: [
                 CommandHandler("skip", count_skip),
                 CommandHandler("abort", _abort),
                 MessageHandler(Filters.text & ~Filters.command, count_text),
+                MessageHandler(Filters.command, _block_other_commands),
             ],
             ASK_TIME: [
                 CommandHandler("skip", time_skip),
                 CommandHandler("abort", _abort),
                 MessageHandler(Filters.text & ~Filters.command, time_text),
+                MessageHandler(Filters.command, _block_other_commands),
             ],
         },
         fallbacks=[CommandHandler("abort", _abort)],
         name="create_test_conv",
+        per_chat=True,
+        per_user=True,
     )
 
     dispatcher.add_handler(conv)
