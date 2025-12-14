@@ -58,7 +58,6 @@ def _load_persisted_state(admin_id: int) -> Optional[dict]:
     try:
         with open(p, "r", encoding="utf-8") as f:
             s = json.load(f)
-        # defensive: ensure admin_id present
         s.setdefault("admin_id", int(admin_id))
         return s
     except Exception:
@@ -79,14 +78,11 @@ def _clear_persist(admin_id: int):
 def _get_admin_ids() -> set:
     raw = getattr(admins, "ADMIN_IDS", None) or getattr(admins, "ADMINS", None) or []
     out = set()
-    try:
-        for x in raw:
-            try:
-                out.add(int(x))
-            except Exception:
-                logger.debug("Ignoring bad admin id %r", x)
-    except Exception as e:
-        logger.exception("Failed reading admin ids: %s", e)
+    for x in raw:
+        try:
+            out.add(int(x))
+        except Exception:
+            logger.debug("Ignoring bad admin id %r", x)
     return out
 
 
@@ -102,14 +98,9 @@ def cmd_all_members(update: Update, context: CallbackContext):
     if not user:
         return
     if not _is_admin(user.id):
-        try:
-            update.message.reply_text("❌ You are not authorized to use this command.")
-        except Exception:
-            pass
-        logger.info("Unauthorized /all_members attempt by %s", getattr(user, "id", None))
+        update.message.reply_text("❌ You are not authorized to use this command.")
         return
 
-    # start flow: awaiting targets
     state = {
         "admin_id": int(user.id),
         "stage": "awaiting_targets",
@@ -118,16 +109,12 @@ def cmd_all_members(update: Update, context: CallbackContext):
     }
     awaiting_states[user.id] = state
     _persist_state(user.id, state)
-    try:
-        update.message.reply_text(
-            "📩 Command received!\n\n"
-            "Step 1 — Send target user IDs (space/comma/newline separated), or send the single word `ALL` to target everyone.\n\n"
-            "Example: `1150875355 12345678 987654321`\n\n"
-            "Send /cancel to abort."
-        )
-    except Exception:
-        logger.exception("cmd_all_members: reply failed", exc_info=True)
-    logger.info("Admin %s started all_members flow; awaiting targets.", user.id)
+
+    update.message.reply_text(
+        "📩 Command received!\n\n"
+        "Step 1 — Send target user IDs (space/comma/newline separated), or send the single word `ALL`.\n\n"
+        "Send /cancel to abort."
+    )
 
 
 def cmd_cancel(update: Update, context: CallbackContext):
@@ -136,18 +123,13 @@ def cmd_cancel(update: Update, context: CallbackContext):
         return
     awaiting_states.pop(user.id, None)
     _clear_persist(user.id)
-    try:
-        update.message.reply_text("🛑 Broadcast cancelled.")
-    except Exception:
-        pass
-    logger.info("Admin %s cancelled all_members flow.", user.id)
+    update.message.reply_text("🛑 Broadcast cancelled.")
 
 
 def _parse_ids_text(text: str) -> List[int]:
     cleaned = text.replace(",", " ").replace("\n", " ").strip()
-    parts = [p.strip() for p in cleaned.split() if p.strip()]
-    ids: List[int] = []
-    for p in parts:
+    ids = []
+    for p in cleaned.split():
         try:
             ids.append(int(p))
         except Exception:
@@ -155,30 +137,10 @@ def _parse_ids_text(text: str) -> List[int]:
     return ids
 
 
-def _is_rate_limit_exc(e) -> bool:
-    return e.__class__.__name__ == "RetryAfter"
-
-
-def _is_forbidden_exc(e) -> bool:
-    return e.__class__.__name__ in ("Forbidden", "Unauthorized")
-
-
-def _is_badrequest_exc(e) -> bool:
-    return e.__class__.__name__ == "BadRequest"
-
-
-def _get_retry_after(e) -> int:
-    return int(getattr(e, "retry_after", 1))
-
-
 def _send_to_user(bot, user_id: int, message: Message) -> bool:
     try:
-        # text/caption-only
-        if (message.text and not (message.photo or message.video or message.document or message.audio or message.voice or message.animation or message.sticker)) or (
-            not message.text and message.caption and not (message.photo or message.video or message.document or message.audio or message.voice or message.animation)
-        ):
-            text = message.text if message.text else message.caption
-            bot.send_message(chat_id=user_id, text=text)
+        if message.text and not any([message.photo, message.video, message.document, message.audio, message.voice, message.animation, message.sticker]):
+            bot.send_message(chat_id=user_id, text=message.text)
             return True
 
         if message.photo:
@@ -209,28 +171,10 @@ def _send_to_user(bot, user_id: int, message: Message) -> bool:
             bot.send_sticker(chat_id=user_id, sticker=message.sticker.file_id)
             return True
 
-        # fallback: forward original
-        try:
-            bot.forward_message(chat_id=user_id, from_chat_id=message.chat.id, message_id=message.message_id)
-            return True
-        except Exception:
-            return False
+        bot.forward_message(chat_id=user_id, from_chat_id=message.chat.id, message_id=message.message_id)
+        return True
 
-    except Exception as e:
-        # rate limit
-        if _is_rate_limit_exc(e):
-            wait = _get_retry_after(e) + 1
-            logger.warning("RetryAfter for user %s: sleeping %s seconds", user_id, wait)
-            time.sleep(wait)
-            try:
-                return _send_to_user(bot, user_id, message)
-            except Exception as e2:
-                logger.exception("Retry failed for user %s: %s", user_id, e2)
-                return False
-        if _is_forbidden_exc(e) or _is_badrequest_exc(e):
-            logger.debug("Skipping user %s due to %s", user_id, e)
-            return False
-        logger.exception("Unexpected error when sending to %s: %s", user_id, e)
+    except Exception:
         return False
 
 
@@ -239,269 +183,83 @@ def _format_status(sent: int, failed: int, processed: int, total: int) -> str:
 
 
 def _background_broadcast(bot, admin_chat_id: int, status_chat_id: int, status_message_id: Optional[int], message: Message, targets: List[int]):
-    total = len(targets)
-    sent = 0
-    failed = 0
-    processed = 0
-    status_msg_id = status_message_id
-    status_chat = status_chat_id
-
-    logger.info("Background broadcast started by admin %s; total=%s", admin_chat_id, total)
-
-    for idx, uid in enumerate(targets, start=1):
-        ok = _send_to_user(bot, uid, message)
-        if ok:
+    sent = failed = processed = 0
+    for uid in targets:
+        if _send_to_user(bot, uid, message):
             sent += 1
         else:
             failed += 1
         processed += 1
-
-        # update status every batch or at end
-        if (processed % PROGRESS_BATCH == 0) or (processed == total):
-            text = _format_status(sent, failed, processed, total)
-            try:
-                if status_msg_id:
-                    bot.edit_message_text(text=text, chat_id=status_chat, message_id=status_msg_id)
-                else:
-                    m = bot.send_message(chat_id=admin_chat_id, text=text)
-                    status_msg_id = m.message_id
-                    status_chat = m.chat.id
-            except Exception as e:
-                logger.debug("Status update failed: %s", e)
-                status_msg_id = None
-
-        # pace
         time.sleep(PAUSE_BETWEEN_SENDS)
 
-        if LONG_REST_INTERVAL > 0 and idx % LONG_REST_INTERVAL == 0:
-            logger.info("Long rest after %s sends", idx)
-            time.sleep(LONG_REST_SECS)
-
-        if idx % 50 == 0:
-            logger.info("Progress log: %s/%s (sent=%s failed=%s)", idx, total, sent, failed)
-
-    # final summary
-    try:
-        bot.send_message(chat_id=admin_chat_id, text=f"🎉 Broadcast finished! ✅ {sent} sent, ❌ {failed} failed.")
-    except Exception:
-        logger.exception("Could not send final summary to admin %s", admin_chat_id)
-    logger.info("Broadcast done. sent=%s failed=%s total=%s", sent, failed, total)
+    bot.send_message(chat_id=admin_chat_id, text=f"🎉 Broadcast finished! ✅ {sent} sent, ❌ {failed} failed.")
 
 
-# in-memory states loaded from persisted files on import
+# load persisted states
 awaiting_states = {}
-try:
-    for fn in os.listdir(_AWAIT_DIR):
-        if not fn.endswith(".json"):
-            continue
-        path = os.path.join(_AWAIT_DIR, fn)
+for fn in os.listdir(_AWAIT_DIR):
+    if fn.endswith(".json"):
         try:
-            with open(path, "r", encoding="utf-8") as f:
+            with open(os.path.join(_AWAIT_DIR, fn), "r", encoding="utf-8") as f:
                 st = json.load(f)
-            # determine admin id from file or content
-            try:
-                admin_id = int(st.get("admin_id", os.path.splitext(fn)[0]))
-            except Exception:
-                # fallback: filename without extension
-                try:
-                    admin_id = int(os.path.splitext(fn)[0])
-                except Exception:
-                    logger.debug("Skipping awaiting file with unknown admin id: %s", fn)
-                    continue
-            awaiting_states[admin_id] = st
-            logger.info("Loaded persisted awaiting for admin %s (stage=%s)", admin_id, st.get("stage"))
+            awaiting_states[int(st["admin_id"])] = st
         except Exception:
-            logger.debug("Bad persisted awaiting file %s", fn, exc_info=True)
-except Exception:
-    logger.debug("Could not list await dir", exc_info=True)
+            pass
 
 
 def message_router(update: Update, context: CallbackContext):
-    """
-    Handles two things:
-      - receiving the targets list when admin is in 'awaiting_targets'
-      - receiving the broadcast message when admin is in 'awaiting_message'
-    """
-    user = update.effective_user
-    chat = update.effective_chat
-    if not user:
-        logger.debug("message_router: no user")
+    # 🔴 BLOCK during any active admin conversation (e.g. /create_test)
+    if context.user_data:
         return
 
-    logger.info("message_router invoked by user=%s chat=%s", getattr(user, "id", None), getattr(chat, "id", None))
-
-    if not _is_admin(user.id):
-        logger.debug("message_router: user %s not admin", user.id)
+    user = update.effective_user
+    chat = update.effective_chat
+    if not user or not _is_admin(user.id):
         return
 
     state = awaiting_states.get(user.id)
     if not state:
-        logger.info("message_router: admin %s not in flow", user.id)
         return
 
-    stage = state.get("stage")
     msg = update.message
+    stage = state.get("stage")
 
-    # --- stage: awaiting_targets ---
     if stage == "awaiting_targets":
         if not msg or not msg.text:
-            try:
-                context.bot.send_message(chat_id=chat.id, text="Please send target user IDs as plain text (or send ALL).")
-            except Exception:
-                pass
+            context.bot.send_message(chat_id=chat.id, text="Send target IDs or ALL.")
             return
 
-        raw = msg.text.strip()
-        if raw.upper() == "ALL":
-            # fetch all user ids from DB
-            try:
-                raw_users = get_all_users()
-                targets: List[int] = []
-                for r in raw_users:
-                    if isinstance(r, (list, tuple)):
-                        targets.append(int(r[0]))
-                    else:
-                        targets.append(int(r))
-            except Exception:
-                logger.exception("Failed to load all users for admin %s", user.id)
-                try:
-                    context.bot.send_message(chat_id=chat.id, text="⚠️ Failed to load user list. Aborting.")
-                except Exception:
-                    pass
-                awaiting_states.pop(user.id, None)
-                _clear_persist(user.id)
-                return
+        if msg.text.upper() == "ALL":
+            users = get_all_users()
+            state["targets"] = [int(u[0] if isinstance(u, (list, tuple)) else u) for u in users]
+        else:
+            state["targets"] = _parse_ids_text(msg.text)
 
-            if not targets:
-                try:
-                    context.bot.send_message(chat_id=chat.id, text="⚠️ No users found in database to send to.")
-                except Exception:
-                    pass
-                awaiting_states.pop(user.id, None)
-                _clear_persist(user.id)
-                return
-
-            # save and advance
-            state["targets"] = targets
-            state["stage"] = "awaiting_message"
-            awaiting_states[user.id] = state
-            _persist_state(user.id, state)
-            try:
-                context.bot.send_message(chat_id=chat.id, text=f"✅ Targets set: ALL ({len(targets)} users).\n\nNow send the message you want to broadcast (any type).")
-            except Exception:
-                pass
-            logger.info("Admin %s selected ALL targets (%s)", user.id, len(targets))
-            return
-
-        # parse explicit ids
-        ids = _parse_ids_text(raw)
-        if not ids:
-            try:
-                context.bot.send_message(chat_id=chat.id, text="Could not parse any valid numeric user ids. Please send integers separated by spaces/commas/newlines, or send ALL.")
-            except Exception:
-                pass
-            return
-
-        state["targets"] = ids
         state["stage"] = "awaiting_message"
         awaiting_states[user.id] = state
         _persist_state(user.id, state)
-        try:
-            context.bot.send_message(chat_id=chat.id, text=f"✅ Targets set: {len(ids)} user(s).\n\nNow send the message you want to broadcast (any type).")
-        except Exception:
-            pass
-        logger.info("Admin %s set %s explicit targets", user.id, len(ids))
+        context.bot.send_message(chat_id=chat.id, text="✅ Targets set. Now send the message.")
         return
 
-    # --- stage: awaiting_message ---
     if stage == "awaiting_message":
-        if not msg:
-            try:
-                context.bot.send_message(chat_id=chat.id, text="No message received. Please send the message you want to broadcast (any type).")
-            except Exception:
-                pass
+        targets = state.get("targets", [])
+        if not targets:
+            context.bot.send_message(chat_id=chat.id, text="⚠️ No targets.")
             return
 
-        # ACK immediately
-        try:
-            types = []
-            if msg.text:
-                types.append("text")
-            if msg.photo:
-                types.append("photo")
-            if msg.video:
-                types.append("video")
-            if msg.document:
-                types.append("document")
-            if msg.audio:
-                types.append("audio")
-            if msg.voice:
-                types.append("voice")
-            if msg.animation:
-                types.append("animation")
-            if msg.sticker:
-                types.append("sticker")
-            msg_type = "+".join(types) if types else "unknown"
-            context.bot.send_message(chat_id=chat.id, text=f"📨 Broadcast received (type: {msg_type}). Starting send...")
-            logger.info("Broadcast content received from admin %s type=%s", user.id, msg_type)
-        except Exception:
-            logger.exception("Failed to ACK admin %s", user.id)
-
-        # build targets defensively
-        raw_targets = state.get("targets") or []
-        targets: List[int] = []
-        for r in raw_targets:
-            try:
-                targets.append(int(r))
-            except Exception:
-                continue
-
-        total = len(targets)
-        if total == 0:
-            try:
-                context.bot.send_message(chat_id=chat.id, text="⚠️ No valid targets to send to. Aborting.")
-            except Exception:
-                pass
-            awaiting_states.pop(user.id, None)
-            _clear_persist(user.id)
-            return
-
-        # initial status
-        status_msg = None
-        try:
-            status_msg = context.bot.send_message(chat_id=chat.id, text=_format_status(0, 0, 0, total))
-        except Exception as e:
-            logger.debug("Couldn't create initial status message: %s", e)
-            status_msg = None
-
-        status_chat_id = status_msg.chat.id if status_msg else chat.id
-        status_message_id = status_msg.message_id if status_msg else None
-
-        # start background thread
+        context.bot.send_message(chat_id=chat.id, text="📨 Message received. Broadcasting...")
         t = threading.Thread(
             target=_background_broadcast,
-            args=(context.bot, chat.id, status_chat_id, status_message_id, msg, targets),
+            args=(context.bot, chat.id, chat.id, None, msg, targets),
             daemon=True,
         )
         t.start()
 
-        # clear state
         awaiting_states.pop(user.id, None)
         _clear_persist(user.id)
-        return
-
-    # unknown stage
-    logger.info("message_router: admin %s has unknown stage=%s, clearing", user.id, stage)
-    awaiting_states.pop(user.id, None)
-    _clear_persist(user.id)
-    try:
-        context.bot.send_message(chat_id=chat.id, text="Internal: unknown state — aborted. Please run /all_members again.")
-    except Exception:
-        pass
 
 
 def setup(dispatcher):
-    # register handlers early so they get first dibs on admin messages
     dispatcher.add_handler(CommandHandler("all_members", cmd_all_members), group=-10)
     dispatcher.add_handler(CommandHandler("cancel", cmd_cancel), group=-10)
     dispatcher.add_handler(MessageHandler(Filters.all & ~Filters.command, message_router), group=-10)
