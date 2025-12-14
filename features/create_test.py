@@ -11,14 +11,12 @@ Flow (each step can be skipped with /skip):
   3) Ask number of questions
   4) Ask time limit (minutes)
 
+Extra:
+  /abort — cancel test creation (only inside this flow)
+
 Result:
   - Creates a JSON file in /tests/<test_id>.json
   - Stores test metadata + empty questions list
-
-Notes:
-  - No DB usage
-  - No token logic
-  - Single-admin, simple overwrite is acceptable
 """
 
 import os
@@ -68,8 +66,13 @@ def _ensure_tests_dir():
 
 
 def _gen_test_id() -> str:
-    """Generate a simple unique test id."""
     return f"test_{int(time.time())}"
+
+
+def _abort(update: Update, context: CallbackContext):
+    update.message.reply_text("❌ Test creation aborted.")
+    context.user_data.clear()
+    return ConversationHandler.END
 
 
 # ---- conversation handlers ----
@@ -87,31 +90,33 @@ def create_test_start(update: Update, context: CallbackContext):
 
     update.message.reply_text(
         "🧪 Creating a new test.\n\n"
-        "Send *test name* (or /skip).",
-        parse_mode=None,
+        "Send test name or /skip.\n"
+        "Use /abort to cancel."
     )
     return ASK_NAME
 
 
 def ask_name(update: Update, context: CallbackContext):
     text = (update.message.text or "").strip()
-    if text.lower() != "/skip" and text:
-        context.user_data["name"] = text
+
+    if text.lower() != "/skip":
+        context.user_data["name"] = text or None
     else:
         context.user_data["name"] = None
 
-    update.message.reply_text("Send *test level* (e.g. A2 / B1 / B2 / C1) or /skip.")
+    update.message.reply_text("Send test level (A2 / B1 / B2 / C1) or /skip.")
     return ASK_LEVEL
 
 
 def ask_level(update: Update, context: CallbackContext):
     text = (update.message.text or "").strip()
-    if text.lower() != "/skip" and text:
-        context.user_data["level"] = text
+
+    if text.lower() != "/skip":
+        context.user_data["level"] = text or None
     else:
         context.user_data["level"] = None
 
-    update.message.reply_text("Send *number of questions* (integer) or /skip.")
+    update.message.reply_text("Send number of questions or /skip.")
     return ASK_COUNT
 
 
@@ -124,10 +129,10 @@ def ask_count(update: Update, context: CallbackContext):
         try:
             context.user_data["question_count"] = int(text)
         except Exception:
-            update.message.reply_text("❗ Please send a number or /skip.")
+            update.message.reply_text("❗ Send a number or /skip.")
             return ASK_COUNT
 
-    update.message.reply_text("Send *time limit* in minutes or /skip.")
+    update.message.reply_text("Send time limit (minutes) or /skip.")
     return ASK_TIME
 
 
@@ -140,11 +145,11 @@ def ask_time(update: Update, context: CallbackContext):
         try:
             context.user_data["time_limit"] = int(text)
         except Exception:
-            update.message.reply_text("❗ Please send a number or /skip.")
+            update.message.reply_text("❗ Send a number or /skip.")
             return ASK_TIME
 
-    # ---- build test file ----
-    test_id = context.user_data.get("test_id")
+    test_id = context.user_data["test_id"]
+
     data = {
         "id": test_id,
         "name": context.user_data.get("name"),
@@ -155,10 +160,11 @@ def ask_time(update: Update, context: CallbackContext):
     }
 
     path = os.path.join(TESTS_DIR, f"{test_id}.json")
+
     try:
         with open(path, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=4, ensure_ascii=False)
-    except Exception as e:
+    except Exception:
         logger.exception("Failed to write test file")
         update.message.reply_text("❌ Failed to create test file.")
         return ConversationHandler.END
@@ -176,24 +182,21 @@ def ask_time(update: Update, context: CallbackContext):
     return ConversationHandler.END
 
 
-def cancel(update: Update, context: CallbackContext):
-    update.message.reply_text("❌ Test creation cancelled.")
-    context.user_data.clear()
-    return ConversationHandler.END
-
-
 # ---- setup ----
 
 def setup(dispatcher, bot=None):
     conv = ConversationHandler(
         entry_points=[CommandHandler("create_test", create_test_start)],
         states={
-            ASK_NAME: [MessageHandler(Filters.text & ~Filters.command, ask_name)],
-            ASK_LEVEL: [MessageHandler(Filters.text & ~Filters.command, ask_level)],
-            ASK_COUNT: [MessageHandler(Filters.text & ~Filters.command, ask_count)],
-            ASK_TIME: [MessageHandler(Filters.text & ~Filters.command, ask_time)],
+            ASK_NAME: [MessageHandler(Filters.text, ask_name)],
+            ASK_LEVEL: [MessageHandler(Filters.text, ask_level)],
+            ASK_COUNT: [MessageHandler(Filters.text, ask_count)],
+            ASK_TIME: [MessageHandler(Filters.text, ask_time)],
         },
-        fallbacks=[CommandHandler("cancel", cancel)],
+        fallbacks=[
+            CommandHandler("abort", _abort),
+            CommandHandler("cancel", _abort),
+        ],
         allow_reentry=False,
         name="create_test_conv",
     )
