@@ -1,28 +1,9 @@
-#features/create_test.py
-"""
-Admin feature: create a new test (metadata only).
-
-Command:
-  /create_test   (admin only)
-
-Flow (each step can be skipped with /skip):
-  1) Ask test name
-  2) Ask test level
-  3) Ask number of questions
-  4) Ask time limit (minutes)
-
-Extra:
-  /abort — cancel test creation (only inside this flow)
-
-Result:
-  - Creates a JSON file in /tests/<test_id>.json
-  - Stores test metadata + empty questions list
-"""
+# features/create_test.py
 
 import os
 import json
-import logging
 import time
+import logging
 from typing import Optional
 
 from telegram import Update
@@ -38,34 +19,26 @@ import admins
 
 logger = logging.getLogger(__name__)
 
-# ---- paths ----
 TESTS_DIR = "tests"
 
-# ---- conversation states ----
 ASK_NAME = 1
 ASK_LEVEL = 2
 ASK_COUNT = 3
 ASK_TIME = 4
 
 
-# ---- helpers ----
+# ---------- helpers ----------
 
 def _is_admin(user_id: Optional[int]) -> bool:
-    if user_id is None:
-        return False
-    raw = getattr(admins, "ADMIN_IDS", None) or getattr(admins, "ADMINS", None) or []
-    try:
-        return int(user_id) in {int(x) for x in raw}
-    except Exception:
-        return False
+    raw = getattr(admins, "ADMIN_IDS", None) or []
+    return user_id is not None and int(user_id) in {int(x) for x in raw}
 
 
 def _ensure_tests_dir():
-    if not os.path.exists(TESTS_DIR):
-        os.makedirs(TESTS_DIR, exist_ok=True)
+    os.makedirs(TESTS_DIR, exist_ok=True)
 
 
-def _gen_test_id() -> str:
+def _gen_test_id():
     return f"test_{int(time.time())}"
 
 
@@ -75,79 +48,88 @@ def _abort(update: Update, context: CallbackContext):
     return ConversationHandler.END
 
 
-# ---- conversation handlers ----
+def _skip_step(context: CallbackContext, key: str):
+    context.user_data[key] = None
 
-def create_test_start(update: Update, context: CallbackContext):
+
+# ---------- conversation ----------
+
+def start(update: Update, context: CallbackContext):
     user = update.effective_user
     if not user or not _is_admin(user.id):
-        update.message.reply_text("⛔ This command is for admins only.")
+        update.message.reply_text("⛔ Admins only.")
         return ConversationHandler.END
 
     _ensure_tests_dir()
-
     context.user_data.clear()
     context.user_data["test_id"] = _gen_test_id()
 
     update.message.reply_text(
         "🧪 Creating a new test.\n\n"
-        "Send test name or /skip.\n"
-        "Use /abort to cancel."
+        "Send test name.\n"
+        "/skip — skip step\n"
+        "/abort — cancel"
     )
     return ASK_NAME
 
 
-def ask_name(update: Update, context: CallbackContext):
-    text = (update.message.text or "").strip()
-
-    if text.lower() != "/skip":
-        context.user_data["name"] = text or None
-    else:
-        context.user_data["name"] = None
-
+def name_text(update: Update, context: CallbackContext):
+    context.user_data["name"] = update.message.text.strip() or None
     update.message.reply_text("Send test level (A2 / B1 / B2 / C1) or /skip.")
     return ASK_LEVEL
 
 
-def ask_level(update: Update, context: CallbackContext):
-    text = (update.message.text or "").strip()
+def name_skip(update: Update, context: CallbackContext):
+    _skip_step(context, "name")
+    update.message.reply_text("Send test level (A2 / B1 / B2 / C1) or /skip.")
+    return ASK_LEVEL
 
-    if text.lower() != "/skip":
-        context.user_data["level"] = text or None
-    else:
-        context.user_data["level"] = None
 
+def level_text(update: Update, context: CallbackContext):
+    context.user_data["level"] = update.message.text.strip() or None
     update.message.reply_text("Send number of questions or /skip.")
     return ASK_COUNT
 
 
-def ask_count(update: Update, context: CallbackContext):
-    text = (update.message.text or "").strip()
+def level_skip(update: Update, context: CallbackContext):
+    _skip_step(context, "level")
+    update.message.reply_text("Send number of questions or /skip.")
+    return ASK_COUNT
 
-    if text.lower() == "/skip":
-        context.user_data["question_count"] = None
-    else:
-        try:
-            context.user_data["question_count"] = int(text)
-        except Exception:
-            update.message.reply_text("❗ Send a number or /skip.")
-            return ASK_COUNT
+
+def count_text(update: Update, context: CallbackContext):
+    try:
+        context.user_data["question_count"] = int(update.message.text.strip())
+    except ValueError:
+        update.message.reply_text("❗ Send a number or /skip.")
+        return ASK_COUNT
 
     update.message.reply_text("Send time limit (minutes) or /skip.")
     return ASK_TIME
 
 
-def ask_time(update: Update, context: CallbackContext):
-    text = (update.message.text or "").strip()
+def count_skip(update: Update, context: CallbackContext):
+    _skip_step(context, "question_count")
+    update.message.reply_text("Send time limit (minutes) or /skip.")
+    return ASK_TIME
 
-    if text.lower() == "/skip":
-        context.user_data["time_limit"] = None
-    else:
-        try:
-            context.user_data["time_limit"] = int(text)
-        except Exception:
-            update.message.reply_text("❗ Send a number or /skip.")
-            return ASK_TIME
 
+def time_text(update: Update, context: CallbackContext):
+    try:
+        context.user_data["time_limit"] = int(update.message.text.strip())
+    except ValueError:
+        update.message.reply_text("❗ Send a number or /skip.")
+        return ASK_TIME
+
+    return _finish(update, context)
+
+
+def time_skip(update: Update, context: CallbackContext):
+    _skip_step(context, "time_limit")
+    return _finish(update, context)
+
+
+def _finish(update: Update, context: CallbackContext):
     test_id = context.user_data["test_id"]
 
     data = {
@@ -161,16 +143,11 @@ def ask_time(update: Update, context: CallbackContext):
 
     path = os.path.join(TESTS_DIR, f"{test_id}.json")
 
-    try:
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=4, ensure_ascii=False)
-    except Exception:
-        logger.exception("Failed to write test file")
-        update.message.reply_text("❌ Failed to create test file.")
-        return ConversationHandler.END
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=4, ensure_ascii=False)
 
     update.message.reply_text(
-        "✅ Test created successfully!\n\n"
+        "✅ Test created!\n\n"
         f"ID: {test_id}\n"
         f"Name: {data['name']}\n"
         f"Level: {data['level']}\n"
@@ -182,22 +159,34 @@ def ask_time(update: Update, context: CallbackContext):
     return ConversationHandler.END
 
 
-# ---- setup ----
+# ---------- setup ----------
 
 def setup(dispatcher, bot=None):
     conv = ConversationHandler(
-        entry_points=[CommandHandler("create_test", create_test_start)],
+        entry_points=[CommandHandler("create_test", start)],
         states={
-            ASK_NAME: [MessageHandler(Filters.text, ask_name)],
-            ASK_LEVEL: [MessageHandler(Filters.text, ask_level)],
-            ASK_COUNT: [MessageHandler(Filters.text, ask_count)],
-            ASK_TIME: [MessageHandler(Filters.text, ask_time)],
+            ASK_NAME: [
+                CommandHandler("skip", name_skip),
+                CommandHandler("abort", _abort),
+                MessageHandler(Filters.text & ~Filters.command, name_text),
+            ],
+            ASK_LEVEL: [
+                CommandHandler("skip", level_skip),
+                CommandHandler("abort", _abort),
+                MessageHandler(Filters.text & ~Filters.command, level_text),
+            ],
+            ASK_COUNT: [
+                CommandHandler("skip", count_skip),
+                CommandHandler("abort", _abort),
+                MessageHandler(Filters.text & ~Filters.command, count_text),
+            ],
+            ASK_TIME: [
+                CommandHandler("skip", time_skip),
+                CommandHandler("abort", _abort),
+                MessageHandler(Filters.text & ~Filters.command, time_text),
+            ],
         },
-        fallbacks=[
-            CommandHandler("abort", _abort),
-            CommandHandler("cancel", _abort),
-        ],
-        allow_reentry=False,
+        fallbacks=[CommandHandler("abort", _abort)],
         name="create_test_conv",
     )
 
