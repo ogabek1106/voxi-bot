@@ -49,6 +49,19 @@ def _unknown_command(update: Update, context: CallbackContext):
     return None
 
 
+# ---------- 🔴 MANUAL END COMMAND ----------
+
+def end_test(update: Update, context: CallbackContext):
+    user = update.effective_user
+    if not user or not _is_admin(user.id):
+        update.message.reply_text("⛔ Admins only.")
+        return ConversationHandler.END
+
+    context.user_data.clear()
+    update.message.reply_text("🛑 Test creation ended. Normal mode restored.")
+    return ConversationHandler.END
+
+
 # ---------- start ----------
 
 def start(update: Update, context: CallbackContext):
@@ -65,7 +78,8 @@ def start(update: Update, context: CallbackContext):
         "🧪 Creating a new test.\n\n"
         "Send test name.\n"
         "/skip — skip step\n"
-        "/abort — cancel"
+        "/abort — cancel\n"
+        "/end_test — force finish"
     )
     return ASK_NAME
 
@@ -188,35 +202,42 @@ def setup(dispatcher, bot=None):
             ASK_NAME: [
                 CommandHandler("skip", name_skip),
                 CommandHandler("abort", _abort),
+                CommandHandler("end_test", end_test),
                 MessageHandler(Filters.command, _unknown_command),
                 MessageHandler(Filters.text, name_text),
             ],
             ASK_LEVEL: [
                 CommandHandler("skip", level_skip),
                 CommandHandler("abort", _abort),
+                CommandHandler("end_test", end_test),
                 MessageHandler(Filters.command, _unknown_command),
                 MessageHandler(Filters.text, level_text),
             ],
             ASK_COUNT: [
                 CommandHandler("skip", count_skip),
                 CommandHandler("abort", _abort),
+                CommandHandler("end_test", end_test),
                 MessageHandler(Filters.command, _unknown_command),
                 MessageHandler(Filters.text, count_text),
             ],
             ASK_TIME: [
                 CommandHandler("skip", time_skip),
                 CommandHandler("abort", _abort),
+                CommandHandler("end_test", end_test),
                 MessageHandler(Filters.command, _unknown_command),
                 MessageHandler(Filters.text, time_text),
             ],
         },
-        fallbacks=[CommandHandler("abort", _abort)],
+        fallbacks=[
+            CommandHandler("abort", _abort),
+            CommandHandler("end_test", end_test),
+        ],
         per_user=True,
         per_chat=True,
         name="create_test_conv",
     )
 
-    # 🔴 THIS LINE IS THE FIX
+    # 🔴 priority override so it captures messages before numeric/book handlers
     dispatcher.add_handler(conv, group=-100)
 
     logger.info("Feature loaded: create_test (locked admin flow)")
