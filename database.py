@@ -163,6 +163,39 @@ def add_user_if_new(user_id: int, first_name: Optional[str] = None, username: Op
             except Exception:
                 pass
 
+# ---------- TESTS TABLE ----------
+
+def ensure_tests_table():
+    """
+    Ensure tests table exists.
+    Stores test metadata only (no questions).
+    """
+    _ensure_db_dir()
+    conn = None
+    try:
+        conn = _connect()
+        with conn:
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS tests (
+                    test_id TEXT PRIMARY KEY,
+                    name TEXT,
+                    level TEXT,
+                    question_count INTEGER,
+                    time_limit INTEGER,
+                    created_at INTEGER
+                );
+                """
+            )
+    except Exception as e:
+        logger.exception("ensure_tests_table failed: %s", e)
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
 
 def user_exists(user_id: int) -> bool:
     if not os.path.exists(DB_PATH):
@@ -294,6 +327,119 @@ def get_user_count() -> int:
             except Exception:
                 pass
 
+def create_test_meta(
+    test_id: str,
+    name: Optional[str],
+    level: Optional[str],
+    question_count: Optional[int],
+    time_limit: Optional[int],
+) -> bool:
+    """
+    Insert test metadata into DB.
+    """
+    ensure_tests_table()
+    conn = None
+    try:
+        conn = _connect()
+        with conn:
+            conn.execute(
+                """
+                INSERT INTO tests
+                (test_id, name, level, question_count, time_limit, created_at)
+                VALUES (?, ?, ?, ?, ?, ?);
+                """,
+                (
+                    test_id,
+                    name,
+                    level,
+                    question_count,
+                    time_limit,
+                    int(time.time()),
+                ),
+            )
+        return True
+    except Exception as e:
+        logger.exception("create_test_meta failed for %s: %s", test_id, e)
+        return False
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
+def get_all_tests() -> List[tuple]:
+    """
+    Return all tests ordered by newest first.
+    """
+    ensure_tests_table()
+    conn = None
+    try:
+        conn = _connect()
+        cur = conn.execute(
+            """
+            SELECT test_id, name, level, question_count, time_limit, created_at
+            FROM tests
+            ORDER BY created_at DESC;
+            """
+        )
+        return cur.fetchall()
+    except Exception as e:
+        logger.exception("get_all_tests failed: %s", e)
+        return []
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
+def get_test_meta(test_id: str) -> Optional[tuple]:
+    ensure_tests_table()
+    conn = None
+    try:
+        conn = _connect()
+        cur = conn.execute(
+            """
+            SELECT test_id, name, level, question_count, time_limit, created_at
+            FROM tests
+            WHERE test_id = ?
+            LIMIT 1;
+            """,
+            (test_id,),
+        )
+        return cur.fetchone()
+    except Exception as e:
+        logger.exception("get_test_meta failed for %s: %s", test_id, e)
+        return None
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
+def delete_test(test_id: str) -> bool:
+    ensure_tests_table()
+    conn = None
+    try:
+        conn = _connect()
+        with conn:
+            cur = conn.execute("DELETE FROM tests WHERE test_id = ?;", (test_id,))
+            return cur.rowcount > 0
+    except Exception as e:
+        logger.exception("delete_test failed for %s: %s", test_id, e)
+        return False
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
 
 def sample_users(limit: int = 10) -> List[Tuple]:
     if not os.path.exists(DB_PATH):
@@ -366,3 +512,5 @@ def migrate_from_list(items: Iterable[Union[int, dict]]) -> int:
 
 # ensure DB quickly on import (best-effort)
 ensure_db()
+# ensure tests table on import (best-effort)
+ensure_tests_table()
