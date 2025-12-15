@@ -49,17 +49,19 @@ def _unknown_command(update: Update, context: CallbackContext):
     return None
 
 
-# ---------- 🔴 MANUAL END COMMAND ----------
+# ---------- 🔴 MANUAL END COMMAND (GLOBAL SAFE) ----------
 
 def end_test(update: Update, context: CallbackContext):
     user = update.effective_user
     if not user or not _is_admin(user.id):
         update.message.reply_text("⛔ Admins only.")
-        return ConversationHandler.END
+        return
 
-    context.user_data.clear()
-    update.message.reply_text("🛑 Test mode ended. Normal mode restored.")
-    return ConversationHandler.END
+    if context.user_data.get("test_mode"):
+        context.user_data.clear()
+        update.message.reply_text("🛑 Test mode ended. Normal mode restored.")
+    else:
+        update.message.reply_text("ℹ️ You are not in test mode.")
 
 
 # ---------- start ----------
@@ -192,8 +194,7 @@ def finish(update: Update, context: CallbackContext):
         "🛑 Use /end_test to exit test mode."
     )
 
-    # 🔴 IMPORTANT: DO NOT clear user_data here
-    # test_mode remains active
+    # 🔴 DO NOT clear user_data here
     return ConversationHandler.END
 
 
@@ -241,7 +242,10 @@ def setup(dispatcher, bot=None):
         name="create_test_conv",
     )
 
-    # 🔴 highest priority: capture messages before book/numeric handlers
+    # 🔴 Highest priority conversation
     dispatcher.add_handler(conv, group=-100)
+
+    # 🔴 GLOBAL /end_test — works even after conversation ends
+    dispatcher.add_handler(CommandHandler("end_test", end_test), group=-100)
 
     logger.info("Feature loaded: create_test (manual test mode)")
