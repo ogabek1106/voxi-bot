@@ -161,8 +161,13 @@ def start_handler(update: Update, context: CallbackContext):
     Important changes:
     - If payload == 'get_test' -> do nothing here (feature handles it).
     - If payload is numeric -> treat as book code (unchanged).
-    - If payload is non-numeric and not 'get_test' -> ignore (do not reply "Bu kod bo‘yicha kitob topilmadi.").
+    - If payload is non-numeric and not 'get_test' -> ignore.
     """
+
+    # 🔴 BLOCK /start logic during admin conversations
+    if context.user_data:
+        return
+        
     args = context.args or []
     chat_id = update.effective_chat.id
 
@@ -198,7 +203,10 @@ def start_handler(update: Update, context: CallbackContext):
 
 
 def numeric_message_handler(update: Update, context: CallbackContext):
-    """Handles messages that are ONLY a number like '3'."""
+    # 🔴 BLOCK numeric handler during admin conversations (e.g. /create_test)
+    if context.user_data:
+        return
+        
     if not update.message or not update.message.text:
         return
 
