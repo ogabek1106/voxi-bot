@@ -167,26 +167,50 @@ def add_user_if_new(user_id: int, first_name: Optional[str] = None, username: Op
 
 def ensure_tests_table():
     """
-    Ensure tests table exists.
-    Stores test metadata only (no questions).
+    Ensure tests table exists and is migration-safe.
+    Does NOT delete data.
     """
     _ensure_db_dir()
     conn = None
     try:
         conn = _connect()
+
+        # 1️⃣ Create table if missing
         with conn:
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS tests (
-                    test_id TEXT PRIMARY KEY,
-                    name TEXT,
-                    level TEXT,
-                    question_count INTEGER,
-                    time_limit INTEGER,
-                    created_at INTEGER
+                    test_id TEXT PRIMARY KEY
                 );
                 """
             )
+
+        # 2️⃣ Check existing columns
+        cols = _table_columns(conn, "tests")
+
+        required = {
+            "test_id": "TEXT",
+            "name": "TEXT",
+            "level": "TEXT",
+            "question_count": "INTEGER",
+            "time_limit": "INTEGER",
+            "created_at": "INTEGER",
+        }
+
+        # 3️⃣ Add missing columns safely
+        for col, col_type in required.items():
+            if col not in cols:
+                try:
+                    with conn:
+                        conn.execute(f"ALTER TABLE tests ADD COLUMN {col} {col_type};")
+                        logger.info("ensure_tests_table: added column %s", col)
+                except Exception as e:
+                    logger.warning(
+                        "ensure_tests_table: could not add column %s (%s)",
+                        col,
+                        e,
+                    )
+
     except Exception as e:
         logger.exception("ensure_tests_table failed: %s", e)
     finally:
@@ -195,7 +219,6 @@ def ensure_tests_table():
                 conn.close()
             except Exception:
                 pass
-
 
 def user_exists(user_id: int) -> bool:
     if not os.path.exists(DB_PATH):
