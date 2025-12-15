@@ -4,6 +4,7 @@ import json
 import time
 import logging
 from typing import Optional
+from database import create_test_meta
 
 from telegram import Update
 from telegram.ext import (
@@ -179,6 +180,15 @@ def finish(update: Update, context: CallbackContext):
         "time_limit": context.user_data.get("time_limit"),
         "questions": [],
     }
+
+    # ✅ FIXED: correct indentation (this was the bug)
+    create_test_meta(
+        test_id=test_id,
+        name=data["name"],
+        level=data["level"],
+        question_count=data["question_count"],
+        time_limit=data["time_limit"],
+    )
 
     path = os.path.join(TESTS_DIR, f"{test_id}.json")
     with open(path, "w", encoding="utf-8") as f:
