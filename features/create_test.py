@@ -45,7 +45,7 @@ def _abort(update: Update, context: CallbackContext):
 
 
 def _unknown_command(update: Update, context: CallbackContext):
-    update.message.reply_text("❓ Sorry?")
+    update.message.reply_text("❓ Please answer the question or use /skip.")
     return None
 
 
@@ -58,7 +58,7 @@ def end_test(update: Update, context: CallbackContext):
         return ConversationHandler.END
 
     context.user_data.clear()
-    update.message.reply_text("🛑 Test creation ended. Normal mode restored.")
+    update.message.reply_text("🛑 Test mode ended. Normal mode restored.")
     return ConversationHandler.END
 
 
@@ -72,14 +72,16 @@ def start(update: Update, context: CallbackContext):
 
     _ensure_tests_dir()
     context.user_data.clear()
+
     context.user_data["test_id"] = _gen_test_id()
+    context.user_data["test_mode"] = True  # 🔴 ENTER TEST MODE
 
     update.message.reply_text(
         "🧪 Creating a new test.\n\n"
         "Send test name.\n"
         "/skip — skip step\n"
         "/abort — cancel\n"
-        "/end_test — force finish"
+        "/end_test — finish test mode"
     )
     return ASK_NAME
 
@@ -186,10 +188,12 @@ def finish(update: Update, context: CallbackContext):
         f"Name: {data['name']}\n"
         f"Level: {data['level']}\n"
         f"Questions: {data['question_count']}\n"
-        f"Time limit: {data['time_limit']} min"
+        f"Time limit: {data['time_limit']} min\n\n"
+        "🛑 Use /end_test to exit test mode."
     )
 
-    context.user_data.clear()
+    # 🔴 IMPORTANT: DO NOT clear user_data here
+    # test_mode remains active
     return ConversationHandler.END
 
 
@@ -237,7 +241,7 @@ def setup(dispatcher, bot=None):
         name="create_test_conv",
     )
 
-    # 🔴 priority override so it captures messages before numeric/book handlers
+    # 🔴 highest priority: capture messages before book/numeric handlers
     dispatcher.add_handler(conv, group=-100)
 
-    logger.info("Feature loaded: create_test (locked admin flow)")
+    logger.info("Feature loaded: create_test (manual test mode)")
