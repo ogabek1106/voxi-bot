@@ -217,6 +217,6 @@ def setup(dispatcher, bot=None):
     )
 
     # 🔴 THIS LINE IS THE FIX
-    dispatcher.add_handler(conv, group=-10)
+    dispatcher.add_handler(conv, group=-100)
 
     logger.info("Feature loaded: create_test (locked admin flow)")
