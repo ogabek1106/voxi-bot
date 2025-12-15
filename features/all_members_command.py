@@ -208,21 +208,22 @@ for fn in os.listdir(_AWAIT_DIR):
 
 
 def message_router(update: Update, context: CallbackContext):
-    # 🔴 BLOCK during any active admin conversation (e.g. /create_test)
-    if context.user_data:
-        return
-
     user = update.effective_user
     chat = update.effective_chat
+
     if not user or not _is_admin(user.id):
         return
 
+    # 🔴 Only block when *this* feature is active
     state = awaiting_states.get(user.id)
     if not state:
         return
 
     msg = update.message
     stage = state.get("stage")
+
+    # ... rest of your logic unchanged
+
 
     if stage == "awaiting_targets":
         if not msg or not msg.text:
