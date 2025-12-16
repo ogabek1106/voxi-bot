@@ -1,9 +1,8 @@
 # tests_list.py
-
 """
 Admin-only command: /tests_list
 
-Shows all created tests stored in SQLite (tests table).
+Shows all created TEST DEFINITIONS stored in SQLite (test_defs table).
 """
 
 import logging
@@ -14,7 +13,7 @@ from telegram import Update
 from telegram.ext import CallbackContext, CommandHandler
 
 import admins
-from database import get_all_tests
+from database import get_all_test_definitions
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +66,7 @@ def tests_list(update: Update, context: CallbackContext):
         update.message.reply_text("⛔ Admins only.")
         return
 
-    tests = get_all_tests()
+    tests = get_all_test_definitions()
     if not tests:
         update.message.reply_text("🧪 No tests found yet.")
         return
@@ -98,4 +97,4 @@ def setup(dispatcher, bot=None):
         CommandHandler("tests_list", tests_list),
         group=-10,  # admin utilities priority
     )
-    logger.info("tests_list feature loaded (admin-only)")
+    logger.info("tests_list feature loaded (admin-only, test_defs)")
