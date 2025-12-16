@@ -2,7 +2,6 @@
 # Handles QUESTION creation for tests (AFTER test definition exists)
 
 import logging
-import time
 from typing import Optional
 
 from telegram import Update
@@ -63,19 +62,21 @@ def _parse_answers(text: str):
     return answers
 
 
-# ---------- END COMMAND ----------
+# ---------- END COMMAND (FIXED) ----------
 
 def end_test(update: Update, context: CallbackContext):
     user = update.effective_user
     if not user or not _is_admin(user.id):
         update.message.reply_text("⛔ Admins only.")
-        return
+        return ConversationHandler.END
 
     if context.user_data.get("question_mode"):
         context.user_data.clear()
         update.message.reply_text("🛑 Test creation mode ended.")
-    else:
-        update.message.reply_text("ℹ️ You are not in test creation mode.")
+        return ConversationHandler.END   # 🔴 IMPORTANT FIX
+
+    update.message.reply_text("ℹ️ You are not in test creation mode.")
+    return ConversationHandler.END
 
 
 # ---------- START QUESTION MODE ----------
@@ -86,7 +87,6 @@ def start_questions(update: Update, context: CallbackContext):
         update.message.reply_text("⛔ Admins only.")
         return ConversationHandler.END
 
-    # test_id must already exist from create_test
     test_id = context.user_data.get("test_id")
     if not test_id:
         update.message.reply_text("❌ No active test found. Create a test first.")
@@ -104,8 +104,8 @@ def start_questions(update: Update, context: CallbackContext):
     context.user_data["current_q"] = 1
 
     update.message.reply_text(
-        f"✍️ Now send questions one by one.\n\n"
-        f"Question 1:"
+        "✍️ Now send questions one by one.\n\n"
+        "Question 1:"
     )
     return ASK_QUESTION
 
