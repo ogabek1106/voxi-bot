@@ -627,9 +627,112 @@ def get_all_test_definitions():
             conn.close()
 
 
+# ---------- TEST QUESTIONS (FOR create_test2.py) ----------
+
+def ensure_test_questions_table():
+    """
+    Stores questions + answers for each test.
+    One row = one question.
+    """
+    conn = None
+    try:
+        conn = _connect()
+        with conn:
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS test_questions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    test_id TEXT NOT NULL,
+                    question_number INTEGER NOT NULL,
+                    question_text TEXT NOT NULL,
+                    a TEXT NOT NULL,
+                    b TEXT NOT NULL,
+                    c TEXT NOT NULL,
+                    d TEXT NOT NULL,
+                    correct_answer TEXT NOT NULL,
+                    created_at INTEGER
+                );
+                """
+            )
+    except Exception as e:
+        logger.exception("ensure_test_questions_table failed: %s", e)
+    finally:
+        if conn:
+            conn.close()
+
+def save_test_question(
+    test_id: str,
+    question_number: int,
+    question_text: str,
+    answers: dict,
+    correct_answer: str,
+) -> bool:
+    """
+    Save a single question for a test.
+    """
+    ensure_test_questions_table()
+    conn = None
+    try:
+        conn = _connect()
+        with conn:
+            conn.execute(
+                """
+                INSERT INTO test_questions
+                (test_id, question_number, question_text, a, b, c, d, correct_answer, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+                """,
+                (
+                    test_id,
+                    question_number,
+                    question_text,
+                    answers["a"],
+                    answers["b"],
+                    answers["c"],
+                    answers["d"],
+                    correct_answer,
+                    int(time.time()),
+                ),
+            )
+        return True
+    except Exception as e:
+        logger.exception("save_test_question failed for %s q=%s: %s", test_id, question_number, e)
+        return False
+    finally:
+        if conn:
+            conn.close()
+
+def get_test_definition(test_id: str):
+    """
+    Return test definition from test_defs.
+    """
+    ensure_test_defs_table()
+    conn = None
+    try:
+        conn = _connect()
+        cur = conn.execute(
+            """
+            SELECT test_id, name, level, question_count, time_limit, created_at
+            FROM test_defs
+            WHERE test_id = ?
+            LIMIT 1;
+            """,
+            (test_id,),
+        )
+        return cur.fetchone()
+    except Exception as e:
+        logger.exception("get_test_definition failed for %s: %s", test_id, e)
+        return None
+    finally:
+        if conn:
+            conn.close()
+
+
+
+
 # ensure DB quickly on import (best-effort)
 ensure_db()
 # ensure tests table on import (best-effort)
 ensure_tests_table()
 ensure_test_defs_table()
+ensure_test_questions_table()
 
