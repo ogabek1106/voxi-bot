@@ -534,10 +534,102 @@ def migrate_from_list(items: Iterable[Union[int, dict]]) -> int:
         except Exception:
             logger.debug("Skipping bad migrate item: %r", item)
     logger.info("migrate_from_list: added %s new users", added)
-    return added
+    return added 
+
+# ---------- TEST DEFINITIONS (FOR /create_test ONLY) ----------
+
+def ensure_test_defs_table():
+    """
+    Table for TEST DEFINITIONS (name, level, duration).
+    This is NOT user attempts.
+    Safe additive table.
+    """
+    conn = None
+    try:
+        conn = _connect()
+        with conn:
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS test_defs (
+                    test_id TEXT PRIMARY KEY,
+                    name TEXT,
+                    level TEXT,
+                    question_count INTEGER,
+                    time_limit INTEGER,
+                    created_at INTEGER
+                );
+                """
+            )
+    except Exception as e:
+        logger.exception("ensure_test_defs_table failed: %s", e)
+    finally:
+        if conn:
+            conn.close()
+
+
+def save_test_definition(
+    test_id: str,
+    name: Optional[str],
+    level: Optional[str],
+    question_count: Optional[int],
+    time_limit: Optional[int],
+) -> bool:
+    """
+    Save test definition created via /create_test.
+    """
+    ensure_test_defs_table()
+    conn = None
+    try:
+        conn = _connect()
+        with conn:
+            conn.execute(
+                """
+                INSERT INTO test_defs
+                (test_id, name, level, question_count, time_limit, created_at)
+                VALUES (?, ?, ?, ?, ?, ?);
+                """,
+                (
+                    test_id,
+                    name,
+                    level,
+                    question_count,
+                    time_limit,
+                    int(time.time()),
+                ),
+            )
+        return True
+    except Exception as e:
+        logger.exception("save_test_definition failed for %s: %s", test_id, e)
+        return False
+    finally:
+        if conn:
+            conn.close()
+
+
+def get_all_test_definitions():
+    ensure_test_defs_table()
+    conn = None
+    try:
+        conn = _connect()
+        cur = conn.execute(
+            """
+            SELECT test_id, name, level, question_count, time_limit, created_at
+            FROM test_defs
+            ORDER BY created_at DESC;
+            """
+        )
+        return cur.fetchall()
+    except Exception as e:
+        logger.exception("get_all_test_definitions failed: %s", e)
+        return []
+    finally:
+        if conn:
+            conn.close()
 
 
 # ensure DB quickly on import (best-effort)
 ensure_db()
 # ensure tests table on import (best-effort)
 ensure_tests_table()
+ensure_test_defs_table()
+
