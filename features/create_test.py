@@ -236,6 +236,7 @@ def setup(dispatcher, bot=None):
         per_user=True,
         per_chat=True,
         name="create_test_conv",
+        block=True,  # 🔒 FIX: block all other handlers during conversation
     )
 
     dispatcher.add_handler(conv, group=-100)
