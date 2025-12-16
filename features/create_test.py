@@ -50,6 +50,19 @@ def _unknown_command(update: Update, context: CallbackContext):
     return None
 
 
+# ---------- GLOBAL COMMAND GUARD (PTB v13 FIX) ----------
+
+def _command_guard(update: Update, context: CallbackContext):
+    """
+    Blocks ALL commands while test_mode is active,
+    except allowed ones handled inside ConversationHandler.
+    """
+    if context.user_data.get("test_mode"):
+        update.message.reply_text("❓ Please answer the question or use /skip.")
+        return
+    return
+
+
 # ---------- MANUAL END COMMAND ----------
 
 def end_test(update: Update, context: CallbackContext):
@@ -167,7 +180,6 @@ def finish(update: Update, context: CallbackContext):
         "questions": [],
     }
 
-    # ✅ SAVE ONLY TEST DEFINITION
     save_test_definition(
         test_id=test_id,
         name=data["name"],
@@ -176,7 +188,6 @@ def finish(update: Update, context: CallbackContext):
         time_limit=data["time_limit"],
     )
 
-    # Optional: local JSON snapshot (can be removed later)
     path = os.path.join(TESTS_DIR, f"{test_id}.json")
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=4, ensure_ascii=False)
@@ -197,6 +208,12 @@ def finish(update: Update, context: CallbackContext):
 # ---------- SETUP ----------
 
 def setup(dispatcher, bot=None):
+    # 🔒 GLOBAL GUARD — MUST BE FIRST
+    dispatcher.add_handler(
+        MessageHandler(Filters.command, _command_guard),
+        group=-200,
+    )
+
     conv = ConversationHandler(
         entry_points=[CommandHandler("create_test", start)],
         states={
@@ -236,7 +253,6 @@ def setup(dispatcher, bot=None):
         per_user=True,
         per_chat=True,
         name="create_test_conv",
-        block=True,  # 🔒 FIX: block all other handlers during conversation
     )
 
     dispatcher.add_handler(conv, group=-100)
