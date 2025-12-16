@@ -1,5 +1,6 @@
 # features/create_test.py
 # these are functions that are admin only command and saves info about test only
+
 import os
 import json
 import time
@@ -14,6 +15,7 @@ from telegram.ext import (
     MessageHandler,
     Filters,
 )
+from telegram.ext.dispatcher import DispatcherHandlerStop
 
 from database import save_test_definition
 import admins
@@ -42,25 +44,13 @@ def _gen_test_id():
 def _abort(update: Update, context: CallbackContext):
     context.user_data.clear()
     update.message.reply_text("❌ Test creation aborted.")
-    return ConversationHandler.END
+    raise DispatcherHandlerStop
 
 
 def _unknown_command(update: Update, context: CallbackContext):
     update.message.reply_text("❓ Please answer the question or use /skip.")
-    return None
-
-
-# ---------- GLOBAL COMMAND GUARD (PTB v13 FIX) ----------
-
-def _command_guard(update: Update, context: CallbackContext):
-    """
-    Blocks ALL commands while test_mode is active,
-    except allowed ones handled inside ConversationHandler.
-    """
-    if context.user_data.get("test_mode"):
-        update.message.reply_text("❓ Please answer the question or use /skip.")
-        return
-    return
+    # 🔒 HARD STOP — prevents /stats, /tests_list, etc
+    raise DispatcherHandlerStop
 
 
 # ---------- MANUAL END COMMAND ----------
@@ -69,13 +59,15 @@ def end_test(update: Update, context: CallbackContext):
     user = update.effective_user
     if not user or not _is_admin(user.id):
         update.message.reply_text("⛔ Admins only.")
-        return
+        raise DispatcherHandlerStop
 
     if context.user_data.get("test_mode"):
         context.user_data.clear()
         update.message.reply_text("🛑 Test mode ended.")
     else:
         update.message.reply_text("ℹ️ You are not in test mode.")
+
+    raise DispatcherHandlerStop
 
 
 # ---------- START ----------
@@ -202,18 +194,12 @@ def finish(update: Update, context: CallbackContext):
         "🛑 Use /end_test to exit test mode."
     )
 
-    return ConversationHandler.END
+    raise DispatcherHandlerStop
 
 
 # ---------- SETUP ----------
 
 def setup(dispatcher, bot=None):
-    # 🔒 GLOBAL GUARD — MUST BE FIRST
-    dispatcher.add_handler(
-        MessageHandler(Filters.command, _command_guard),
-        group=-200,
-    )
-
     conv = ConversationHandler(
         entry_points=[CommandHandler("create_test", start)],
         states={
