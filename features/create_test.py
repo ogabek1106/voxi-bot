@@ -44,13 +44,15 @@ def _gen_test_id():
 def _abort(update: Update, context: CallbackContext):
     context.user_data.clear()
     update.message.reply_text("❌ Test creation aborted.")
-    raise DispatcherHandlerStop
+    return ConversationHandler.END
 
 
 def _unknown_command(update: Update, context: CallbackContext):
-    update.message.reply_text("❓ Please answer the question or use /skip.")
-    # 🔒 HARD STOP — prevents /stats, /tests_list, etc
-    raise DispatcherHandlerStop
+    # 🔐 Intercept ONLY during test mode
+    if context.user_data.get("test_mode"):
+        update.message.reply_text("❓ Please answer the question or use /skip.")
+        raise DispatcherHandlerStop
+    # Otherwise — allow normal command flow
 
 
 # ---------- MANUAL END COMMAND ----------
@@ -59,15 +61,15 @@ def end_test(update: Update, context: CallbackContext):
     user = update.effective_user
     if not user or not _is_admin(user.id):
         update.message.reply_text("⛔ Admins only.")
-        raise DispatcherHandlerStop
+        return
 
     if context.user_data.get("test_mode"):
         context.user_data.clear()
         update.message.reply_text("🛑 Test mode ended.")
-    else:
-        update.message.reply_text("ℹ️ You are not in test mode.")
+        return ConversationHandler.END
 
-    raise DispatcherHandlerStop
+    update.message.reply_text("ℹ️ You are not in test mode.")
+    return ConversationHandler.END
 
 
 # ---------- START ----------
@@ -194,7 +196,7 @@ def finish(update: Update, context: CallbackContext):
         "🛑 Use /end_test to exit test mode."
     )
 
-    raise DispatcherHandlerStop
+    return ConversationHandler.END
 
 
 # ---------- SETUP ----------
