@@ -1,10 +1,10 @@
 # features/create_test.py
+# these are functions that are admin only command and saves info about test only
 import os
 import json
 import time
 import logging
 from typing import Optional
-from database import create_test_meta
 
 from telegram import Update
 from telegram.ext import (
@@ -15,6 +15,7 @@ from telegram.ext import (
     Filters,
 )
 
+from database import save_test_definition
 import admins
 
 logger = logging.getLogger(__name__)
@@ -22,7 +23,6 @@ logger = logging.getLogger(__name__)
 TESTS_DIR = "tests"
 
 ASK_NAME, ASK_LEVEL, ASK_COUNT, ASK_TIME = range(4)
-
 
 # ---------- helpers ----------
 
@@ -50,7 +50,7 @@ def _unknown_command(update: Update, context: CallbackContext):
     return None
 
 
-# ---------- 🔴 MANUAL END COMMAND (GLOBAL SAFE) ----------
+# ---------- MANUAL END COMMAND ----------
 
 def end_test(update: Update, context: CallbackContext):
     user = update.effective_user
@@ -60,12 +60,12 @@ def end_test(update: Update, context: CallbackContext):
 
     if context.user_data.get("test_mode"):
         context.user_data.clear()
-        update.message.reply_text("🛑 Test mode ended. Normal mode restored.")
+        update.message.reply_text("🛑 Test mode ended.")
     else:
         update.message.reply_text("ℹ️ You are not in test mode.")
 
 
-# ---------- start ----------
+# ---------- START ----------
 
 def start(update: Update, context: CallbackContext):
     user = update.effective_user
@@ -77,7 +77,7 @@ def start(update: Update, context: CallbackContext):
     context.user_data.clear()
 
     context.user_data["test_id"] = _gen_test_id()
-    context.user_data["test_mode"] = True  # 🔴 ENTER TEST MODE
+    context.user_data["test_mode"] = True
 
     update.message.reply_text(
         "🧪 Creating a new test.\n\n"
@@ -92,78 +92,64 @@ def start(update: Update, context: CallbackContext):
 # ---------- NAME ----------
 
 def name_text(update: Update, context: CallbackContext):
-    value = update.message.text.strip()
-    context.user_data["name"] = value
-
-    update.message.reply_text(f"✅ Received name: {value}")
-    update.message.reply_text("Send test level (A2 / B1 / B2 / C1) or /skip.")
+    context.user_data["name"] = update.message.text.strip()
+    update.message.reply_text("✅ Name saved.\nSend test level (A2 / B1 / B2 / C1) or /skip.")
     return ASK_LEVEL
 
 
 def name_skip(update: Update, context: CallbackContext):
     context.user_data["name"] = None
-    update.message.reply_text("⏭ Name skipped.")
-    update.message.reply_text("Send test level (A2 / B1 / B2 / C1) or /skip.")
+    update.message.reply_text("⏭ Name skipped.\nSend test level or /skip.")
     return ASK_LEVEL
 
 
 # ---------- LEVEL ----------
 
 def level_text(update: Update, context: CallbackContext):
-    value = update.message.text.strip()
-    context.user_data["level"] = value
-
-    update.message.reply_text(f"✅ Received level: {value}")
-    update.message.reply_text("Send number of questions or /skip.")
+    context.user_data["level"] = update.message.text.strip()
+    update.message.reply_text("✅ Level saved.\nSend number of questions or /skip.")
     return ASK_COUNT
 
 
 def level_skip(update: Update, context: CallbackContext):
     context.user_data["level"] = None
-    update.message.reply_text("⏭ Level skipped.")
-    update.message.reply_text("Send number of questions or /skip.")
+    update.message.reply_text("⏭ Level skipped.\nSend number of questions or /skip.")
     return ASK_COUNT
 
 
-# ---------- COUNT ----------
+# ---------- QUESTION COUNT ----------
 
 def count_text(update: Update, context: CallbackContext):
     try:
-        value = int(update.message.text.strip())
+        context.user_data["question_count"] = int(update.message.text.strip())
     except ValueError:
         update.message.reply_text("❗ Please send a NUMBER or /skip.")
         return ASK_COUNT
 
-    context.user_data["question_count"] = value
-    update.message.reply_text(f"✅ Received number of questions: {value}")
-    update.message.reply_text("Send time limit (minutes) or /skip.")
+    update.message.reply_text("✅ Question count saved.\nSend time limit (minutes) or /skip.")
     return ASK_TIME
 
 
 def count_skip(update: Update, context: CallbackContext):
     context.user_data["question_count"] = None
-    update.message.reply_text("⏭ Question count skipped.")
-    update.message.reply_text("Send time limit (minutes) or /skip.")
+    update.message.reply_text("⏭ Question count skipped.\nSend time limit or /skip.")
     return ASK_TIME
 
 
-# ---------- TIME ----------
+# ---------- TIME LIMIT ----------
 
 def time_text(update: Update, context: CallbackContext):
     try:
-        value = int(update.message.text.strip())
+        context.user_data["time_limit"] = int(update.message.text.strip())
     except ValueError:
         update.message.reply_text("❗ Please send a NUMBER or /skip.")
         return ASK_TIME
 
-    context.user_data["time_limit"] = value
-    update.message.reply_text(f"✅ Received time limit: {value} minutes")
     return finish(update, context)
 
 
 def time_skip(update: Update, context: CallbackContext):
     context.user_data["time_limit"] = None
-    update.message.reply_text("⏭ Time limit skipped.")
     return finish(update, context)
 
 
@@ -173,7 +159,7 @@ def finish(update: Update, context: CallbackContext):
     test_id = context.user_data["test_id"]
 
     data = {
-        "id": test_id,
+        "test_id": test_id,
         "name": context.user_data.get("name"),
         "level": context.user_data.get("level"),
         "question_count": context.user_data.get("question_count"),
@@ -181,8 +167,8 @@ def finish(update: Update, context: CallbackContext):
         "questions": [],
     }
 
-    # ✅ FIXED: correct indentation (this was the bug)
-    create_test_meta(
+    # ✅ SAVE ONLY TEST DEFINITION
+    save_test_definition(
         test_id=test_id,
         name=data["name"],
         level=data["level"],
@@ -190,12 +176,13 @@ def finish(update: Update, context: CallbackContext):
         time_limit=data["time_limit"],
     )
 
+    # Optional: local JSON snapshot (can be removed later)
     path = os.path.join(TESTS_DIR, f"{test_id}.json")
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=4, ensure_ascii=False)
 
     update.message.reply_text(
-        "✅ Test created successfully!\n\n"
+        "✅ Test definition created!\n\n"
         f"ID: {test_id}\n"
         f"Name: {data['name']}\n"
         f"Level: {data['level']}\n"
@@ -204,11 +191,10 @@ def finish(update: Update, context: CallbackContext):
         "🛑 Use /end_test to exit test mode."
     )
 
-    # 🔴 DO NOT clear user_data here
     return ConversationHandler.END
 
 
-# ---------- setup ----------
+# ---------- SETUP ----------
 
 def setup(dispatcher, bot=None):
     conv = ConversationHandler(
@@ -252,10 +238,7 @@ def setup(dispatcher, bot=None):
         name="create_test_conv",
     )
 
-    # 🔴 Highest priority conversation
     dispatcher.add_handler(conv, group=-100)
-
-    # 🔴 GLOBAL /end_test — works even after conversation ends
     dispatcher.add_handler(CommandHandler("end_test", end_test), group=-100)
 
-    logger.info("Feature loaded: create_test (manual test mode)")
+    logger.info("Feature loaded: create_test (TEST DEFINITIONS ONLY)")
