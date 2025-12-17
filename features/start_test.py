@@ -123,7 +123,7 @@ def start_test_entry(update: Update, context: CallbackContext):
         query.edit_message_text("❌ Test has no questions.")
         return
 
-    # initialize state
+    # reset state
     context.user_data.clear()
     context.user_data.update({
         "token": token,
@@ -133,30 +133,55 @@ def start_test_entry(update: Update, context: CallbackContext):
         "answers": {},
         "index": 0,
         "finished": False,
+        "token_msg_id": None,
+        "timer_msg_id": None,
+        "question_msg_id": None,
     })
 
-    _render_question(query, context)
+    chat_id = query.message.chat_id
+    bot = query.bot
+
+    # 1️⃣ TOKEN MESSAGE (static)
+    token_msg = bot.send_message(
+        chat_id=chat_id,
+        text=f"🔑 Your token: {token}"
+    )
+    context.user_data["token_msg_id"] = token_msg.message_id
+
+    # 2️⃣ TIMER MESSAGE (editable)
+    timer_msg = bot.send_message(
+        chat_id=chat_id,
+        text="⏱ Time left: calculating..."
+    )
+    context.user_data["timer_msg_id"] = timer_msg.message_id
+
+    # 3️⃣ QUESTION MESSAGE
+    _render_question(update, context)
 
 
 # ---------- rendering ----------
 
-def _render_question(query, context: CallbackContext):
+def _render_question(update: Update, context: CallbackContext):
     if context.user_data.get("finished"):
         return
 
+    bot = update.callback_query.bot
+    chat_id = update.callback_query.message.chat_id
+
     idx = context.user_data["index"]
     questions = context.user_data["questions"]
-    q_num, q_text, a, b, c, d = questions[idx]
+    _, q_text, a, b, c, d = questions[idx]
 
+    # update timer
     left = _time_left(context.user_data["start_ts"], context.user_data["limit_min"])
     if left <= 0:
-        _auto_finish(query, context)
+        _auto_finish(update, context)
         return
 
-    text = (
-        f"🔑 Your token: {context.user_data['token']}\n"
-        f"⏱ Time left: {_format_timer(left)}\n\n"
-        f"{q_text}"
+    bot.edit_message_text(
+        chat_id=chat_id,
+        message_id=context.user_data["timer_msg_id"],
+        text=f"⏱ Time left: {_format_timer(left)}",
     )
 
     buttons = [
@@ -172,10 +197,20 @@ def _render_question(query, context: CallbackContext):
         [InlineKeyboardButton("🏁 Finish", callback_data="finish")],
     ]
 
-    query.edit_message_text(
-        text=text,
-        reply_markup=InlineKeyboardMarkup(buttons),
-    )
+    if context.user_data["question_msg_id"] is None:
+        msg = bot.send_message(
+            chat_id=chat_id,
+            text=q_text,
+            reply_markup=InlineKeyboardMarkup(buttons),
+        )
+        context.user_data["question_msg_id"] = msg.message_id
+    else:
+        bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=context.user_data["question_msg_id"],
+            text=q_text,
+            reply_markup=InlineKeyboardMarkup(buttons),
+        )
 
 
 # ---------- handlers ----------
@@ -187,7 +222,7 @@ def answer_handler(update: Update, context: CallbackContext):
     _, idx, choice = query.data.split("|")
     context.user_data["answers"][int(idx)] = choice
 
-    _render_question(query, context)
+    _render_question(update, context)
 
 
 def nav_handler(update: Update, context: CallbackContext, direction: int):
@@ -200,25 +235,38 @@ def nav_handler(update: Update, context: CallbackContext, direction: int):
         min(context.user_data["index"], len(context.user_data["questions"]) - 1)
     )
 
-    _render_question(query, context)
+    _render_question(update, context)
 
 
 def finish_handler(update: Update, context: CallbackContext):
     query = update.callback_query
     query.answer()
 
-    _finish(query, context, manual=True)
+    _finish(update, context, manual=True)
 
 
 # ---------- finish ----------
 
-def _auto_finish(query, context):
-    _finish(query, context, manual=False)
+def _auto_finish(update: Update, context: CallbackContext):
+    _finish(update, context, manual=False)
 
 
-def _finish(query, context, manual: bool):
+def _finish(update: Update, context: CallbackContext, manual: bool):
     context.user_data["finished"] = True
+    bot = update.callback_query.bot
+    chat_id = update.callback_query.message.chat_id
     token = context.user_data["token"]
+
+    # delete timer & question
+    try:
+        bot.delete_message(chat_id, context.user_data["timer_msg_id"])
+    except Exception:
+        pass
+
+    try:
+        bot.delete_message(chat_id, context.user_data["question_msg_id"])
+    except Exception:
+        pass
 
     msg = (
         "⏰ Time reached!\nYour answers were auto-submitted.\n\n"
@@ -230,7 +278,7 @@ def _finish(query, context, manual: bool):
         f"To see your result, send:\n/result {token}"
     )
 
-    query.edit_message_text(msg)
+    bot.send_message(chat_id, msg)
 
 
 # ---------- setup ----------
