@@ -9,6 +9,7 @@ Flow:
 
 Usage:
   /publish <number>
+  /publish <test_id>
 """
 
 import logging
@@ -44,15 +45,11 @@ def publish(update: Update, context: CallbackContext):
         return
 
     if not context.args:
-        update.message.reply_text("❗ Usage: /publish <test_number>")
-        return
-
-    try:
-        index = int(context.args[0])
-        if index <= 0:
-            raise ValueError
-    except ValueError:
-        update.message.reply_text("❗ Test number must be a positive integer.")
+        update.message.reply_text(
+            "❗ Usage:\n"
+            "/publish <number>\n"
+            "/publish <test_id>"
+        )
         return
 
     if has_active_test():
@@ -67,14 +64,40 @@ def publish(update: Update, context: CallbackContext):
         update.message.reply_text("❌ No test definitions found.")
         return
 
-    if index > len(tests):
-        update.message.reply_text(
-            f"❌ Invalid test number.\n"
-            f"Available: 1 – {len(tests)}"
-        )
-        return
+    arg = context.args[0].strip()
 
-    test = tests[index - 1]
+    # -------- CASE 1: publish by test_id --------
+    if arg.startswith("test_"):
+        test = next((t for t in tests if t[0] == arg), None)
+        if not test:
+            update.message.reply_text("❌ Test ID not found.")
+            return
+
+    # -------- CASE 2: publish by index --------
+    else:
+        try:
+            index = int(arg)
+            if index <= 0:
+                raise ValueError
+        except ValueError:
+            update.message.reply_text(
+                "❗ Usage:\n"
+                "/publish <number>\n"
+                "/publish <test_id>"
+            )
+            return
+
+        if index > len(tests):
+            update.message.reply_text(
+                f"❌ Invalid test number.\n"
+                f"Available: 1 – {len(tests)}"
+            )
+            return
+
+        test = tests[index - 1]
+
+    # -------- publish selected test --------
+
     test_id, name, level, question_count, time_limit, created_at = test
 
     meta = get_test_definition(test_id)
