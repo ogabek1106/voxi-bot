@@ -4,18 +4,25 @@ User command to get the currently active test.
 
 Behavior:
 - If NO active test -> friendly message
-- If active test exists -> show test info
+- If active test exists -> show test info + Start / Cancel buttons
 
-No test start logic yet.
-No tokens yet.
+Test execution logic is handled in start_test.py
 """
 
 import logging
 import os
 import sqlite3
 
-from telegram import Update
-from telegram.ext import CommandHandler, CallbackContext
+from telegram import (
+    Update,
+    InlineKeyboardMarkup,
+    InlineKeyboardButton,
+)
+from telegram.ext import (
+    CommandHandler,
+    CallbackContext,
+    CallbackQueryHandler,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +72,15 @@ def get_test(update: Update, context: CallbackContext):
 
     test_id, name, level, question_count, time_limit, published_at = active
 
+    keyboard = InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton("▶️ Start", callback_data="start_test"),
+                InlineKeyboardButton("❌ Cancel", callback_data="cancel_test"),
+            ]
+        ]
+    )
+
     update.message.reply_text(
         "🧪 *Active Test*\n\n"
         f"📌 Name: {name or '—'}\n"
@@ -72,12 +88,23 @@ def get_test(update: Update, context: CallbackContext):
         f"❓ Questions: {question_count or '—'}\n"
         f"⏱ Time limit: {time_limit or '—'} min\n\n"
         "🟢 Test is available.",
-        parse_mode="Markdown"
+        parse_mode="Markdown",
+        reply_markup=keyboard,
     )
+
+
+# ---------- cancel handler ----------
+
+def cancel_test(update: Update, context: CallbackContext):
+    query = update.callback_query
+    query.answer()
+
+    query.edit_message_text("❌ Test start cancelled.")
 
 
 # ---------- setup ----------
 
 def setup(dispatcher, bot=None):
     dispatcher.add_handler(CommandHandler("get_test", get_test), group=0)
+    dispatcher.add_handler(CallbackQueryHandler(cancel_test, pattern="^cancel_test$"), group=0)
     logger.info("Feature loaded: get_test (ACTIVE TEST ONLY)")
