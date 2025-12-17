@@ -726,6 +726,114 @@ def get_test_definition(test_id: str):
         if conn:
             conn.close()
 
+# ---------- ACTIVE TEST (PUBLISHED) ----------
+
+def ensure_active_test_table():
+    """
+    Stores ONLY ONE active (published) test.
+    If table has 0 rows -> no active test.
+    """
+    conn = None
+    try:
+        conn = _connect()
+        with conn:
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS active_test (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    test_id TEXT NOT NULL,
+                    name TEXT,
+                    level TEXT,
+                    question_count INTEGER,
+                    time_limit INTEGER,
+                    published_at INTEGER
+                );
+                """
+            )
+    except Exception as e:
+        logger.exception("ensure_active_test_table failed: %s", e)
+    finally:
+        if conn:
+            conn.close()
+
+
+def has_active_test() -> bool:
+    ensure_active_test_table()
+    conn = None
+    try:
+        conn = _connect()
+        cur = conn.execute("SELECT 1 FROM active_test LIMIT 1;")
+        return cur.fetchone() is not None
+    except Exception as e:
+        logger.exception("has_active_test failed: %s", e)
+        return False
+    finally:
+        if conn:
+            conn.close()
+
+
+def set_active_test(
+    test_id: str,
+    name: Optional[str],
+    level: Optional[str],
+    question_count: Optional[int],
+    time_limit: Optional[int],
+) -> bool:
+    """
+    Publish a test.
+    Fails if an active test already exists.
+    """
+    ensure_active_test_table()
+    conn = None
+    try:
+        conn = _connect()
+        with conn:
+            cur = conn.execute("SELECT 1 FROM active_test LIMIT 1;")
+            if cur.fetchone():
+                return False
+
+            conn.execute(
+                """
+                INSERT INTO active_test
+                (id, test_id, name, level, question_count, time_limit, published_at)
+                VALUES (1, ?, ?, ?, ?, ?, ?);
+                """,
+                (
+                    test_id,
+                    name,
+                    level,
+                    question_count,
+                    time_limit,
+                    int(time.time()),
+                ),
+            )
+        return True
+    except Exception as e:
+        logger.exception("set_active_test failed for %s: %s", test_id, e)
+        return False
+    finally:
+        if conn:
+            conn.close()
+
+
+def clear_active_test() -> bool:
+    """
+    Unpublish the current test.
+    """
+    ensure_active_test_table()
+    conn = None
+    try:
+        conn = _connect()
+        with conn:
+            conn.execute("DELETE FROM active_test;")
+        return True
+    except Exception as e:
+        logger.exception("clear_active_test failed: %s", e)
+        return False
+    finally:
+        if conn:
+            conn.close()
+
 
 
 
@@ -735,4 +843,5 @@ ensure_db()
 ensure_tests_table()
 ensure_test_defs_table()
 ensure_test_questions_table()
+ensure_active_test_table()
 
