@@ -834,6 +834,30 @@ def clear_active_test() -> bool:
         if conn:
             conn.close()
 
+def get_active_test():
+    """
+    Return the currently active (published) test or None.
+    """
+    ensure_active_test_table()
+    conn = None
+    try:
+        conn = _connect()
+        cur = conn.execute(
+            """
+            SELECT test_id, name, level, question_count, time_limit, published_at
+            FROM active_test
+            LIMIT 1;
+            """
+        )
+        return cur.fetchone()
+    except Exception as e:
+        logger.exception("get_active_test failed: %s", e)
+        return None
+    finally:
+        if conn:
+            conn.close()
+
+
 
 
 
