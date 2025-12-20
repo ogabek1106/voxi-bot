@@ -215,8 +215,8 @@ def start_test_entry(update: Update, context: CallbackContext):
     # START BACKGROUND TIMER
     job = context.job_queue.run_repeating(
         _timer_job,
-        interval=30,
-        first=30,
+        interval=15,
+        first=15,
         context={
             "chat_id": chat_id,
             "token": token,
