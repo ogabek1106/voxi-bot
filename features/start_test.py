@@ -30,6 +30,8 @@ DB_PATH = os.getenv("DB_PATH", os.getenv("SQLITE_PATH", "/data/data.db"))
 SQLITE_TIMEOUT = 5
 MOSCOW_TZ = timezone(timedelta(hours=3))
 
+EXTRA_GRACE_SECONDS = 15  # ✅ UI grace time
+
 
 # ---------- helpers ----------
 
@@ -94,7 +96,8 @@ def _load_questions(test_id):
 
 def _time_left(start_ts, limit_min):
     elapsed = int(time.time()) - start_ts
-    return max(0, limit_min * 60 - elapsed)
+    total = limit_min * 60 + EXTRA_GRACE_SECONDS
+    return max(0, total - elapsed)
 
 
 def _format_timer(seconds):
@@ -198,8 +201,12 @@ def start_test_entry(update: Update, context: CallbackContext):
     token_msg = bot.send_message(chat_id, f"🔑 Your token: {token}")
     context.user_data["token_msg_id"] = token_msg.message_id
 
-    # TIMER MESSAGE
-    timer_msg = bot.send_message(chat_id, "⏱ Time left: --:--")
+    # TIMER MESSAGE (✅ real value immediately, no --:--)
+    initial_left = _time_left(start_ts, limit_min)
+    timer_msg = bot.send_message(
+        chat_id,
+        f"⏱ Time left: {_format_timer(initial_left)}"
+    )
     context.user_data["timer_msg_id"] = timer_msg.message_id
 
     # QUESTION MESSAGE
@@ -209,7 +216,7 @@ def start_test_entry(update: Update, context: CallbackContext):
     job = context.job_queue.run_repeating(
         _timer_job,
         interval=30,
-        first=0,
+        first=30,
         context={
             "chat_id": chat_id,
             "token": token,
