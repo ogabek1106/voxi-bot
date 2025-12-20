@@ -30,7 +30,7 @@ DB_PATH = os.getenv("DB_PATH", os.getenv("SQLITE_PATH", "/data/data.db"))
 SQLITE_TIMEOUT = 5
 MOSCOW_TZ = timezone(timedelta(hours=3))
 
-EXTRA_GRACE_SECONDS = 15  # ✅ UI grace time
+EXTRA_GRACE_SECONDS = 15  # UI grace time
 
 
 # ---------- helpers ----------
@@ -200,8 +200,8 @@ def start_test_entry(update: Update, context: CallbackContext):
         "limit_min": limit_min,
         "total_seconds": total_seconds,
         "questions": questions,
-        "answers": {},
-        "skipped": set(),
+        "answers": {},          # idx -> a/b/c/d
+        "skipped": set(),       # idx
         "skipped_msg_id": None,
         "index": 0,
         "finished": False,
@@ -263,12 +263,12 @@ def _render_question(context: CallbackContext):
     idx = context.user_data["index"]
     _, q_text, a, b, c, d = context.user_data["questions"][idx]
 
-    selected = ""
+    selected_text = ""
     if idx in context.user_data["answers"]:
         key = context.user_data["answers"][idx]
-        selected = f"\n\n✅ <b>You selected:</b>\n{ {'a':a,'b':b,'c':c,'d':d}[key] }"
+        selected_text = f"\n\n✅ <b>You selected:</b>\n{ {'a':a,'b':b,'c':c,'d':d}[key] }"
 
-    text = f"<b>Question {idx+1}</b>\n\n{q_text}{selected}"
+    text = f"<b>Question {idx + 1}</b>\n\n{q_text}{selected_text}"
 
     buttons = [
         [InlineKeyboardButton(a, callback_data=f"ans|{idx}|a")],
@@ -277,7 +277,7 @@ def _render_question(context: CallbackContext):
         [InlineKeyboardButton(d, callback_data=f"ans|{idx}|d")],
         [
             InlineKeyboardButton("⬅️", callback_data="prev"),
-            InlineKeyboardButton(f"{idx+1}/{len(context.user_data['questions'])}", callback_data="noop"),
+            InlineKeyboardButton(f"{idx + 1}/{len(context.user_data['questions'])}", callback_data="noop"),
             InlineKeyboardButton("➡️", callback_data="next"),
         ],
         [InlineKeyboardButton("🏁 Finish", callback_data="finish")],
@@ -318,7 +318,7 @@ def _update_skipped_message(context: CallbackContext):
             context.user_data["skipped_msg_id"] = None
         return
 
-    text = "⚠️ <b>Skipped questions:</b> " + ", ".join(str(i+1) for i in skipped)
+    text = "⚠️ <b>Skipped questions:</b> " + ", ".join(str(i + 1) for i in skipped)
 
     if msg_id:
         bot.edit_message_text(
@@ -355,11 +355,13 @@ def nav_handler(update: Update, context: CallbackContext, direction: int):
     query.answer()
 
     cur = context.user_data["index"]
+
     if cur not in context.user_data["answers"]:
         context.user_data["skipped"].add(cur)
 
     context.user_data["index"] = max(
-        0, min(cur + direction, len(context.user_data["questions"]) - 1)
+        0,
+        min(cur + direction, len(context.user_data["questions"]) - 1)
     )
 
     _render_question(context)
@@ -370,7 +372,8 @@ def finish_handler(update: Update, context: CallbackContext):
 
     if context.user_data["skipped"]:
         query.answer(
-            "Skipped questions: " + ", ".join(str(i+1) for i in sorted(context.user_data["skipped"])),
+            "⚠️ Skipped questions: " +
+            ", ".join(str(i + 1) for i in sorted(context.user_data["skipped"])),
             show_alert=True,
         )
         return
