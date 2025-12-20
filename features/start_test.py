@@ -24,7 +24,7 @@ from telegram.ext import (
 
 from database import (
     get_active_test,
-    save_test_answer,   # ✅ already correct
+    save_test_answer,   # ✅ correct table
 )
 
 logger = logging.getLogger(__name__)
@@ -52,9 +52,9 @@ def _moscow_time_str():
 
 def _save_attempt(token, user_id, active_test):
     """
-    ❗ FIXED:
-    This function NO LONGER writes to ANY table.
-    tests table is abandoned and NOT used.
+    ⚠️ CORRECTED:
+    This function NO LONGER touches ANY database table.
+    It only prepares timing values for runtime usage.
     """
     _, _, _, _, time_limit, _ = active_test
     start_ts = int(time.time())
@@ -95,7 +95,7 @@ def _time_progress_bar(left: int, total: int, width: int = 15) -> str:
     return f"[{'▓' * filled}{'-' * empty}]"
 
 
-# ---------- TIMER JOB (UNCHANGED) ----------
+# ---------- TIMER JOB ----------
 
 def _timer_job(context: CallbackContext):
     data = context.job.context
@@ -115,8 +115,7 @@ def _timer_job(context: CallbackContext):
         _auto_finish_from_job(context, data)
         return
 
-    total = data["total_seconds"]
-    bar = _time_progress_bar(left, total)
+    bar = _time_progress_bar(left, data["total_seconds"])
 
     try:
         bot.edit_message_text(
@@ -134,15 +133,11 @@ def _auto_finish_from_job(context: CallbackContext, data: dict):
     chat_id = data["chat_id"]
     token = data["token"]
 
-    try:
-        bot.delete_message(chat_id=chat_id, message_id=data["question_msg_id"])
-    except Exception:
-        pass
-
-    try:
-        bot.delete_message(chat_id=chat_id, message_id=data["timer_msg_id"])
-    except Exception:
-        pass
+    for key in ("question_msg_id", "timer_msg_id"):
+        try:
+            bot.delete_message(chat_id, data[key])
+        except Exception:
+            pass
 
     bot.send_message(
         chat_id,
@@ -227,8 +222,170 @@ def start_test_entry(update: Update, context: CallbackContext):
     )
 
 
-# ---------- rendering / handlers / finish ----------
-# 🔒 UNCHANGED — EXACTLY AS YOU SENT (already correct)
+# ---------- rendering ----------
+
+def _render_question(context: CallbackContext):
+    if context.user_data.get("finished"):
+        return
+
+    bot = context.bot
+    chat_id = context.user_data["chat_id"]
+    idx = context.user_data["index"]
+
+    _, q_text, a, b, c, d = context.user_data["questions"][idx]
+
+    selected_text = ""
+    if idx in context.user_data["answers"]:
+        key = context.user_data["answers"][idx]
+        selected_text = f"\n\n✅ <b>You selected:</b>\n{ {'a':a,'b':b,'c':c,'d':d}[key] }"
+
+    text = f"<b>Question {idx + 1}</b>\n\n{q_text}{selected_text}"
+
+    buttons = [
+        [InlineKeyboardButton(a, callback_data=f"ans|{idx}|a")],
+        [InlineKeyboardButton(b, callback_data=f"ans|{idx}|b")],
+        [InlineKeyboardButton(c, callback_data=f"ans|{idx}|c")],
+        [InlineKeyboardButton(d, callback_data=f"ans|{idx}|d")],
+        [
+            InlineKeyboardButton("⬅️", callback_data="prev"),
+            InlineKeyboardButton(f"{idx + 1}/{len(context.user_data['questions'])}", callback_data="noop"),
+            InlineKeyboardButton("➡️", callback_data="next"),
+        ],
+        [InlineKeyboardButton("🏁 Finish", callback_data="finish")],
+    ]
+
+    if context.user_data["question_msg_id"] is None:
+        msg = bot.send_message(
+            chat_id,
+            text,
+            reply_markup=InlineKeyboardMarkup(buttons),
+            parse_mode="HTML",
+        )
+        context.user_data["question_msg_id"] = msg.message_id
+    else:
+        bot.edit_message_text(
+            text=text,
+            chat_id=chat_id,
+            message_id=context.user_data["question_msg_id"],
+            reply_markup=InlineKeyboardMarkup(buttons),
+            parse_mode="HTML",
+        )
+
+    _update_skipped_message(context)
+
+
+def _update_skipped_message(context: CallbackContext):
+    bot = context.bot
+    chat_id = context.user_data["chat_id"]
+    skipped = sorted(context.user_data["skipped"])
+    msg_id = context.user_data["skipped_msg_id"]
+
+    if not skipped:
+        if msg_id:
+            try:
+                bot.delete_message(chat_id=chat_id, message_id=msg_id)
+            except Exception:
+                pass
+            context.user_data["skipped_msg_id"] = None
+        return
+
+    text = "⚠️ <b>Skipped questions:</b> " + ", ".join(str(i + 1) for i in skipped)
+
+    if msg_id:
+        bot.edit_message_text(
+            text=text,
+            chat_id=chat_id,
+            message_id=msg_id,
+            parse_mode="HTML",
+        )
+    else:
+        msg = bot.send_message(chat_id, text, parse_mode="HTML")
+        context.user_data["skipped_msg_id"] = msg.message_id
+
+
+# ---------- handlers ----------
+
+def answer_handler(update: Update, context: CallbackContext):
+    query = update.callback_query
+    query.answer("Noted ✅")
+
+    _, idx, choice = query.data.split("|")
+    idx = int(idx)
+
+    context.user_data["answers"][idx] = choice
+    context.user_data["skipped"].discard(idx)
+
+    save_test_answer(
+        token=context.user_data["token"],
+        question_number=idx + 1,
+        selected_answer=choice,
+    )
+
+    if idx < len(context.user_data["questions"]) - 1:
+        context.user_data["index"] = idx + 1
+
+    _render_question(context)
+
+
+def nav_handler(update: Update, context: CallbackContext, direction: int):
+    query = update.callback_query
+    query.answer()
+
+    cur = context.user_data["index"]
+    if cur not in context.user_data["answers"]:
+        context.user_data["skipped"].add(cur)
+
+    context.user_data["index"] = max(
+        0,
+        min(cur + direction, len(context.user_data["questions"]) - 1)
+    )
+
+    _render_question(context)
+
+
+def finish_handler(update: Update, context: CallbackContext):
+    query = update.callback_query
+
+    if context.user_data["skipped"]:
+        query.answer(
+            "⚠️ Skipped questions: " +
+            ", ".join(str(i + 1) for i in sorted(context.user_data["skipped"])),
+            show_alert=True,
+        )
+        return
+
+    query.answer()
+    job = context.user_data.get("timer_job")
+    if job:
+        job.schedule_removal()
+
+    _finish(update, context, manual=True)
+
+
+# ---------- finish ----------
+
+def _finish(update: Update, context: CallbackContext, manual: bool):
+    context.user_data["finished"] = True
+    bot = context.bot
+    chat_id = context.user_data["chat_id"]
+    token = context.user_data["token"]
+
+    for key in ("timer_msg_id", "question_msg_id"):
+        try:
+            bot.delete_message(chat_id=chat_id, message_id=context.user_data[key])
+        except Exception:
+            pass
+
+    bot.send_message(
+        chat_id,
+        (
+            "✅ Your answers were submitted!\n\n"
+            if manual else
+            "⏰ Time reached!\nYour answers were auto-submitted.\n\n"
+        ) +
+        f"🔑 Your token: {token}\n"
+        f"To see your result, send:\n/result {token}"
+    )
 
 
 # ---------- setup ----------
