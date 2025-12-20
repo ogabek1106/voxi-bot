@@ -726,6 +726,82 @@ def get_test_definition(test_id: str):
         if conn:
             conn.close()
 
+# ---------- TEST ANSWERS (USER RESPONSES) ----------
+
+def ensure_test_answers_table():
+    """
+    Stores user's selected answers for each test attempt.
+    One row = one answered question.
+    """
+    conn = None
+    try:
+        conn = _connect()
+        with conn:
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS test_answers (
+                    token TEXT NOT NULL,
+                    question_number INTEGER NOT NULL,
+                    selected_answer TEXT NOT NULL,
+                    PRIMARY KEY (token, question_number)
+                );
+                """
+            )
+    except Exception as e:
+        logger.exception("ensure_test_answers_table failed: %s", e)
+    finally:
+        if conn:
+            conn.close()
+
+
+def save_test_answer(token: str, question_number: int, selected_answer: str) -> bool:
+    ensure_test_answers_table()
+    conn = None
+    try:
+        conn = _connect()
+        with conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO test_answers
+                (token, question_number, selected_answer)
+                VALUES (?, ?, ?);
+                """,
+                (token, int(question_number), selected_answer),
+            )
+        return True
+    except Exception as e:
+        logger.exception(
+            "save_test_answer failed (token=%s q=%s): %s",
+            token, question_number, e
+        )
+        return False
+    finally:
+        if conn:
+            conn.close()
+
+
+def get_test_answers(token: str):
+    ensure_test_answers_table()
+    conn = None
+    try:
+        conn = _connect()
+        cur = conn.execute(
+            """
+            SELECT question_number, selected_answer
+            FROM test_answers
+            WHERE token = ?;
+            """,
+            (token,),
+        )
+        return cur.fetchall()
+    except Exception as e:
+        logger.exception("get_test_answers failed for token %s: %s", token, e)
+        return []
+    finally:
+        if conn:
+            conn.close()
+
+
 # ---------- TEST SCORES (FINAL RESULTS) ----------
 
 def ensure_test_scores_table():
@@ -969,6 +1045,7 @@ ensure_db()
 ensure_tests_table()
 ensure_test_defs_table()
 ensure_test_questions_table()
+ensure_test_answers_table()
 ensure_test_scores_table()
 ensure_active_test_table()
 
