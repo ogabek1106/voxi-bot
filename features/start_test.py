@@ -129,8 +129,9 @@ def _timer_job(context: CallbackContext):
         bot.edit_message_text(
             chat_id=chat_id,
             message_id=data["timer_msg_id"],
-            text=f"⏱ Time left: {_format_timer(left)}",
-        )
+            text=f"⏱ <b>Time left:</b> {_format_timer(left)}",
+            parse_mode="HTML",
+    )
     except Exception:
         pass
 
@@ -198,14 +199,19 @@ def start_test_entry(update: Update, context: CallbackContext):
     bot = query.bot
 
     # TOKEN MESSAGE
-    token_msg = bot.send_message(chat_id, f"🔑 Your token: {token}")
+    token_msg = bot.send_message(
+        chat_id,
+        f"🔑 <b>Your token:</b> <code>{token}</code>",
+        parse_mode="HTML",
+    )
     context.user_data["token_msg_id"] = token_msg.message_id
 
     # TIMER MESSAGE (✅ real value immediately, no --:--)
     initial_left = _time_left(start_ts, limit_min)
     timer_msg = bot.send_message(
         chat_id,
-        f"⏱ Time left: {_format_timer(initial_left)}"
+        f"⏱ <b>Time left:</b> {_format_timer(initial_left)}",
+        parse_mode="HTML",
     )
     context.user_data["timer_msg_id"] = timer_msg.message_id
 
@@ -260,16 +266,18 @@ def _render_question(update: Update, context: CallbackContext):
     if context.user_data["question_msg_id"] is None:
         msg = bot.send_message(
             chat_id,
-            q_text,
+            f"<b>Question {idx + 1}</b>\n\n{q_text}",
             reply_markup=InlineKeyboardMarkup(buttons),
+            parse_mode="HTML",
         )
         context.user_data["question_msg_id"] = msg.message_id
     else:
         bot.edit_message_text(
             chat_id,
             context.user_data["question_msg_id"],
-            q_text,
+            f"<b>Question {idx + 1}</b>\n\n{q_text}",
             reply_markup=InlineKeyboardMarkup(buttons),
+            parse_mode="HTML",
         )
 
 
