@@ -24,7 +24,7 @@ from telegram.ext import (
 
 from database import (
     get_active_test,
-    save_test_answer,   # ✅ ADDED
+    save_test_answer,   # ✅ already correct
 )
 
 logger = logging.getLogger(__name__)
@@ -208,7 +208,6 @@ def start_test_entry(update: Update, context: CallbackContext):
         "skipped_msg_id": None,
         "index": 0,
         "finished": False,
-        "token_msg_id": None,
         "timer_msg_id": None,
         "question_msg_id": None,
         "timer_job": None,
@@ -309,7 +308,7 @@ def _update_skipped_message(context: CallbackContext):
     if not skipped:
         if msg_id:
             try:
-                bot.delete_message(chat_id, msg_id)
+                bot.delete_message(chat_id=chat_id, message_id=msg_id)
             except Exception:
                 pass
             context.user_data["skipped_msg_id"] = None
@@ -318,7 +317,12 @@ def _update_skipped_message(context: CallbackContext):
     text = "⚠️ <b>Skipped questions:</b> " + ", ".join(str(i + 1) for i in skipped)
 
     if msg_id:
-        bot.edit_message_text(text, chat_id, msg_id, parse_mode="HTML")
+        bot.edit_message_text(
+            text=text,
+            chat_id=chat_id,
+            message_id=msg_id,
+            parse_mode="HTML",
+        )
     else:
         msg = bot.send_message(chat_id, text, parse_mode="HTML")
         context.user_data["skipped_msg_id"] = msg.message_id
@@ -393,12 +397,12 @@ def _finish(update: Update, context: CallbackContext, manual: bool):
     token = context.user_data["token"]
 
     try:
-        bot.delete_message(chat_id, context.user_data["timer_msg_id"])
+        bot.delete_message(chat_id=chat_id, message_id=context.user_data["timer_msg_id"])
     except Exception:
         pass
 
     try:
-        bot.delete_message(chat_id, context.user_data["question_msg_id"])
+        bot.delete_message(chat_id=chat_id, message_id=context.user_data["question_msg_id"])
     except Exception:
         pass
 
