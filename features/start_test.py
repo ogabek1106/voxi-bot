@@ -105,6 +105,14 @@ def _format_timer(seconds):
     return f"{m:02d}:{s:02d}"
 
 
+# ➕ ADDED: TIMER PROGRESS BAR (width = 15)
+def _time_progress_bar(left: int, total: int, width: int = 15) -> str:
+    ratio = max(0, min(1, left / total))
+    filled = int(ratio * width)
+    empty = width - filled
+    return f"[{'▓' * filled}{'-' * empty}]"
+
+
 # ---------- TIMER JOB ----------
 
 def _timer_job(context: CallbackContext):
@@ -125,13 +133,20 @@ def _timer_job(context: CallbackContext):
         _auto_finish_from_job(context, data)
         return
 
+    # ➕ ADDED: progress bar rendering
+    total = data["total_seconds"]
+    bar = _time_progress_bar(left, total)
+
     try:
         bot.edit_message_text(
             chat_id=chat_id,
             message_id=data["timer_msg_id"],
-            text=f"⏱ <b>Time left:</b> {_format_timer(left)}",
+            text=(
+                f"⏱ <b>Time left:</b> {_format_timer(left)}\n"
+                f"{bar}"
+            ),
             parse_mode="HTML",
-    )
+        )
     except Exception:
         pass
 
@@ -175,6 +190,9 @@ def start_test_entry(update: Update, context: CallbackContext):
     token = _gen_token()
     start_ts, limit_min = _save_attempt(token, user.id, active_test)
 
+    # ➕ ADDED: total seconds for progress bar
+    total_seconds = limit_min * 60 + EXTRA_GRACE_SECONDS
+
     questions = _load_questions(active_test[0])
     if not questions:
         query.edit_message_text("❌ Test has no questions.")
@@ -185,6 +203,7 @@ def start_test_entry(update: Update, context: CallbackContext):
         "token": token,
         "start_ts": start_ts,
         "limit_min": limit_min,
+        "total_seconds": total_seconds,  # ➕ ADDED
         "questions": questions,
         "answers": {},
         "index": 0,
@@ -206,11 +225,13 @@ def start_test_entry(update: Update, context: CallbackContext):
     )
     context.user_data["token_msg_id"] = token_msg.message_id
 
-    # TIMER MESSAGE (✅ real value immediately, no --:--)
+    # TIMER MESSAGE (with progress bar)
     initial_left = _time_left(start_ts, limit_min)
+    bar = _time_progress_bar(initial_left, total_seconds)
+
     timer_msg = bot.send_message(
         chat_id,
-        f"⏱ <b>Time left:</b> {_format_timer(initial_left)}",
+        f"⏱ <b>Time left:</b> {_format_timer(initial_left)}\n{bar}",
         parse_mode="HTML",
     )
     context.user_data["timer_msg_id"] = timer_msg.message_id
@@ -228,6 +249,7 @@ def start_test_entry(update: Update, context: CallbackContext):
             "token": token,
             "start_ts": start_ts,
             "limit_min": limit_min,
+            "total_seconds": total_seconds,  # ➕ ADDED
             "timer_msg_id": context.user_data["timer_msg_id"],
             "question_msg_id": context.user_data["question_msg_id"],
             "finished": False,
