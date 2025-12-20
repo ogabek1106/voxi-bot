@@ -16,6 +16,7 @@ from telegram.ext import CallbackContext, CommandHandler
 from database import (
     get_test_score,
     save_test_score,
+    get_active_test,
 )
 
 logger = logging.getLogger(__name__)
@@ -30,31 +31,24 @@ def _connect():
     return sqlite3.connect(DB_PATH, timeout=SQLITE_TIMEOUT, check_same_thread=False)
 
 
-def _calculate_and_save_score(token: str):
+def _calculate_and_save_score(token: str, user_id: int):
     """
-    Calculates score from stored answers + correct answers,
-    then saves into test_scores table.
+    Calculate score ONLY using:
+    - test_answers
+    - test_questions
+    - active_test
+    Then save into test_scores.
     """
+
+    # 1️⃣ Get active test (this defines test_id)
+    active = get_active_test()
+    if not active:
+        return None
+
+    test_id = active[0]
 
     conn = _connect()
     cur = conn.cursor()
-
-    # 1️⃣ Find test_id + user_id from attempts table
-    cur.execute(
-        """
-        SELECT test_id, user_id
-        FROM tests
-        WHERE token = ?
-        LIMIT 1;
-        """,
-        (token,),
-    )
-    row = cur.fetchone()
-    if not row:
-        conn.close()
-        return None
-
-    test_id, user_id = row
 
     # 2️⃣ Load correct answers
     cur.execute(
@@ -83,6 +77,10 @@ def _calculate_and_save_score(token: str):
     )
     answers = dict(cur.fetchall())
 
+    if not answers:
+        conn.close()
+        return None
+
     # 4️⃣ Count correct
     correct_count = 0
     for q_num, correct in correct_map.items():
@@ -90,8 +88,7 @@ def _calculate_and_save_score(token: str):
             correct_count += 1
 
     # 5️⃣ Calculate score (MAX = 100)
-    points_per_question = 100 / total_questions
-    score = round(correct_count * points_per_question, 2)
+    score = round((correct_count / total_questions) * 100, 2)
 
     # 6️⃣ Save final score
     save_test_score(
@@ -127,26 +124,27 @@ def result_command(update: Update, context: CallbackContext):
         return
 
     token = args[0].strip().upper()
+    user_id = message.from_user.id
 
-    # 1️⃣ Try to load saved score
+    # 1️⃣ Check if score already exists
     row = get_test_score(token)
 
-    if not row:
-        # 2️⃣ If not exists → calculate now
-        data = _calculate_and_save_score(token)
-        if not data:
-            message.reply_text("❌ Result not found.\nCheck your token.")
-            return
-    else:
-        _, test_id, user_id, total, correct, score, max_score, finished_at = row
+    if row:
+        _, test_id, uid, total, correct, score, max_score, finished_at = row
         data = {
             "test_id": test_id,
-            "user_id": user_id,
+            "user_id": uid,
             "total": total,
             "correct": correct,
             "score": score,
             "max": max_score,
         }
+    else:
+        # 2️⃣ Calculate & save score
+        data = _calculate_and_save_score(token, user_id)
+        if not data:
+            message.reply_text("❌ Result not found.\nCheck your token.")
+            return
 
     # 3️⃣ Send result
     message.reply_text(
