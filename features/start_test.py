@@ -105,7 +105,6 @@ def _format_timer(seconds):
     return f"{m:02d}:{s:02d}"
 
 
-# ➕ ADDED: TIMER PROGRESS BAR (width = 15)
 def _time_progress_bar(left: int, total: int, width: int = 15) -> str:
     ratio = max(0, min(1, left / total))
     filled = int(ratio * width)
@@ -113,7 +112,7 @@ def _time_progress_bar(left: int, total: int, width: int = 15) -> str:
     return f"[{'▓' * filled}{'-' * empty}]"
 
 
-# ---------- TIMER JOB ----------
+# ---------- TIMER JOB (UNCHANGED) ----------
 
 def _timer_job(context: CallbackContext):
     data = context.job.context
@@ -133,7 +132,6 @@ def _timer_job(context: CallbackContext):
         _auto_finish_from_job(context, data)
         return
 
-    # ➕ ADDED: progress bar rendering
     total = data["total_seconds"]
     bar = _time_progress_bar(left, total)
 
@@ -141,10 +139,7 @@ def _timer_job(context: CallbackContext):
         bot.edit_message_text(
             chat_id=chat_id,
             message_id=data["timer_msg_id"],
-            text=(
-                f"⏱ <b>Time left:</b> {_format_timer(left)}\n"
-                f"{bar}"
-            ),
+            text=f"⏱ <b>Time left:</b> {_format_timer(left)}\n{bar}",
             parse_mode="HTML",
         )
     except Exception:
@@ -190,7 +185,6 @@ def start_test_entry(update: Update, context: CallbackContext):
     token = _gen_token()
     start_ts, limit_min = _save_attempt(token, user.id, active_test)
 
-    # ➕ ADDED: total seconds for progress bar
     total_seconds = limit_min * 60 + EXTRA_GRACE_SECONDS
 
     questions = _load_questions(active_test[0])
@@ -203,9 +197,11 @@ def start_test_entry(update: Update, context: CallbackContext):
         "token": token,
         "start_ts": start_ts,
         "limit_min": limit_min,
-        "total_seconds": total_seconds,  # ➕ ADDED
+        "total_seconds": total_seconds,
         "questions": questions,
-        "answers": {},
+        "answers": {},                 # 🔧 QA FIX
+        "skipped": set(),               # 🔧 QA FIX
+        "skipped_msg_id": None,         # 🔧 QA FIX
         "index": 0,
         "finished": False,
         "token_msg_id": None,
@@ -217,7 +213,6 @@ def start_test_entry(update: Update, context: CallbackContext):
     chat_id = query.message.chat_id
     bot = query.bot
 
-    # TOKEN MESSAGE
     token_msg = bot.send_message(
         chat_id,
         f"🔑 <b>Your token:</b> <code>{token}</code>",
@@ -225,7 +220,6 @@ def start_test_entry(update: Update, context: CallbackContext):
     )
     context.user_data["token_msg_id"] = token_msg.message_id
 
-    # TIMER MESSAGE (with progress bar)
     initial_left = _time_left(start_ts, limit_min)
     bar = _time_progress_bar(initial_left, total_seconds)
 
@@ -236,10 +230,8 @@ def start_test_entry(update: Update, context: CallbackContext):
     )
     context.user_data["timer_msg_id"] = timer_msg.message_id
 
-    # QUESTION MESSAGE
     _render_question(update, context)
 
-    # START BACKGROUND TIMER
     job = context.job_queue.run_repeating(
         _timer_job,
         interval=15,
@@ -249,7 +241,7 @@ def start_test_entry(update: Update, context: CallbackContext):
             "token": token,
             "start_ts": start_ts,
             "limit_min": limit_min,
-            "total_seconds": total_seconds,  # ➕ ADDED
+            "total_seconds": total_seconds,
             "timer_msg_id": context.user_data["timer_msg_id"],
             "question_msg_id": context.user_data["question_msg_id"],
             "finished": False,
@@ -272,6 +264,14 @@ def _render_question(update: Update, context: CallbackContext):
     questions = context.user_data["questions"]
     _, q_text, a, b, c, d = questions[idx]
 
+    # 🔧 QA FIX: show selected answer if exists
+    selected_text = ""
+    if idx in context.user_data["answers"]:
+        key = context.user_data["answers"][idx]
+        selected_text = f"\n\n✅ <b>You selected:</b>\n{ {'a': a, 'b': b, 'c': c, 'd': d}[key] }"
+
+    text = f"<b>Question {idx + 1}</b>\n\n{q_text}{selected_text}"
+
     buttons = [
         [InlineKeyboardButton(a, callback_data=f"ans|{idx}|a")],
         [InlineKeyboardButton(b, callback_data=f"ans|{idx}|b")],
@@ -288,7 +288,7 @@ def _render_question(update: Update, context: CallbackContext):
     if context.user_data["question_msg_id"] is None:
         msg = bot.send_message(
             chat_id,
-            f"<b>Question {idx + 1}</b>\n\n{q_text}",
+            text,
             reply_markup=InlineKeyboardMarkup(buttons),
             parse_mode="HTML",
         )
@@ -297,32 +297,74 @@ def _render_question(update: Update, context: CallbackContext):
         bot.edit_message_text(
             chat_id,
             context.user_data["question_msg_id"],
-            f"<b>Question {idx + 1}</b>\n\n{q_text}",
+            text,
             reply_markup=InlineKeyboardMarkup(buttons),
             parse_mode="HTML",
         )
+
+    _update_skipped_message(update, context)  # 🔧 QA FIX
+
+
+# ---------- skipped message ----------
+
+def _update_skipped_message(update: Update, context: CallbackContext):
+    bot = update.callback_query.bot
+    chat_id = update.callback_query.message.chat_id
+
+    skipped = sorted(context.user_data["skipped"])
+    msg_id = context.user_data.get("skipped_msg_id")
+
+    if not skipped:
+        if msg_id:
+            try:
+                bot.delete_message(chat_id, msg_id)
+            except Exception:
+                pass
+            context.user_data["skipped_msg_id"] = None
+        return
+
+    text = "⚠️ <b>Skipped questions:</b> " + ", ".join(str(i + 1) for i in skipped)
+
+    if msg_id:
+        try:
+            bot.edit_message_text(chat_id, msg_id, text, parse_mode="HTML")
+        except Exception:
+            pass
+    else:
+        msg = bot.send_message(chat_id, text, parse_mode="HTML")
+        context.user_data["skipped_msg_id"] = msg.message_id
 
 
 # ---------- handlers ----------
 
 def answer_handler(update: Update, context: CallbackContext):
     query = update.callback_query
-    query.answer()
+    query.answer("Noted ✅", show_alert=False)
 
     _, idx, choice = query.data.split("|")
-    context.user_data["answers"][int(idx)] = choice
+    idx = int(idx)
+
+    context.user_data["answers"][idx] = choice
+    context.user_data["skipped"].discard(idx)
+
+    if idx < len(context.user_data["questions"]) - 1:
+        context.user_data["index"] = idx + 1
+
+    _render_question(update, context)
 
 
 def nav_handler(update: Update, context: CallbackContext, direction: int):
     query = update.callback_query
     query.answer()
 
+    current = context.user_data["index"]
+
+    if current not in context.user_data["answers"]:
+        context.user_data["skipped"].add(current)
+
     context.user_data["index"] = max(
         0,
-        min(
-            context.user_data["index"] + direction,
-            len(context.user_data["questions"]) - 1,
-        ),
+        min(current + direction, len(context.user_data["questions"]) - 1)
     )
 
     _render_question(update, context)
@@ -339,7 +381,7 @@ def finish_handler(update: Update, context: CallbackContext):
     _finish(update, context, manual=True)
 
 
-# ---------- finish ----------
+# ---------- finish (UNCHANGED) ----------
 
 def _finish(update: Update, context: CallbackContext, manual: bool):
     context.user_data["finished"] = True
