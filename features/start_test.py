@@ -184,7 +184,6 @@ def start_test_entry(update: Update, context: CallbackContext):
 
     token = _gen_token()
     start_ts, limit_min = _save_attempt(token, user.id, active_test)
-
     total_seconds = limit_min * 60 + EXTRA_GRACE_SECONDS
 
     questions = _load_questions(active_test[0])
@@ -192,16 +191,18 @@ def start_test_entry(update: Update, context: CallbackContext):
         query.edit_message_text("❌ Test has no questions.")
         return
 
+    chat_id = query.message.chat_id
     context.user_data.clear()
     context.user_data.update({
+        "chat_id": chat_id,          # ✅ STORED ONCE
         "token": token,
         "start_ts": start_ts,
         "limit_min": limit_min,
         "total_seconds": total_seconds,
         "questions": questions,
-        "answers": {},                 # 🔧 QA FIX
-        "skipped": set(),               # 🔧 QA FIX
-        "skipped_msg_id": None,         # 🔧 QA FIX
+        "answers": {},
+        "skipped": set(),
+        "skipped_msg_id": None,
         "index": 0,
         "finished": False,
         "token_msg_id": None,
@@ -210,7 +211,6 @@ def start_test_entry(update: Update, context: CallbackContext):
         "timer_job": None,
     })
 
-    chat_id = query.message.chat_id
     bot = query.bot
 
     token_msg = bot.send_message(
@@ -230,7 +230,7 @@ def start_test_entry(update: Update, context: CallbackContext):
     )
     context.user_data["timer_msg_id"] = timer_msg.message_id
 
-    _render_question(update, context)
+    _render_question(context)
 
     job = context.job_queue.run_repeating(
         _timer_job,
@@ -253,24 +253,22 @@ def start_test_entry(update: Update, context: CallbackContext):
 
 # ---------- rendering ----------
 
-def _render_question(update: Update, context: CallbackContext):
+def _render_question(context: CallbackContext):
     if context.user_data.get("finished"):
         return
 
-    bot = update.callback_query.bot
-    chat_id = update.callback_query.message.chat_id
+    bot = context.bot
+    chat_id = context.user_data["chat_id"]
 
     idx = context.user_data["index"]
-    questions = context.user_data["questions"]
-    _, q_text, a, b, c, d = questions[idx]
+    _, q_text, a, b, c, d = context.user_data["questions"][idx]
 
-    # 🔧 QA FIX: show selected answer if exists
-    selected_text = ""
+    selected = ""
     if idx in context.user_data["answers"]:
         key = context.user_data["answers"][idx]
-        selected_text = f"\n\n✅ <b>You selected:</b>\n{ {'a': a, 'b': b, 'c': c, 'd': d}[key] }"
+        selected = f"\n\n✅ <b>You selected:</b>\n{ {'a':a,'b':b,'c':c,'d':d}[key] }"
 
-    text = f"<b>Question {idx + 1}</b>\n\n{q_text}{selected_text}"
+    text = f"<b>Question {idx+1}</b>\n\n{q_text}{selected}"
 
     buttons = [
         [InlineKeyboardButton(a, callback_data=f"ans|{idx}|a")],
@@ -279,40 +277,27 @@ def _render_question(update: Update, context: CallbackContext):
         [InlineKeyboardButton(d, callback_data=f"ans|{idx}|d")],
         [
             InlineKeyboardButton("⬅️", callback_data="prev"),
-            InlineKeyboardButton(f"{idx+1}/{len(questions)}", callback_data="noop"),
+            InlineKeyboardButton(f"{idx+1}/{len(context.user_data['questions'])}", callback_data="noop"),
             InlineKeyboardButton("➡️", callback_data="next"),
         ],
         [InlineKeyboardButton("🏁 Finish", callback_data="finish")],
     ]
 
     if context.user_data["question_msg_id"] is None:
-        msg = bot.send_message(
-            chat_id,
-            text,
-            reply_markup=InlineKeyboardMarkup(buttons),
-            parse_mode="HTML",
-        )
+        msg = bot.send_message(chat_id, text, reply_markup=InlineKeyboardMarkup(buttons), parse_mode="HTML")
         context.user_data["question_msg_id"] = msg.message_id
     else:
-        bot.edit_message_text(
-            chat_id,
-            context.user_data["question_msg_id"],
-            text,
-            reply_markup=InlineKeyboardMarkup(buttons),
-            parse_mode="HTML",
-        )
+        bot.edit_message_text(chat_id, context.user_data["question_msg_id"], text,
+                              reply_markup=InlineKeyboardMarkup(buttons), parse_mode="HTML")
 
-    _update_skipped_message(update, context)  # 🔧 QA FIX
+    _update_skipped_message(context)
 
 
-# ---------- skipped message ----------
-
-def _update_skipped_message(update: Update, context: CallbackContext):
-    bot = update.callback_query.bot
-    chat_id = update.callback_query.message.chat_id
-
+def _update_skipped_message(context: CallbackContext):
+    bot = context.bot
+    chat_id = context.user_data["chat_id"]
     skipped = sorted(context.user_data["skipped"])
-    msg_id = context.user_data.get("skipped_msg_id")
+    msg_id = context.user_data["skipped_msg_id"]
 
     if not skipped:
         if msg_id:
@@ -323,13 +308,10 @@ def _update_skipped_message(update: Update, context: CallbackContext):
             context.user_data["skipped_msg_id"] = None
         return
 
-    text = "⚠️ <b>Skipped questions:</b> " + ", ".join(str(i + 1) for i in skipped)
+    text = "⚠️ <b>Skipped questions:</b> " + ", ".join(str(i+1) for i in skipped)
 
     if msg_id:
-        try:
-            bot.edit_message_text(chat_id, msg_id, text, parse_mode="HTML")
-        except Exception:
-            pass
+        bot.edit_message_text(chat_id, msg_id, text, parse_mode="HTML")
     else:
         msg = bot.send_message(chat_id, text, parse_mode="HTML")
         context.user_data["skipped_msg_id"] = msg.message_id
@@ -339,7 +321,7 @@ def _update_skipped_message(update: Update, context: CallbackContext):
 
 def answer_handler(update: Update, context: CallbackContext):
     query = update.callback_query
-    query.answer("Noted ✅", show_alert=False)
+    query.answer("Noted ✅")
 
     _, idx, choice = query.data.split("|")
     idx = int(idx)
@@ -350,30 +332,35 @@ def answer_handler(update: Update, context: CallbackContext):
     if idx < len(context.user_data["questions"]) - 1:
         context.user_data["index"] = idx + 1
 
-    _render_question(update, context)
+    _render_question(context)
 
 
 def nav_handler(update: Update, context: CallbackContext, direction: int):
     query = update.callback_query
     query.answer()
 
-    current = context.user_data["index"]
-
-    if current not in context.user_data["answers"]:
-        context.user_data["skipped"].add(current)
+    cur = context.user_data["index"]
+    if cur not in context.user_data["answers"]:
+        context.user_data["skipped"].add(cur)
 
     context.user_data["index"] = max(
-        0,
-        min(current + direction, len(context.user_data["questions"]) - 1)
+        0, min(cur + direction, len(context.user_data["questions"]) - 1)
     )
 
-    _render_question(update, context)
+    _render_question(context)
 
 
 def finish_handler(update: Update, context: CallbackContext):
     query = update.callback_query
-    query.answer()
 
+    if context.user_data["skipped"]:
+        query.answer(
+            "Skipped questions: " + ", ".join(str(i+1) for i in sorted(context.user_data["skipped"])),
+            show_alert=True,
+        )
+        return
+
+    query.answer()
     job = context.user_data.get("timer_job")
     if job:
         job.schedule_removal()
@@ -385,8 +372,8 @@ def finish_handler(update: Update, context: CallbackContext):
 
 def _finish(update: Update, context: CallbackContext, manual: bool):
     context.user_data["finished"] = True
-    bot = update.callback_query.bot
-    chat_id = update.callback_query.message.chat_id
+    bot = context.bot
+    chat_id = context.user_data["chat_id"]
     token = context.user_data["token"]
 
     try:
