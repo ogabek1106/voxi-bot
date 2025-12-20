@@ -102,6 +102,59 @@ def _format_timer(seconds):
     return f"{m:02d}:{s:02d}"
 
 
+# ---------- TIMER JOB ----------
+
+def _timer_job(context: CallbackContext):
+    data = context.job.context
+
+    if data.get("finished"):
+        context.job.schedule_removal()
+        return
+
+    bot = context.bot
+    chat_id = data["chat_id"]
+
+    left = _time_left(data["start_ts"], data["limit_min"])
+
+    if left <= 0:
+        data["finished"] = True
+        context.job.schedule_removal()
+        _auto_finish_from_job(context, data)
+        return
+
+    try:
+        bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=data["timer_msg_id"],
+            text=f"⏱ Time left: {_format_timer(left)}",
+        )
+    except Exception:
+        pass
+
+
+def _auto_finish_from_job(context: CallbackContext, data: dict):
+    bot = context.bot
+    chat_id = data["chat_id"]
+    token = data["token"]
+
+    try:
+        bot.delete_message(chat_id, data["question_msg_id"])
+    except Exception:
+        pass
+
+    try:
+        bot.delete_message(chat_id, data["timer_msg_id"])
+    except Exception:
+        pass
+
+    bot.send_message(
+        chat_id,
+        "⏰ Time reached!\nYour answers were auto-submitted.\n\n"
+        f"🔑 Your token: {token}\n"
+        f"To see your result, send:\n/result {token}"
+    )
+
+
 # ---------- entry point ----------
 
 def start_test_entry(update: Update, context: CallbackContext):
@@ -123,7 +176,6 @@ def start_test_entry(update: Update, context: CallbackContext):
         query.edit_message_text("❌ Test has no questions.")
         return
 
-    # reset state
     context.user_data.clear()
     context.user_data.update({
         "token": token,
@@ -136,27 +188,40 @@ def start_test_entry(update: Update, context: CallbackContext):
         "token_msg_id": None,
         "timer_msg_id": None,
         "question_msg_id": None,
+        "timer_job": None,
     })
 
     chat_id = query.message.chat_id
     bot = query.bot
 
-    # 1️⃣ TOKEN MESSAGE (static)
-    token_msg = bot.send_message(
-        chat_id=chat_id,
-        text=f"🔑 Your token: {token}"
-    )
+    # TOKEN MESSAGE
+    token_msg = bot.send_message(chat_id, f"🔑 Your token: {token}")
     context.user_data["token_msg_id"] = token_msg.message_id
 
-    # 2️⃣ TIMER MESSAGE (editable)
-    timer_msg = bot.send_message(
-        chat_id=chat_id,
-        text="⏱ Time left: calculating..."
-    )
+    # TIMER MESSAGE
+    timer_msg = bot.send_message(chat_id, "⏱ Time left: --:--")
     context.user_data["timer_msg_id"] = timer_msg.message_id
 
-    # 3️⃣ QUESTION MESSAGE
+    # QUESTION MESSAGE
     _render_question(update, context)
+
+    # START BACKGROUND TIMER
+    job = context.job_queue.run_repeating(
+        _timer_job,
+        interval=30,
+        first=0,
+        context={
+            "chat_id": chat_id,
+            "token": token,
+            "start_ts": start_ts,
+            "limit_min": limit_min,
+            "timer_msg_id": context.user_data["timer_msg_id"],
+            "question_msg_id": context.user_data["question_msg_id"],
+            "finished": False,
+        },
+    )
+
+    context.user_data["timer_job"] = job
 
 
 # ---------- rendering ----------
@@ -171,18 +236,6 @@ def _render_question(update: Update, context: CallbackContext):
     idx = context.user_data["index"]
     questions = context.user_data["questions"]
     _, q_text, a, b, c, d = questions[idx]
-
-    # update timer
-    left = _time_left(context.user_data["start_ts"], context.user_data["limit_min"])
-    if left <= 0:
-        _auto_finish(update, context)
-        return
-
-    bot.edit_message_text(
-        chat_id=chat_id,
-        message_id=context.user_data["timer_msg_id"],
-        text=f"⏱ Time left: {_format_timer(left)}",
-    )
 
     buttons = [
         [InlineKeyboardButton(a, callback_data=f"ans|{idx}|a")],
@@ -199,16 +252,16 @@ def _render_question(update: Update, context: CallbackContext):
 
     if context.user_data["question_msg_id"] is None:
         msg = bot.send_message(
-            chat_id=chat_id,
-            text=q_text,
+            chat_id,
+            q_text,
             reply_markup=InlineKeyboardMarkup(buttons),
         )
         context.user_data["question_msg_id"] = msg.message_id
     else:
         bot.edit_message_text(
-            chat_id=chat_id,
-            message_id=context.user_data["question_msg_id"],
-            text=q_text,
+            chat_id,
+            context.user_data["question_msg_id"],
+            q_text,
             reply_markup=InlineKeyboardMarkup(buttons),
         )
 
@@ -222,17 +275,17 @@ def answer_handler(update: Update, context: CallbackContext):
     _, idx, choice = query.data.split("|")
     context.user_data["answers"][int(idx)] = choice
 
-    _render_question(update, context)
-
 
 def nav_handler(update: Update, context: CallbackContext, direction: int):
     query = update.callback_query
     query.answer()
 
-    context.user_data["index"] += direction
     context.user_data["index"] = max(
         0,
-        min(context.user_data["index"], len(context.user_data["questions"]) - 1)
+        min(
+            context.user_data["index"] + direction,
+            len(context.user_data["questions"]) - 1,
+        ),
     )
 
     _render_question(update, context)
@@ -242,14 +295,14 @@ def finish_handler(update: Update, context: CallbackContext):
     query = update.callback_query
     query.answer()
 
+    job = context.user_data.get("timer_job")
+    if job:
+        job.schedule_removal()
+
     _finish(update, context, manual=True)
 
 
 # ---------- finish ----------
-
-def _auto_finish(update: Update, context: CallbackContext):
-    _finish(update, context, manual=False)
-
 
 def _finish(update: Update, context: CallbackContext, manual: bool):
     context.user_data["finished"] = True
@@ -257,7 +310,6 @@ def _finish(update: Update, context: CallbackContext, manual: bool):
     chat_id = update.callback_query.message.chat_id
     token = context.user_data["token"]
 
-    # delete timer & question
     try:
         bot.delete_message(chat_id, context.user_data["timer_msg_id"])
     except Exception:
