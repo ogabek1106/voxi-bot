@@ -137,9 +137,9 @@ def _timer_job(context: CallbackContext):
 
     try:
         bot.edit_message_text(
+            text=f"⏱ <b>Time left:</b> {_format_timer(left)}\n{bar}",
             chat_id=chat_id,
             message_id=data["timer_msg_id"],
-            text=f"⏱ <b>Time left:</b> {_format_timer(left)}\n{bar}",
             parse_mode="HTML",
         )
     except Exception:
@@ -194,7 +194,7 @@ def start_test_entry(update: Update, context: CallbackContext):
     chat_id = query.message.chat_id
     context.user_data.clear()
     context.user_data.update({
-        "chat_id": chat_id,          # ✅ STORED ONCE
+        "chat_id": chat_id,
         "token": token,
         "start_ts": start_ts,
         "limit_min": limit_min,
@@ -284,11 +284,21 @@ def _render_question(context: CallbackContext):
     ]
 
     if context.user_data["question_msg_id"] is None:
-        msg = bot.send_message(chat_id, text, reply_markup=InlineKeyboardMarkup(buttons), parse_mode="HTML")
+        msg = bot.send_message(
+            chat_id,
+            text,
+            reply_markup=InlineKeyboardMarkup(buttons),
+            parse_mode="HTML",
+        )
         context.user_data["question_msg_id"] = msg.message_id
     else:
-        bot.edit_message_text(chat_id, context.user_data["question_msg_id"], text,
-                              reply_markup=InlineKeyboardMarkup(buttons), parse_mode="HTML")
+        bot.edit_message_text(
+            text=text,
+            chat_id=chat_id,
+            message_id=context.user_data["question_msg_id"],
+            reply_markup=InlineKeyboardMarkup(buttons),
+            parse_mode="HTML",
+        )
 
     _update_skipped_message(context)
 
@@ -311,7 +321,12 @@ def _update_skipped_message(context: CallbackContext):
     text = "⚠️ <b>Skipped questions:</b> " + ", ".join(str(i+1) for i in skipped)
 
     if msg_id:
-        bot.edit_message_text(chat_id, msg_id, text, parse_mode="HTML")
+        bot.edit_message_text(
+            text=text,
+            chat_id=chat_id,
+            message_id=msg_id,
+            parse_mode="HTML",
+        )
     else:
         msg = bot.send_message(chat_id, text, parse_mode="HTML")
         context.user_data["skipped_msg_id"] = msg.message_id
