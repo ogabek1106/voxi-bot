@@ -726,6 +726,108 @@ def get_test_definition(test_id: str):
         if conn:
             conn.close()
 
+# ---------- TEST SCORES (FINAL RESULTS) ----------
+
+def ensure_test_scores_table():
+    """
+    Stores final calculated score per test attempt.
+    One row = one finished test (token-based).
+    """
+    conn = None
+    try:
+        conn = _connect()
+        with conn:
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS test_scores (
+                    token TEXT PRIMARY KEY,
+                    test_id TEXT NOT NULL,
+                    user_id INTEGER,
+                    total_questions INTEGER NOT NULL,
+                    correct_answers INTEGER NOT NULL,
+                    score REAL NOT NULL,
+                    max_score INTEGER NOT NULL,
+                    finished_at INTEGER
+                );
+                """
+            )
+    except Exception as e:
+        logger.exception("ensure_test_scores_table failed: %s", e)
+    finally:
+        if conn:
+            conn.close()
+
+def save_test_score(
+    token: str,
+    test_id: str,
+    user_id: int,
+    total_questions: int,
+    correct_answers: int,
+    score: float,
+    max_score: int = 100,
+) -> bool:
+    ensure_test_scores_table()
+    conn = None
+    try:
+        conn = _connect()
+        with conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO test_scores
+                (token, test_id, user_id, total_questions, correct_answers, score, max_score, finished_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+                """,
+                (
+                    token,
+                    test_id,
+                    user_id,
+                    total_questions,
+                    correct_answers,
+                    score,
+                    max_score,
+                    int(time.time()),
+                ),
+            )
+        return True
+    except Exception as e:
+        logger.exception("save_test_score failed for token %s: %s", token, e)
+        return False
+    finally:
+        if conn:
+            conn.close()
+
+def get_test_score(token: str):
+    ensure_test_scores_table()
+    conn = None
+    try:
+        conn = _connect()
+        cur = conn.execute(
+            """
+            SELECT
+                token,
+                test_id,
+                user_id,
+                total_questions,
+                correct_answers,
+                score,
+                max_score,
+                finished_at
+            FROM test_scores
+            WHERE token = ?
+            LIMIT 1;
+            """,
+            (token,),
+        )
+        return cur.fetchone()
+    except Exception as e:
+        logger.exception("get_test_score failed for token %s: %s", token, e)
+        return None
+    finally:
+        if conn:
+            conn.close()
+
+
+
 # ---------- ACTIVE TEST (PUBLISHED) ----------
 
 def ensure_active_test_table():
@@ -867,5 +969,6 @@ ensure_db()
 ensure_tests_table()
 ensure_test_defs_table()
 ensure_test_questions_table()
+ensure_test_scores_table()
 ensure_active_test_table()
 
