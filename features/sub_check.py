@@ -7,7 +7,7 @@ Used by ALL features that require EBAI channel subscription.
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CallbackQueryHandler
 
-from telegram import Update  # ✅ ADDED (needed for replay)
+from telegram import Update  # ✅ needed for replay
 
 EBAI_CHANNEL = "@IELTSforeverybody"   # 🔁 change once, everywhere updated
 
@@ -37,7 +37,7 @@ def require_subscription(update, context) -> bool:
         return True
 
     # ================================
-    # ✅ ADDED: STORE PENDING ACTION
+    # ✅ STORE PENDING ACTION
     # ================================
     try:
         # /start payload (deep links)
@@ -94,26 +94,12 @@ def check_subscription_callback(update, context):
     query.message.reply_text("🎉 Access unlocked. Processing your request...")
 
     # ================================
-    # ✅ ADDED: REPLAY PENDING ACTION
+    # ✅ REPLAY PENDING ACTION (WITH CORRECT PRIORITY)
     # ================================
     pending_start = context.user_data.pop("pending_start_payload", None)
     pending_numeric = context.user_data.pop("pending_numeric", None)
 
-    # replay /start payload
-    if pending_start:
-        from handlers import start_handler
-
-        fake_update = Update(
-            update.update_id,
-            message=query.message
-        )
-        fake_update.message.text = f"/start {pending_start}"
-        fake_update.message.entities = []
-
-        start_handler(fake_update, context)
-        return
-
-    # replay numeric input
+    # 🔹 PRIORITY 1: numeric intent (send book directly)
     if pending_numeric:
         from handlers import numeric_message_handler
 
@@ -125,5 +111,19 @@ def check_subscription_callback(update, context):
         fake_update.message.entities = []
 
         numeric_message_handler(fake_update, context)
+        return
+
+    # 🔹 PRIORITY 2: deep-link payload (/start something)
+    if pending_start:
+        from handlers import start_handler
+
+        fake_update = Update(
+            update.update_id,
+            message=query.message
+        )
+        fake_update.message.text = f"/start {pending_start}"
+        fake_update.message.entities = []
+
+        start_handler(fake_update, context)
         return
     # ================================
