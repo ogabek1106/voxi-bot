@@ -24,6 +24,8 @@ from telegram.ext import (
     CallbackQueryHandler,
 )
 
+from features.sub_check import require_subscription
+
 logger = logging.getLogger(__name__)
 
 DB_PATH = os.getenv("DB_PATH", os.getenv("SQLITE_PATH", "/data/data.db"))
@@ -61,6 +63,10 @@ def _get_active_test():
 # ---------- command ----------
 
 def get_test(update: Update, context: CallbackContext):
+    # 🔒 subscription gate
+    if not require_subscription(update, context):
+        return
+        
     active = _get_active_test()
 
     if not active:
