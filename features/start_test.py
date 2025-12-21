@@ -24,8 +24,8 @@ from telegram.ext import (
 
 from database import (
     get_active_test,
-    save_test_answer,   # ✅ existing
-    save_test_score,    # ✅ existing
+    save_test_answer,
+    save_test_score,
 )
 
 logger = logging.getLogger(__name__)
@@ -48,13 +48,7 @@ def _connect():
 
 
 def _gen_token(length=7):
-    return "".join(
-        random.choices(string.ascii_uppercase + string.digits, k=length)
-    )
-
-
-def _moscow_time_str():
-    return datetime.now(MOSCOW_TZ).strftime("%Y-%m-%d %H:%M:%S")
+    return "".join(random.choices(string.ascii_uppercase + string.digits, k=length))
 
 
 def _save_attempt(token, user_id, active_test):
@@ -67,13 +61,7 @@ def _load_questions(test_id):
     conn = _connect()
     cur = conn.execute(
         """
-        SELECT
-            question_number,
-            question_text,
-            a,
-            b,
-            c,
-            d
+        SELECT question_number, question_text, a, b, c, d
         FROM test_questions
         WHERE test_id = ?
         ORDER BY question_number;
@@ -120,10 +108,8 @@ def _timer_job(context: CallbackContext):
     if left <= 0:
         data["finished"] = True
         context.job.schedule_removal()
-
         context.user_data["time_left"] = 0
         context.user_data["auto_finished"] = True
-
         _auto_finish_from_job(context, data)
         return
 
@@ -169,15 +155,13 @@ def start_test_entry(update: Update, context: CallbackContext):
     query = update.callback_query
     query.answer()
 
-    user = query.from_user
     active_test = get_active_test()
-
     if not active_test:
         query.edit_message_text("❌ No active test.")
         return
 
     token = _gen_token()
-    start_ts, limit_min = _save_attempt(token, user.id, active_test)
+    start_ts, limit_min = _save_attempt(token, query.from_user.id, active_test)
     total_seconds = limit_min * 60 + EXTRA_GRACE_SECONDS
 
     questions = _load_questions(active_test[0])
@@ -197,6 +181,7 @@ def start_test_entry(update: Update, context: CallbackContext):
         "questions": questions,
         "answers": {},
         "skipped": set(),
+        "skipped_msg_id": None,
         "index": 0,
         "finished": False,
         "timer_msg_id": None,
@@ -208,18 +193,13 @@ def start_test_entry(update: Update, context: CallbackContext):
 
     bot = query.bot
 
-    bot.send_message(
-        chat_id,
-        f"🔑 <b>Your token:</b> <code>{token}</code>",
-        parse_mode="HTML",
-    )
+    bot.send_message(chat_id, f"🔑 <b>Your token:</b> <code>{token}</code>", parse_mode="HTML")
 
     timer_msg = bot.send_message(
         chat_id,
         f"⏱ <b>Time left:</b> {_format_timer(_time_left(start_ts, limit_min))}",
         parse_mode="HTML",
     )
-
     context.user_data["timer_msg_id"] = timer_msg.message_id
 
     _render_question(context)
@@ -285,6 +265,32 @@ def _render_question(context: CallbackContext):
             parse_mode="HTML",
         )
 
+    _update_skipped_message(context)
+
+
+def _update_skipped_message(context: CallbackContext):
+    bot = context.bot
+    chat_id = context.user_data["chat_id"]
+    skipped = sorted(context.user_data["skipped"])
+    msg_id = context.user_data["skipped_msg_id"]
+
+    if not skipped:
+        if msg_id:
+            try:
+                bot.delete_message(chat_id, msg_id)
+            except Exception:
+                pass
+        context.user_data["skipped_msg_id"] = None
+        return
+
+    text = "⚠️ <b>Skipped questions:</b> " + ", ".join(str(i + 1) for i in skipped)
+
+    if msg_id:
+        bot.edit_message_text(text, chat_id, msg_id, parse_mode="HTML")
+    else:
+        msg = bot.send_message(chat_id, text, parse_mode="HTML")
+        context.user_data["skipped_msg_id"] = msg.message_id
+
 
 # ---------- handlers ----------
 
@@ -296,6 +302,8 @@ def answer_handler(update: Update, context: CallbackContext):
     idx = int(idx)
 
     context.user_data["answers"][idx] = choice
+    context.user_data["skipped"].discard(idx)
+
     save_test_answer(context.user_data["token"], idx + 1, choice)
 
     if idx < len(context.user_data["questions"]) - 1:
@@ -309,6 +317,10 @@ def nav_handler(update: Update, context: CallbackContext, direction: int):
     query.answer()
 
     cur = context.user_data["index"]
+
+    if cur not in context.user_data["answers"]:
+        context.user_data["skipped"].add(cur)
+
     context.user_data["index"] = max(
         0,
         min(cur + direction, len(context.user_data["questions"]) - 1)
@@ -323,6 +335,15 @@ def noop_handler(update: Update, context: CallbackContext):
 
 def finish_handler(update: Update, context: CallbackContext):
     query = update.callback_query
+
+    if context.user_data["skipped"]:
+        query.answer(
+            "⚠️ Skipped questions: "
+            + ", ".join(str(i + 1) for i in sorted(context.user_data["skipped"])),
+            show_alert=True,
+        )
+        return
+
     query.answer()
 
     job = context.user_data.get("timer_job")
@@ -366,7 +387,7 @@ def _finish(update: Update, context: CallbackContext, manual: bool):
 
     for key in ("timer_msg_id", "question_msg_id"):
         try:
-            bot.delete_message(chat_id=chat_id, message_id=context.user_data[key])
+            bot.delete_message(chat_id, context.user_data[key])
         except Exception:
             pass
 
