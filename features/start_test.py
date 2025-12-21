@@ -25,7 +25,7 @@ from telegram.ext import (
 from database import (
     get_active_test,
     save_test_answer,   # ✅ existing
-    save_test_score,    # ✅ ADDED (DO NOT REMOVE ANYTHING ELSE)
+    save_test_score,    # ✅ existing
 )
 
 logger = logging.getLogger(__name__)
@@ -58,11 +58,6 @@ def _moscow_time_str():
 
 
 def _save_attempt(token, user_id, active_test):
-    """
-    ⚠️ CORRECTED:
-    This function NO LONGER touches ANY database table.
-    It only prepares timing values for runtime usage.
-    """
     _, _, _, _, time_limit, _ = active_test
     start_ts = int(time.time())
     return start_ts, time_limit
@@ -202,7 +197,6 @@ def start_test_entry(update: Update, context: CallbackContext):
         "questions": questions,
         "answers": {},
         "skipped": set(),
-        "skipped_msg_id": None,
         "index": 0,
         "finished": False,
         "timer_msg_id": None,
@@ -262,10 +256,7 @@ def _render_question(context: CallbackContext):
     selected_text = ""
     if idx in context.user_data["answers"]:
         key = context.user_data["answers"][idx]
-        selected_text = (
-            "\n\n✅ <b>You selected:</b>\n"
-            f"{ {'a': a, 'b': b, 'c': c, 'd': d}[key] }"
-        )
+        selected_text = f"\n\n✅ <b>You selected:</b>\n{ {'a': a, 'b': b, 'c': c, 'd': d}[key] }"
 
     text = f"<b>Question {idx + 1}</b>\n\n{q_text}{selected_text}"
 
@@ -286,8 +277,13 @@ def _render_question(context: CallbackContext):
         msg = bot.send_message(chat_id, text, reply_markup=InlineKeyboardMarkup(buttons), parse_mode="HTML")
         context.user_data["question_msg_id"] = msg.message_id
     else:
-        bot.edit_message_text(text=text, chat_id=chat_id, message_id=context.user_data["question_msg_id"],
-                              reply_markup=InlineKeyboardMarkup(buttons), parse_mode="HTML")
+        bot.edit_message_text(
+            text=text,
+            chat_id=chat_id,
+            message_id=context.user_data["question_msg_id"],
+            reply_markup=InlineKeyboardMarkup(buttons),
+            parse_mode="HTML",
+        )
 
 
 # ---------- handlers ----------
@@ -306,6 +302,23 @@ def answer_handler(update: Update, context: CallbackContext):
         context.user_data["index"] = idx + 1
 
     _render_question(context)
+
+
+def nav_handler(update: Update, context: CallbackContext, direction: int):
+    query = update.callback_query
+    query.answer()
+
+    cur = context.user_data["index"]
+    context.user_data["index"] = max(
+        0,
+        min(cur + direction, len(context.user_data["questions"]) - 1)
+    )
+
+    _render_question(context)
+
+
+def noop_handler(update: Update, context: CallbackContext):
+    update.callback_query.answer()
 
 
 def finish_handler(update: Update, context: CallbackContext):
@@ -330,11 +343,6 @@ def _finish(update: Update, context: CallbackContext, manual: bool):
             context.user_data["limit_min"],
         )
         context.user_data["auto_finished"] = False
-
-    # 🔴 SCORE CALCULATION + SAVE (ONLY ADDITION)
-    correct = 0
-    for qn, _, _, _, _, correct_answer in []:
-        pass
 
     total = len(context.user_data["questions"])
     correct = len(context.user_data["answers"])
@@ -376,5 +384,8 @@ def _finish(update: Update, context: CallbackContext, manual: bool):
 def setup(dispatcher, bot=None):
     dispatcher.add_handler(CallbackQueryHandler(start_test_entry, pattern="^start_test$"))
     dispatcher.add_handler(CallbackQueryHandler(answer_handler, pattern="^ans\\|"))
+    dispatcher.add_handler(CallbackQueryHandler(lambda u, c: nav_handler(u, c, -1), pattern="^prev$"))
+    dispatcher.add_handler(CallbackQueryHandler(lambda u, c: nav_handler(u, c, 1), pattern="^next$"))
+    dispatcher.add_handler(CallbackQueryHandler(noop_handler, pattern="^noop$"))
     dispatcher.add_handler(CallbackQueryHandler(finish_handler, pattern="^finish$"))
     logger.info("Feature loaded: start_test")
