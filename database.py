@@ -861,6 +861,8 @@ def save_test_score(
     correct_answers: int,
     score: float,
     max_score: int = 100,
+    time_left: Optional[int] = None,
+    auto_finished: Optional[bool] = None,
 ) -> bool:
     ensure_test_scores_table()
     conn = None
@@ -870,9 +872,6 @@ def save_test_score(
             conn.execute(
                 """
                 INSERT OR REPLACE INTO test_scores
-                (token, test_id, user_id, total_questions, correct_answers, score, max_score, finished_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?);
-                """,
                 (
                     token,
                     test_id,
@@ -881,8 +880,25 @@ def save_test_score(
                     correct_answers,
                     score,
                     max_score,
-                    int(time.time()),
-                ),
+                    finished_at,
+                    time_left,
+                    auto_finished
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                """,
+
+                (
+                   token,
+                   test_id,
+                   user_id,
+                   total_questions,
+                   correct_answers,
+                   score,
+                   max_score,
+                   int(time.time()),
+                   time_left,
+                   int(auto_finished) if auto_finished is not None else None,
+                   ),
             )
         return True
     except Exception as e:
@@ -907,7 +923,9 @@ def get_test_score(token: str):
                 correct_answers,
                 score,
                 max_score,
-                finished_at
+                finished_at,
+                time_left,
+                auto_finished
             FROM test_scores
             WHERE token = ?
             LIMIT 1;
@@ -921,7 +939,6 @@ def get_test_score(token: str):
     finally:
         if conn:
             conn.close()
-
 
 
 # ---------- ACTIVE TEST (PUBLISHED) ----------
