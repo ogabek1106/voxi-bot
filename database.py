@@ -827,6 +827,26 @@ def ensure_test_scores_table():
                 );
                 """
             )
+                 # ---- ADD MISSING COLUMNS (SAFE MIGRATION) ----
+        cols = _table_columns(conn, "test_scores")
+
+        if "time_left" not in cols:
+            try:
+                with conn:
+                    conn.execute("ALTER TABLE test_scores ADD COLUMN time_left INTEGER;")
+                logger.info("ensure_test_scores_table: added column time_left")
+            except Exception as e:
+                logger.warning("ensure_test_scores_table: failed to add time_left: %s", e)
+
+        if "auto_finished" not in cols:
+            try:
+                with conn:
+                    conn.execute("ALTER TABLE test_scores ADD COLUMN auto_finished INTEGER;")
+                logger.info("ensure_test_scores_table: added column auto_finished")
+            except Exception as e:
+                logger.warning("ensure_test_scores_table: failed to add auto_finished: %s", e)
+
+        
     except Exception as e:
         logger.exception("ensure_test_scores_table failed: %s", e)
     finally:
