@@ -41,7 +41,7 @@ def require_subscription(update, context) -> bool:
     )
 
     keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("📢 Subscribe", url="https://t.me/ebai_channel")],
+        [InlineKeyboardButton("📢 Subscribe", url="https://t.me/IELTSforeverybody")],
         [InlineKeyboardButton("🔄 Check subscription", callback_data="check_sub")]
     ])
 
