@@ -7,7 +7,7 @@ Used by ALL features that require EBAI channel subscription.
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CallbackQueryHandler
 
-EBAI_CHANNEL = "@ebai_channel"   # 🔁 change once, everywhere updated
+EBAI_CHANNEL = "@IELTSforeverybody"   # 🔁 change once, everywhere updated
 
 
 def is_subscribed(bot, user_id: int) -> bool:
