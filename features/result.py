@@ -37,6 +37,21 @@ def _is_admin(user_id: int) -> bool:
     return int(user_id) in {int(x) for x in raw}
 
 
+def _safe_time_fields(row):
+    """
+    Extract time_left and auto_finished safely
+    regardless of column count.
+    """
+    time_left = None
+    auto_finished = None
+
+    if row and len(row) >= 10:
+        time_left = row[8]
+        auto_finished = row[9]
+
+    return time_left, auto_finished
+
+
 def _get_latest_score_by_user(user_id: int):
     conn = _connect()
     cur = conn.execute(
@@ -176,9 +191,11 @@ def result_command(update: Update, context: CallbackContext):
                 score,
                 max_score,
                 finished_at,
-                time_left,
-                auto_finished,
-            ) = row + (None, None)
+                *_
+            ) = row
+
+            time_left, auto_finished = _safe_time_fields(row)
+
         else:
             data = _calculate_and_save_score(token, user_id)
             if not data:
@@ -210,9 +227,10 @@ def result_command(update: Update, context: CallbackContext):
             score,
             max_score,
             finished_at,
-            time_left,
-            auto_finished,
-        ) = row + (None, None)
+            *_
+        ) = row
+
+        time_left, auto_finished = _safe_time_fields(row)
 
     # ---------- TIME DISPLAY ----------
     active = get_active_test()
