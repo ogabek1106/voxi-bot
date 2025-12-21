@@ -7,6 +7,8 @@ Used by ALL features that require EBAI channel subscription.
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CallbackQueryHandler
 
+from telegram import Update  # ✅ ADDED (needed for replay)
+
 EBAI_CHANNEL = "@IELTSforeverybody"   # 🔁 change once, everywhere updated
 
 
@@ -33,6 +35,22 @@ def require_subscription(update, context) -> bool:
 
     if is_subscribed(bot, user.id):
         return True
+
+    # ================================
+    # ✅ ADDED: STORE PENDING ACTION
+    # ================================
+    try:
+        # /start payload (deep links)
+        args = getattr(context, "args", None)
+        if args:
+            context.user_data["pending_start_payload"] = args[0]
+
+        # numeric input (books)
+        elif update.message and update.message.text and update.message.text.strip().isdigit():
+            context.user_data["pending_numeric"] = update.message.text.strip()
+    except Exception:
+        pass
+    # ================================
 
     text = (
         "🔒 *Access restricted*\n\n"
@@ -68,8 +86,44 @@ def check_subscription_callback(update, context):
     query = update.callback_query
     user_id = query.from_user.id
 
-    if is_subscribed(context.bot, user_id):
-        query.answer("✅ Subscription confirmed!")
-        query.message.reply_text("🎉 Access unlocked. You can now use Voxi Bot.")
-    else:
+    if not is_subscribed(context.bot, user_id):
         query.answer("❌ Still not subscribed")
+        return
+
+    query.answer("✅ Subscription confirmed!")
+    query.message.reply_text("🎉 Access unlocked. Processing your request...")
+
+    # ================================
+    # ✅ ADDED: REPLAY PENDING ACTION
+    # ================================
+    pending_start = context.user_data.pop("pending_start_payload", None)
+    pending_numeric = context.user_data.pop("pending_numeric", None)
+
+    # replay /start payload
+    if pending_start:
+        from handlers import start_handler
+
+        fake_update = Update(
+            update.update_id,
+            message=query.message
+        )
+        fake_update.message.text = f"/start {pending_start}"
+        fake_update.message.entities = []
+
+        start_handler(fake_update, context)
+        return
+
+    # replay numeric input
+    if pending_numeric:
+        from handlers import numeric_message_handler
+
+        fake_update = Update(
+            update.update_id,
+            message=query.message
+        )
+        fake_update.message.text = pending_numeric
+        fake_update.message.entities = []
+
+        numeric_message_handler(fake_update, context)
+        return
+    # ================================
