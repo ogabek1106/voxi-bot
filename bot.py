@@ -1,9 +1,11 @@
 # bot.py
 import os
 import logging
+from telegram.ext import CallbackQueryHandler
 
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
 import handlers
+from features.sub_check import check_subscription_callback
 
 # import our features autoloader (must exist: features/__init__.py with register_all_features)
 try:
@@ -30,6 +32,11 @@ def main():
     # core handlers (unchanged)
     dp.add_handler(CommandHandler("start", handlers.start_handler, pass_args=True))
     dp.add_handler(MessageHandler(Filters.text & ~Filters.command, handlers.numeric_message_handler))
+
+    # subscription check callback (ONE-TIME global)
+    dp.add_handler(
+        CallbackQueryHandler(check_subscription_callback, pattern="^check_sub$")
+    )
 
     # ONE-TIME: load all features from features/ (each feature should expose setup(dp, bot) or register_handlers(dp))
     if register_all_features:
