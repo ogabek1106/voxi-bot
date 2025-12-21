@@ -49,7 +49,9 @@ def _get_latest_score_by_user(user_id: int):
             correct_answers,
             score,
             max_score,
-            finished_at
+            finished_at,
+            time_left,
+            auto_finished
         FROM test_scores
         WHERE user_id = ?
         ORDER BY finished_at DESC
@@ -75,7 +77,7 @@ def _calculate_and_save_score(token: str, user_id: int):
     if not active:
         return None
 
-    test_id = active[0]
+    test_id, _, _, _, time_limit, _ = active
 
     conn = _connect()
     cur = conn.cursor()
@@ -135,7 +137,15 @@ def _calculate_and_save_score(token: str, user_id: int):
         "correct": correct,
         "score": score,
         "max": 100,
+        "time_left": None,
+        "auto_finished": None,
     }
+
+
+def _format_done_time(time_left: int, time_limit_min: int) -> str:
+    done = max(0, (time_limit_min * 60) - time_left)
+    m, s = divmod(done, 60)
+    return f"{m:02d}:{s:02d}"
 
 
 # ---------- command ----------
@@ -144,6 +154,8 @@ def result_command(update: Update, context: CallbackContext):
     message = update.message
     user_id = message.from_user.id
     args = context.args
+
+    time_text = ""
 
     # ---------- CASE 1: /result <TOKEN> (ADMIN ONLY) ----------
     if args:
@@ -155,20 +167,32 @@ def result_command(update: Update, context: CallbackContext):
         row = get_test_score(token)
 
         if row:
-            _, test_id, uid, total, correct, score, max_score, finished_at = row
-            data = {
-                "test_id": test_id,
-                "user_id": uid,
-                "total": total,
-                "correct": correct,
-                "score": score,
-                "max": max_score,
-            }
+            (
+                _,
+                test_id,
+                uid,
+                total,
+                correct,
+                score,
+                max_score,
+                finished_at,
+                time_left,
+                auto_finished,
+            ) = row
         else:
             data = _calculate_and_save_score(token, user_id)
             if not data:
                 message.reply_text("❌ Result not found.\nCheck your token.")
                 return
+
+            test_id = data["test_id"]
+            uid = data["user_id"]
+            total = data["total"]
+            correct = data["correct"]
+            score = data["score"]
+            max_score = data["max"]
+            time_left = None
+            auto_finished = None
 
     # ---------- CASE 2: /result (USER OWN RESULT) ----------
     else:
@@ -177,22 +201,36 @@ def result_command(update: Update, context: CallbackContext):
             message.reply_text("❌ You have no test results yet.")
             return
 
-        _, test_id, uid, total, correct, score, max_score, finished_at = row
-        data = {
-            "test_id": test_id,
-            "user_id": uid,
-            "total": total,
-            "correct": correct,
-            "score": score,
-            "max": max_score,
-        }
+        (
+            _,
+            test_id,
+            uid,
+            total,
+            correct,
+            score,
+            max_score,
+            finished_at,
+            time_left,
+            auto_finished,
+        ) = row
+
+    # ---------- TIME DISPLAY ----------
+    active = get_active_test()
+    if active and time_left is not None:
+        _, _, _, _, time_limit, _ = active
+
+        if auto_finished:
+            time_text = "\n⏱ Time: <b>auto-finished</b>"
+        else:
+            time_text = f"\n⏱ Time: <b>{_format_done_time(time_left, time_limit)}</b>"
 
     # ---------- RESPONSE ----------
     message.reply_text(
         "📊 <b>Test Result</b>\n\n"
-        f"🧮 Questions: {data['total']}\n"
-        f"✅ Correct: {data['correct']}\n"
-        f"🎯 Score: <b>{data['score']} / {data['max']}</b>",
+        f"🧮 Questions: {total}\n"
+        f"✅ Correct: {correct}\n"
+        f"🎯 Score: <b>{score} / {max_score}</b>"
+        f"{time_text}",
         parse_mode="HTML",
     )
 
