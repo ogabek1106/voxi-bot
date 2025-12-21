@@ -112,6 +112,11 @@ def _timer_job(context: CallbackContext):
     if left <= 0:
         data["finished"] = True
         context.job.schedule_removal()
+
+        # ✅ ADD: auto-finish timing
+        context.user_data["time_left"] = 0
+        context.user_data["auto_finished"] = True
+
         _auto_finish_from_job(context, data)
         return
 
@@ -186,6 +191,10 @@ def start_test_entry(update: Update, context: CallbackContext):
         "timer_msg_id": None,
         "question_msg_id": None,
         "timer_job": None,
+
+        # ✅ ADD: timing storage
+        "time_left": None,
+        "auto_finished": False,
     })
 
     bot = query.bot
@@ -366,6 +375,15 @@ def finish_handler(update: Update, context: CallbackContext):
 
 def _finish(update: Update, context: CallbackContext, manual: bool):
     context.user_data["finished"] = True
+
+    # ✅ ADD: manual-finish timing
+    if manual:
+        context.user_data["time_left"] = _time_left(
+            context.user_data["start_ts"],
+            context.user_data["limit_min"]
+        )
+        context.user_data["auto_finished"] = False
+
     bot = context.bot
     chat_id = context.user_data["chat_id"]
     token = context.user_data["token"]
