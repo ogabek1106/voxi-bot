@@ -240,18 +240,27 @@ def _render_question(context: CallbackContext):
 
     text = f"<b>Question {idx + 1}</b>\n\n{q_text}{selected_text}"
 
-    buttons = [
-        [InlineKeyboardButton(a, callback_data=f"ans|{idx}|a")],
-        [InlineKeyboardButton(b, callback_data=f"ans|{idx}|b")],
-        [InlineKeyboardButton(c, callback_data=f"ans|{idx}|c")],
-        [InlineKeyboardButton(d, callback_data=f"ans|{idx}|d")],
-        [
-            InlineKeyboardButton("⬅️", callback_data="prev"),
-            InlineKeyboardButton(f"{idx + 1}/{len(context.user_data['questions'])}", callback_data="noop"),
-            InlineKeyboardButton("➡️", callback_data="next"),
-        ],
-        [InlineKeyboardButton("🏁 Finish", callback_data="finish")],
-    ]
+    buttons = []
+
+    # ⛔ Answer buttons ONLY if question NOT answered yet
+    if idx not in context.user_data["answers"]:
+        buttons.extend([
+            [InlineKeyboardButton(a, callback_data=f"ans|{idx}|a")],
+            [InlineKeyboardButton(b, callback_data=f"ans|{idx}|b")],
+            [InlineKeyboardButton(c, callback_data=f"ans|{idx}|c")],
+            [InlineKeyboardButton(d, callback_data=f"ans|{idx}|d")],
+        ])
+
+    # ✅ Navigation buttons ALWAYS
+    buttons.append([
+        InlineKeyboardButton("⬅️", callback_data="prev"),
+        InlineKeyboardButton(f"{idx + 1}/{len(context.user_data['questions'])}", callback_data="noop"),
+        InlineKeyboardButton("➡️", callback_data="next"),
+    ])
+
+    # ✅ Finish ALWAYS
+    buttons.append([InlineKeyboardButton("🏁 Finish", callback_data="finish")])
+
 
     if context.user_data["question_msg_id"] is None:
         msg = bot.send_message(chat_id, text, reply_markup=InlineKeyboardMarkup(buttons), parse_mode="HTML")
