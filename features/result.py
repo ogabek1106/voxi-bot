@@ -1,18 +1,19 @@
 # features/result.py
 """
-Shows test result by token.
+Shows test result.
 Usage:
-/result <TOKEN>
+/result            -> show your own latest result
+/result <TOKEN>    -> admin only (exact token lookup)
 """
 
 import logging
 import sqlite3
 import os
-import time
 
 from telegram import Update
 from telegram.ext import CallbackContext, CommandHandler
 
+import admins
 from database import (
     get_test_score,
     save_test_score,
@@ -31,16 +32,45 @@ def _connect():
     return sqlite3.connect(DB_PATH, timeout=SQLITE_TIMEOUT, check_same_thread=False)
 
 
+def _is_admin(user_id: int) -> bool:
+    raw = getattr(admins, "ADMIN_IDS", []) or []
+    return int(user_id) in {int(x) for x in raw}
+
+
+def _get_latest_score_by_user(user_id: int):
+    conn = _connect()
+    cur = conn.execute(
+        """
+        SELECT
+            token,
+            test_id,
+            user_id,
+            total_questions,
+            correct_answers,
+            score,
+            max_score,
+            finished_at
+        FROM test_scores
+        WHERE user_id = ?
+        ORDER BY finished_at DESC
+        LIMIT 1;
+        """,
+        (int(user_id),),
+    )
+    row = cur.fetchone()
+    conn.close()
+    return row
+
+
 def _calculate_and_save_score(token: str, user_id: int):
     """
-    Calculate score ONLY using:
+    Calculate score using:
     - test_answers
     - test_questions
     - active_test
-    Then save into test_scores.
+    Save into test_scores.
     """
 
-    # 1️⃣ Get active test (this defines test_id)
     active = get_active_test()
     if not active:
         return None
@@ -50,7 +80,7 @@ def _calculate_and_save_score(token: str, user_id: int):
     conn = _connect()
     cur = conn.cursor()
 
-    # 2️⃣ Load correct answers
+    # Correct answers
     cur.execute(
         """
         SELECT question_number, correct_answer
@@ -59,14 +89,12 @@ def _calculate_and_save_score(token: str, user_id: int):
         """,
         (test_id,),
     )
-    correct_map = {q: a for q, a in cur.fetchall()}
-
-    total_questions = len(correct_map)
-    if total_questions == 0:
+    correct_map = dict(cur.fetchall())
+    if not correct_map:
         conn.close()
         return None
 
-    # 3️⃣ Load user answers
+    # User answers
     cur.execute(
         """
         SELECT question_number, selected_answer
@@ -76,27 +104,24 @@ def _calculate_and_save_score(token: str, user_id: int):
         (token,),
     )
     answers = dict(cur.fetchall())
-
     if not answers:
         conn.close()
         return None
 
-    # 4️⃣ Count correct
-    correct_count = 0
-    for q_num, correct in correct_map.items():
-        if answers.get(q_num) == correct:
-            correct_count += 1
+    correct = sum(
+        1 for q, a in correct_map.items()
+        if answers.get(q) == a
+    )
 
-    # 5️⃣ Calculate score (MAX = 100)
-    score = round((correct_count / total_questions) * 100, 2)
+    total = len(correct_map)
+    score = round((correct / total) * 100, 2)
 
-    # 6️⃣ Save final score
     save_test_score(
         token=token,
         test_id=test_id,
         user_id=user_id,
-        total_questions=total_questions,
-        correct_answers=correct_count,
+        total_questions=total,
+        correct_answers=correct,
         score=score,
         max_score=100,
     )
@@ -106,8 +131,8 @@ def _calculate_and_save_score(token: str, user_id: int):
     return {
         "test_id": test_id,
         "user_id": user_id,
-        "total": total_questions,
-        "correct": correct_count,
+        "total": total,
+        "correct": correct,
         "score": score,
         "max": 100,
     }
@@ -117,19 +142,41 @@ def _calculate_and_save_score(token: str, user_id: int):
 
 def result_command(update: Update, context: CallbackContext):
     message = update.message
+    user_id = message.from_user.id
     args = context.args
 
-    if not args:
-        message.reply_text("❌ Usage:\n/result <TOKEN>")
-        return
+    # ---------- CASE 1: /result <TOKEN> (ADMIN ONLY) ----------
+    if args:
+        if not _is_admin(user_id):
+            message.reply_text("⛔ This command is for admins only.")
+            return
 
-    token = args[0].strip().upper()
-    user_id = message.from_user.id
+        token = args[0].strip().upper()
+        row = get_test_score(token)
 
-    # 1️⃣ Check if score already exists
-    row = get_test_score(token)
+        if row:
+            _, test_id, uid, total, correct, score, max_score, finished_at = row
+            data = {
+                "test_id": test_id,
+                "user_id": uid,
+                "total": total,
+                "correct": correct,
+                "score": score,
+                "max": max_score,
+            }
+        else:
+            data = _calculate_and_save_score(token, user_id)
+            if not data:
+                message.reply_text("❌ Result not found.\nCheck your token.")
+                return
 
-    if row:
+    # ---------- CASE 2: /result (USER OWN RESULT) ----------
+    else:
+        row = _get_latest_score_by_user(user_id)
+        if not row:
+            message.reply_text("❌ You have no test results yet.")
+            return
+
         _, test_id, uid, total, correct, score, max_score, finished_at = row
         data = {
             "test_id": test_id,
@@ -139,14 +186,8 @@ def result_command(update: Update, context: CallbackContext):
             "score": score,
             "max": max_score,
         }
-    else:
-        # 2️⃣ Calculate & save score
-        data = _calculate_and_save_score(token, user_id)
-        if not data:
-            message.reply_text("❌ Result not found.\nCheck your token.")
-            return
 
-    # 3️⃣ Send result
+    # ---------- RESPONSE ----------
     message.reply_text(
         "📊 <b>Test Result</b>\n\n"
         f"🧮 Questions: {data['total']}\n"
