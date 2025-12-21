@@ -178,7 +178,7 @@ def result_command(update: Update, context: CallbackContext):
                 finished_at,
                 time_left,
                 auto_finished,
-            ) = row
+            ) = row + (None, None)
         else:
             data = _calculate_and_save_score(token, user_id)
             if not data:
@@ -212,7 +212,7 @@ def result_command(update: Update, context: CallbackContext):
             finished_at,
             time_left,
             auto_finished,
-        ) = row
+        ) = row + (None, None)
 
     # ---------- TIME DISPLAY ----------
     active = get_active_test()
@@ -223,6 +223,8 @@ def result_command(update: Update, context: CallbackContext):
             time_text = "\n⏱ Time: <b>auto-finished</b>"
         else:
             time_text = f"\n⏱ Time: <b>{_format_done_time(time_left, time_limit)}</b>"
+    else:
+        time_text = "\n⏱ Time: <i>no data</i>"
 
     # ---------- RESPONSE ----------
     message.reply_text(
