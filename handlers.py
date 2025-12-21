@@ -6,6 +6,8 @@ from telegram import Update
 from telegram.ext import CallbackContext
 from books import BOOKS
 
+from features.sub_check import require_subscription
+
 logger = logging.getLogger(__name__)
 
 DELETE_SECONDS = 15 * 60  # ⬅️ 15 mins
@@ -163,6 +165,10 @@ def start_handler(update: Update, context: CallbackContext):
     - If payload is numeric -> treat as book code (unchanged).
     - If payload is non-numeric and not 'get_test' -> ignore.
     """
+    
+    # 🔒 subscription gate
+    if not require_subscription(update, context):
+        return
 
     # 🔴 BLOCK /start logic during admin conversations
     if context.user_data:
@@ -203,6 +209,10 @@ def start_handler(update: Update, context: CallbackContext):
 
 
 def numeric_message_handler(update: Update, context: CallbackContext):
+    # 🔒 subscription gate
+    if not require_subscription(update, context):
+        return
+
     # 🔴 BLOCK numeric handler during admin conversations (e.g. /create_test)
     if context.user_data:
         return
