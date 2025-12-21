@@ -290,13 +290,17 @@ def _finish(update: Update, context: CallbackContext, manual: bool):
     )
 
 
-# ---------- setup ----------
-
 def setup(dispatcher, bot=None):
+    # ORIGINAL – DO NOT REMOVE
     dispatcher.add_handler(CallbackQueryHandler(start_test_entry, pattern="^start_test$"))
+
+    # ✅ ADD THIS LINE (THIS IS THE FIX)
+    dispatcher.add_handler(CallbackQueryHandler(start_test_entry, pattern="^start$"))
+
     dispatcher.add_handler(CallbackQueryHandler(answer_handler, pattern="^ans\\|"))
     dispatcher.add_handler(CallbackQueryHandler(lambda u, c: nav_handler(u, c, -1), pattern="^prev$"))
     dispatcher.add_handler(CallbackQueryHandler(lambda u, c: nav_handler(u, c, 1), pattern="^next$"))
     dispatcher.add_handler(CallbackQueryHandler(finish_handler, pattern="^finish$"))
 
     logger.info("Feature loaded: start_test")
+
