@@ -36,6 +36,33 @@ MOSCOW_TZ = timezone(timedelta(hours=3))
 
 EXTRA_GRACE_SECONDS = 15  # UI grace time
 
+def _get_existing_token(user_id: int, test_id: int):
+    """
+    Returns:
+    - (token, finished_bool) if attempt exists
+    - (None, None) if no attempt
+    """
+    conn = _connect()
+    cur = conn.execute(
+        """
+        SELECT token, finished_at
+        FROM test_scores
+        WHERE user_id = ?
+          AND test_id = ?
+        ORDER BY finished_at DESC
+        LIMIT 1;
+        """,
+        (user_id, test_id),
+    )
+    row = cur.fetchone()
+    conn.close()
+
+    if not row:
+        return None, None
+
+    token, finished_at = row
+    return token, finished_at is not None
+
 
 # ---------- helpers ----------
 
@@ -160,8 +187,29 @@ def start_test_entry(update: Update, context: CallbackContext):
         query.edit_message_text("❌ No active test.")
         return
 
-    token = _gen_token()
-    start_ts, limit_min = _save_attempt(token, query.from_user.id, active_test)
+
+    user_id = query.from_user.id
+    test_id = active_test[0]
+
+    existing_token, is_finished = _get_existing_token(user_id, test_id)
+
+    if existing_token and is_finished:
+        query.edit_message_text(
+            "❌ You already passed this test.\n\n"
+            f"🔑 Your token: <code>{existing_token}</code>\n"
+            "📊 Send /result to see your result.",
+            parse_mode="HTML",
+        )
+        return
+
+    if existing_token and not is_finished:
+        token = existing_token
+    else:
+        token = _gen_token()
+
+    start_ts, limit_min = _save_attempt(token, user_id, active_test)
+
+    
     total_seconds = limit_min * 60 + EXTRA_GRACE_SECONDS
 
     questions = _load_questions(active_test[0])
