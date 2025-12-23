@@ -47,6 +47,9 @@ pending_contacts: Dict[int, Dict] = {}
 # admin_id -> { user_id, started_ts }
 active_bridges: Dict[int, Dict] = {}
 
+# user_id warned before bridge
+pre_bridge_warned = set()
+
 
 # ---------- helpers ----------
 
@@ -62,8 +65,9 @@ def _is_admin(user_id: Optional[int]) -> bool:
         return False
 
 
-def _auto_close_bridge(admin_id: int):
+def _auto_close_bridge(bot, admin_id: int):
     time.sleep(BRIDGE_TIMEOUT_SECONDS)
+
     bridge = active_bridges.get(admin_id)
     if not bridge:
         return
@@ -72,8 +76,8 @@ def _auto_close_bridge(admin_id: int):
     active_bridges.pop(admin_id, None)
 
     try:
-        context_bot.send_message(chat_id=admin_id, text="⏱ Contact auto-closed (timeout).")
-        context_bot.send_message(chat_id=user_id, text="ℹ️ Admin bilan aloqa muddati tugadi.")
+        bot.send_message(chat_id=admin_id, text="⏱ Contact auto-closed (timeout).")
+        bot.send_message(chat_id=user_id, text="ℹ️ Admin bilan aloqa muddati tugadi.")
     except Exception:
         pass
 
@@ -134,7 +138,6 @@ def contact_decision(update: Update, context: CallbackContext):
         query.edit_message_text("❌ Contact aborted.")
         return
 
-    # YES selected
     winner_text = (
         "Siz MMT testda eng yuqori ballni qo'lga kiritdingiz va g'olib bo'ldingiz.\n\n"
         "Yutuqni qo'lga kiritish uchun Admin bilan bog'lanish tugmasini bosing."
@@ -174,6 +177,8 @@ def open_bridge(update: Update, context: CallbackContext):
         "started_ts": int(time.time()),
     }
 
+    pre_bridge_warned.discard(user_id)
+
     query.edit_message_text("✅ Siz admin bilan bog‘landingiz. Xabar yozishingiz mumkin.")
 
     context.bot.send_message(
@@ -185,10 +190,11 @@ def open_bridge(update: Update, context: CallbackContext):
         ),
     )
 
-    # auto-timeout thread
-    global context_bot
-    context_bot = context.bot
-    t = threading.Thread(target=_auto_close_bridge, args=(admin_id,), daemon=True)
+    t = threading.Thread(
+        target=_auto_close_bridge,
+        args=(context.bot, admin_id),
+        daemon=True,
+    )
     t.start()
 
 
@@ -217,7 +223,8 @@ def cmd_end_contact(update: Update, context: CallbackContext):
 
 def relay_messages(update: Update, context: CallbackContext):
     user = update.effective_user
-    if not user:
+    msg = update.message
+    if not user or not msg:
         return
 
     # admin -> user
@@ -226,8 +233,9 @@ def relay_messages(update: Update, context: CallbackContext):
         context.bot.forward_message(
             chat_id=target,
             from_chat_id=update.effective_chat.id,
-            message_id=update.message.message_id,
+            message_id=msg.message_id,
         )
+        logger.info("RELAY admin=%s -> user=%s msg_id=%s", user.id, target, msg.message_id)
         return
 
     # user -> admin
@@ -236,13 +244,15 @@ def relay_messages(update: Update, context: CallbackContext):
             context.bot.forward_message(
                 chat_id=admin_id,
                 from_chat_id=update.effective_chat.id,
-                message_id=update.message.message_id,
+                message_id=msg.message_id,
             )
+            logger.info("RELAY user=%s -> admin=%s msg_id=%s", user.id, admin_id, msg.message_id)
             return
 
-    # Extra 4 — user talks before bridge
-    if not _is_admin(user.id):
+    # Extra 4 — user talks before bridge (warn once)
+    if not _is_admin(user.id) and user.id not in pre_bridge_warned:
         update.message.reply_text("❗ Admin hali bog‘lanmadi. Tugmani bosing.")
+        pre_bridge_warned.add(user.id)
 
 
 # ---------- setup ----------
@@ -252,6 +262,9 @@ def setup(dispatcher):
     dispatcher.add_handler(CommandHandler("end_contact", cmd_end_contact))
     dispatcher.add_handler(CallbackQueryHandler(contact_decision, pattern=r"^contact_"))
     dispatcher.add_handler(CallbackQueryHandler(open_bridge, pattern=r"^bridge_open:"))
-    dispatcher.add_handler(MessageHandler(Filters.all & ~Filters.command, relay_messages))
+    dispatcher.add_handler(
+        MessageHandler(Filters.all & ~Filters.command, relay_messages),
+        group=-250  # 🔥 highest priority to avoid shadowing
+    )
 
     logger.info("contact_user feature loaded")
