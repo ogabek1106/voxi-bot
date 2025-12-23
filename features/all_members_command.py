@@ -152,30 +152,16 @@ def _parse_ids_text(text: str) -> List[int]:
     return ids
 
 
+# 🔥🔥🔥 THIS IS THE ONLY FUNCTION THAT CHANGED 🔥🔥🔥
 def _send_to_user(bot, user_id: int, message: Message) -> bool:
     try:
-        if message.text and not any([message.photo, message.video, message.document, message.audio, message.voice, message.animation, message.sticker]):
-            bot.send_message(chat_id=user_id, text=message.text)
-        elif message.photo:
-            bot.send_photo(chat_id=user_id, photo=message.photo[-1].file_id, caption=message.caption)
-        elif message.video:
-            bot.send_video(chat_id=user_id, video=message.video.file_id, caption=message.caption)
-        elif message.document:
-            bot.send_document(chat_id=user_id, document=message.document.file_id, caption=message.caption)
-        elif message.audio:
-            bot.send_audio(chat_id=user_id, audio=message.audio.file_id, caption=message.caption)
-        elif message.voice:
-            bot.send_voice(chat_id=user_id, voice=message.voice.file_id)
-        elif message.animation:
-            bot.send_animation(chat_id=user_id, animation=message.animation.file_id, caption=message.caption)
-        elif message.sticker:
-            bot.send_sticker(chat_id=user_id, sticker=message.sticker.file_id)
-        else:
-            bot.forward_message(chat_id=user_id, from_chat_id=message.chat.id, message_id=message.message_id)
-
+        bot.copy_message(
+            chat_id=user_id,
+            from_chat_id=message.chat.id,
+            message_id=message.message_id,
+        )
         logger.info("BROADCAST_OK user_id=%s", user_id)
         return True
-
     except TelegramError as e:
         logger.warning("BROADCAST_FAIL user_id=%s reason=%s", user_id, e)
         return False
