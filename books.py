@@ -90,11 +90,11 @@ else:
             "filename": "📘 Reading B1+ Intermediate.pdf",
             "caption": "📘 *Reading B1+ Intermediate.pdf*\n\n⏰ File will be deleted in 15 minutes.\n\nMore 👉 @IELTSforeverybody"
         },
-        #"17": {
-            #"file_id": "BQACAgIAAxkBAAIV-WiqtFMt0yY_sBdpB72E1gABma_qaAACcHkAAqanWUlXqf03rTpVVzYE",
-            #"filename": "📘 Reading B1+ Intermediate.pdf",
-            #"caption": "📘 *Reading B1+ Intermediate.pdf*\n\n⏰ File will be deleted in 15 minutes.\n\nMore 👉 @IELTSforeverybody"
-        #},
+        "17": {
+            "file_id": "BQACAgIAAxkBAAJPaGlKVnluK5Tk3rXoweKm0ZoCTSYlAAKdhAACogtZSpAYdtJ2_VKGNgQ",
+            "filename": "📘 Speaking B1+ Intermediate.pdf",
+            "caption": "📘 *Speaking B1+ Intermediate.pdf*\n\n⏰ File will be deleted in 15 minutes.\n\nMore 👉 @IELTSforeverybody"
+        },
         #"18": {
             #"file_id": "BQACAgIAAxkBAAIV-WiqtFMt0yY_sBdpB72E1gABma_qaAACcHkAAqanWUlXqf03rTpVVzYE",
             #"filename": "📘 Listening B1+ Intermediate.pdf",
