@@ -18,17 +18,22 @@ from typing import List, Optional
 
 from telegram import Update, Message
 from telegram.ext import CallbackContext, CommandHandler, MessageHandler, Filters
+from telegram.error import TelegramError
 
 import admins
 from database import get_all_users
 
 logger = logging.getLogger(__name__)
 
-# tuning
-PAUSE_BETWEEN_SENDS = 5
-PROGRESS_BATCH = 10
+# ================== TUNING ==================
+PAUSE_BETWEEN_SENDS = 2          # ✅ 2 seconds pause
+PROGRESS_BATCH = 10              # ✅ update every 10 processed
 LONG_REST_INTERVAL = 100
 LONG_REST_SECS = 10
+# ============================================
+
+# admin_id -> stop flag
+broadcast_stop_flags = {}
 
 # persistent awaiting storage dir
 _AWAIT_DIR = os.getenv("AWAIT_DIR", "/data/awaiting_broadcasts")
@@ -121,9 +126,19 @@ def cmd_cancel(update: Update, context: CallbackContext):
     user = update.effective_user
     if not user or not _is_admin(user.id):
         return
+
     awaiting_states.pop(user.id, None)
     _clear_persist(user.id)
     update.message.reply_text("🛑 Broadcast cancelled.")
+
+
+def cmd_cancel_broadcast(update: Update, context: CallbackContext):
+    user = update.effective_user
+    if not user or not _is_admin(user.id):
+        return
+
+    broadcast_stop_flags[user.id] = True
+    update.message.reply_text("🛑 Broadcast stopping...")
 
 
 def _parse_ids_text(text: str) -> List[int]:
@@ -141,40 +156,28 @@ def _send_to_user(bot, user_id: int, message: Message) -> bool:
     try:
         if message.text and not any([message.photo, message.video, message.document, message.audio, message.voice, message.animation, message.sticker]):
             bot.send_message(chat_id=user_id, text=message.text)
-            return True
-
-        if message.photo:
+        elif message.photo:
             bot.send_photo(chat_id=user_id, photo=message.photo[-1].file_id, caption=message.caption)
-            return True
-
-        if message.video:
+        elif message.video:
             bot.send_video(chat_id=user_id, video=message.video.file_id, caption=message.caption)
-            return True
-
-        if message.document:
+        elif message.document:
             bot.send_document(chat_id=user_id, document=message.document.file_id, caption=message.caption)
-            return True
-
-        if message.audio:
+        elif message.audio:
             bot.send_audio(chat_id=user_id, audio=message.audio.file_id, caption=message.caption)
-            return True
-
-        if message.voice:
+        elif message.voice:
             bot.send_voice(chat_id=user_id, voice=message.voice.file_id)
-            return True
-
-        if message.animation:
+        elif message.animation:
             bot.send_animation(chat_id=user_id, animation=message.animation.file_id, caption=message.caption)
-            return True
-
-        if message.sticker:
+        elif message.sticker:
             bot.send_sticker(chat_id=user_id, sticker=message.sticker.file_id)
-            return True
+        else:
+            bot.forward_message(chat_id=user_id, from_chat_id=message.chat.id, message_id=message.message_id)
 
-        bot.forward_message(chat_id=user_id, from_chat_id=message.chat.id, message_id=message.message_id)
+        logger.info("BROADCAST_OK user_id=%s", user_id)
         return True
 
-    except Exception:
+    except TelegramError as e:
+        logger.warning("BROADCAST_FAIL user_id=%s reason=%s", user_id, e)
         return False
 
 
@@ -182,17 +185,48 @@ def _format_status(sent: int, failed: int, processed: int, total: int) -> str:
     return f"Progress: ✅ {sent} sent  •  ❌ {failed} failed  •  {processed}/{total} processed"
 
 
-def _background_broadcast(bot, admin_chat_id: int, status_chat_id: int, status_message_id: Optional[int], message: Message, targets: List[int]):
+def _background_broadcast(bot, admin_id: int, chat_id: int, status_message_id: int, message: Message, targets: List[int]):
     sent = failed = processed = 0
+    total = len(targets)
+
     for uid in targets:
+        if broadcast_stop_flags.get(admin_id):
+            bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=status_message_id,
+                text=f"🛑 Broadcast stopped.\n\n{_format_status(sent, failed, processed, total)}",
+            )
+            logger.info("Broadcast stopped by admin %s", admin_id)
+            return
+
         if _send_to_user(bot, uid, message):
             sent += 1
         else:
             failed += 1
+
         processed += 1
+
+        if processed % PROGRESS_BATCH == 0 or processed == total:
+            try:
+                bot.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=status_message_id,
+                    text=_format_status(sent, failed, processed, total),
+                )
+            except Exception:
+                pass
+
         time.sleep(PAUSE_BETWEEN_SENDS)
 
-    bot.send_message(chat_id=admin_chat_id, text=f"🎉 Broadcast finished! ✅ {sent} sent, ❌ {failed} failed.")
+        if processed % LONG_REST_INTERVAL == 0:
+            time.sleep(LONG_REST_SECS)
+
+    bot.edit_message_text(
+        chat_id=chat_id,
+        message_id=status_message_id,
+        text=f"🎉 Broadcast finished!\n\n{_format_status(sent, failed, processed, total)}",
+    )
+    broadcast_stop_flags.pop(admin_id, None)
 
 
 # load persisted states
@@ -214,16 +248,12 @@ def message_router(update: Update, context: CallbackContext):
     if not user or not _is_admin(user.id):
         return
 
-    # 🔴 Only block when *this* feature is active
     state = awaiting_states.get(user.id)
     if not state:
         return
 
     msg = update.message
     stage = state.get("stage")
-
-    # ... rest of your logic unchanged
-
 
     if stage == "awaiting_targets":
         if not msg or not msg.text:
@@ -248,10 +278,16 @@ def message_router(update: Update, context: CallbackContext):
             context.bot.send_message(chat_id=chat.id, text="⚠️ No targets.")
             return
 
-        context.bot.send_message(chat_id=chat.id, text="📨 Message received. Broadcasting...")
+        status_msg = context.bot.send_message(
+            chat_id=chat.id,
+            text=_format_status(0, 0, 0, len(targets)),
+        )
+
+        broadcast_stop_flags[user.id] = False
+
         t = threading.Thread(
             target=_background_broadcast,
-            args=(context.bot, chat.id, chat.id, None, msg, targets),
+            args=(context.bot, user.id, chat.id, status_msg.message_id, msg, targets),
             daemon=True,
         )
         t.start()
@@ -263,5 +299,6 @@ def message_router(update: Update, context: CallbackContext):
 def setup(dispatcher):
     dispatcher.add_handler(CommandHandler("all_members", cmd_all_members), group=-10)
     dispatcher.add_handler(CommandHandler("cancel", cmd_cancel), group=-10)
+    dispatcher.add_handler(CommandHandler("cancel_broadcast", cmd_cancel_broadcast), group=-10)
     dispatcher.add_handler(MessageHandler(Filters.all & ~Filters.command, message_router), group=-10)
     logger.info("all_members_command loaded. Admins=%r", sorted(list(_get_admin_ids())))
