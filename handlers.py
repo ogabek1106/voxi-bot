@@ -7,6 +7,7 @@ from telegram.ext import CallbackContext
 from books import BOOKS
 
 from features.sub_check import require_subscription
+from features.get_test import get_test
 
 logger = logging.getLogger(__name__)
 
@@ -161,9 +162,9 @@ def start_handler(update: Update, context: CallbackContext):
     """Handles /start and deep links.
 
     Important changes:
-    - If payload == 'get_test' -> do nothing here (feature handles it).
+    - If payload == '' -> do nothing here (feature handles it).
     - If payload is numeric -> treat as book code (unchanged).
-    - If payload is non-numeric and not 'get_test' -> ignore.
+    - If payload is non-numeric and not '' -> ignore.
     """
     
     # 🔒 subscription gate
@@ -184,7 +185,7 @@ def start_handler(update: Update, context: CallbackContext):
         if payload.lower() == "get_test":
             # Do nothing here so features/test_form.py (or features/deep_link.py) can respond.
             # This prevents the core handler from sending greetings or "book not found" replies.
-            return
+            return get_test(update, context)
 
         # Normal numeric deep-link -> book code (keep existing behaviour)
         if payload.isdigit():
