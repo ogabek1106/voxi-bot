@@ -34,7 +34,7 @@ DB_PATH = os.getenv("DB_PATH", os.getenv("SQLITE_PATH", "/data/data.db"))
 SQLITE_TIMEOUT = 5
 MOSCOW_TZ = timezone(timedelta(hours=3))
 
-EXTRA_GRACE_SECONDS = 15  # UI grace time
+EXTRA_GRACE_SECONDS = 3  # UI grace time
 
 def _get_existing_token(user_id: int, test_id: int):
     """
