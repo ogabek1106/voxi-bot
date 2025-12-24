@@ -736,17 +736,31 @@ def ensure_test_answers_table():
     conn = None
     try:
         conn = _connect()
+
+        # 1️⃣ Create table if not exists (NEW installs)
         with conn:
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS test_answers (
                     token TEXT NOT NULL,
+                    test_id TEXT,
                     question_number INTEGER NOT NULL,
                     selected_answer TEXT NOT NULL,
                     PRIMARY KEY (token, question_number)
                 );
                 """
             )
+
+        # 2️⃣ Add test_id column if missing (OLD installs)
+        cols = _table_columns(conn, "test_answers")
+        if "test_id" not in cols:
+            try:
+                with conn:
+                    conn.execute("ALTER TABLE test_answers ADD COLUMN test_id TEXT;")
+                logger.info("ensure_test_answers_table: added column test_id")
+            except Exception as e:
+                logger.warning("ensure_test_answers_table: failed to add test_id: %s", e)
+
     except Exception as e:
         logger.exception("ensure_test_answers_table failed: %s", e)
     finally:
@@ -754,7 +768,12 @@ def ensure_test_answers_table():
             conn.close()
 
 
-def save_test_answer(token: str, question_number: int, selected_answer: str) -> bool:
+def save_test_answer(
+    token: str,
+    test_id: str,
+    question_number: int,
+    selected_answer: str
+) -> bool:
     ensure_test_answers_table()
     conn = None
     try:
@@ -763,12 +782,13 @@ def save_test_answer(token: str, question_number: int, selected_answer: str) -> 
             conn.execute(
                 """
                 INSERT OR REPLACE INTO test_answers
-                (token, question_number, selected_answer)
-                VALUES (?, ?, ?);
+                (token, test_id, question_number, selected_answer)
+                VALUES (?, ?, ?, ?);
                 """,
-                (token, int(question_number), selected_answer),
+                (token, test_id, int(question_number), selected_answer),
             )
         return True
+     
     except Exception as e:
         logger.exception(
             "save_test_answer failed (token=%s q=%s): %s",
@@ -787,13 +807,14 @@ def get_test_answers(token: str):
         conn = _connect()
         cur = conn.execute(
             """
-            SELECT question_number, selected_answer
+            SELECT test_id, question_number, selected_answer
             FROM test_answers
             WHERE token = ?;
             """,
             (token,),
         )
         return cur.fetchall()
+
     except Exception as e:
         logger.exception("get_test_answers failed for token %s: %s", token, e)
         return []
