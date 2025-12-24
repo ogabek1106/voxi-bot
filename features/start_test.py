@@ -225,6 +225,7 @@ def start_test_entry(update: Update, context: CallbackContext):
         "token": token,
         "start_ts": start_ts,
         "limit_min": limit_min,
+        "context_test_id": test_id,
         "total_seconds": total_seconds,
         "questions": questions,
         "answers": {},
@@ -361,8 +362,13 @@ def answer_handler(update: Update, context: CallbackContext):
     context.user_data["answers"][idx] = choice
     context.user_data["skipped"].discard(idx)
 
-    save_test_answer(context.user_data["token"], idx + 1, choice)
-
+    save_test_answer(
+        context.user_data["token"],
+        context.user_data["context_test_id"],
+        idx + 1,                # question_number
+        choice                  # selected_answer
+    )
+    
     if idx < len(context.user_data["questions"]) - 1:
         context.user_data["index"] = idx + 1
 
@@ -409,6 +415,19 @@ def finish_handler(update: Update, context: CallbackContext):
 
     _finish(update, context, manual=True)
 
+def _load_correct_answers(test_id):
+    conn = _connect()
+    cur = conn.execute(
+        """
+        SELECT question_number, correct_answer
+        FROM test_questions
+        WHERE test_id = ?;
+        """,
+        (test_id,),
+    )
+    rows = cur.fetchall()
+    conn.close()
+    return {qn - 1: ans for qn, ans in rows}  # index-based
 
 # ---------- finish ----------
 
@@ -423,12 +442,18 @@ def _finish(update: Update, context: CallbackContext, manual: bool):
         context.user_data["auto_finished"] = False
 
     total = len(context.user_data["questions"])
-    correct = len(context.user_data["answers"])
+    correct_map = _load_correct_answers(context.user_data["context_test_id"])
+
+    correct = 0
+    for idx, selected in context.user_data["answers"].items():
+        if correct_map.get(idx) == selected:
+            correct += 1
+
     score = round((correct / total) * 100, 2)
 
     save_test_score(
         token=context.user_data["token"],
-        test_id=get_active_test()[0],
+        test_id=context.user_data["context_test_id"],
         user_id=context.user_data["chat_id"],
         total_questions=total,
         correct_answers=correct,
@@ -455,7 +480,6 @@ def _finish(update: Update, context: CallbackContext, manual: bool):
         "To see your result, send:\n"
         f"/result {token}"
     )
-
 
 # ---------- setup ----------
 
