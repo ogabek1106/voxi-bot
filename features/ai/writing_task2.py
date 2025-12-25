@@ -25,7 +25,11 @@ from telegram.ext import (
 from openai import OpenAI
 
 # ✅ ADD: checker state DB helpers
-from database import set_checker_mode, clear_checker_mode
+from database import (
+    set_checker_mode,
+    clear_checker_mode,
+    get_checker_mode,   # ✅ ADD
+)
 
 logger = logging.getLogger(__name__)
 
@@ -96,13 +100,24 @@ def _send_long_message(message, text: str):
 
 def start_check(update: Update, context: CallbackContext):
     user = update.effective_user
-    if user:
-        # ✅ ADD: enable checker mode
-        set_checker_mode(user.id, "writing_task2")
+    if not user:
+        return ConversationHandler.END
+
+    # ✅ ADD: prevent re-entry if already in checker mode
+    if get_checker_mode(user.id):
+        update.message.reply_text(
+            "⚠️ Siz allaqachon tekshiruv rejimidasiz.\n\n"
+            "Iltimos, inshoni yuboring yoki /cancel ni bosing."
+        )
+        return WAITING_FOR_ESSAY
+
+    # ✅ ADD: enable checker mode
+    set_checker_mode(user.id, "writing_task2")
 
     update.message.reply_text(
         "✍️ IELTS Writing Task 2 inshongizni yuboring.\n\n"
-        "❗️Faqat to‘liq insho yuboring (kamida ~80 so‘z)."
+        "❗️Faqat to‘liq insho yuboring (kamida ~80 so‘z).\n"
+        "Bekor qilish uchun: /cancel"
     )
     return WAITING_FOR_ESSAY
 
@@ -111,8 +126,13 @@ def receive_essay(update: Update, context: CallbackContext):
     message = update.message
     user = update.effective_user
 
-    if not message or not message.text:
+    if not message or not message.text or not user:
         return WAITING_FOR_ESSAY
+
+    # ✅ ADD: HARD DB STATE CHECK (critical)
+    if get_checker_mode(user.id) != "writing_task2":
+        # Conversation state may exist, but DB says NO
+        return ConversationHandler.END
 
     essay = message.text.strip()
 
@@ -146,8 +166,7 @@ def receive_essay(update: Update, context: CallbackContext):
 
     finally:
         # ✅ ADD: always clear checker mode
-        if user:
-            clear_checker_mode(user.id)
+        clear_checker_mode(user.id)
 
     return ConversationHandler.END
 
@@ -180,7 +199,8 @@ def register(dispatcher):
         allow_reentry=False,
     )
 
-    dispatcher.add_handler(conv)
+    # ✅ ADD: explicit group so gate (group=1) can run first
+    dispatcher.add_handler(conv, group=2)
 
 
 def setup(dispatcher):
