@@ -1192,6 +1192,94 @@ def clear_checker_mode(user_id: int) -> bool:
             conn.close()
 
 
+# ---------- COMMAND USAGE STATS ----------
+
+def ensure_command_usage_table():
+    """
+    Stores every command usage with timestamp.
+    One row = one command execution.
+    """
+    conn = None
+    try:
+        conn = _connect()
+        with conn:
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS command_usage (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    command TEXT NOT NULL,
+                    timestamp INTEGER NOT NULL
+                );
+                """
+            )
+    except Exception as e:
+        logger.exception("ensure_command_usage_table failed: %s", e)
+    finally:
+        if conn:
+            conn.close()
+
+def log_command_use(command: str) -> None:
+    """
+    Log a command usage with current timestamp.
+    """
+    if not command:
+        return
+
+    ensure_command_usage_table()
+    conn = None
+    try:
+        conn = _connect()
+        with conn:
+            conn.execute(
+                """
+                INSERT INTO command_usage (command, timestamp)
+                VALUES (?, ?);
+                """,
+                (command, int(time.time())),
+            )
+    except Exception as e:
+        logger.exception("log_command_use failed for %s: %s", command, e)
+    finally:
+        if conn:
+            conn.close()
+
+def get_command_usage_stats():
+    """
+    Returns list of:
+    (command, last_24h_count, total_count)
+    Ordered by total_count DESC.
+    """
+    ensure_command_usage_table()
+
+    now = int(time.time())
+    last_24h_border = now - 86400  # 24 hours
+
+    conn = None
+    try:
+        conn = _connect()
+        cur = conn.execute(
+            """
+            SELECT
+                command,
+                SUM(CASE WHEN timestamp >= ? THEN 1 ELSE 0 END) AS last_24h,
+                COUNT(*) AS total
+            FROM command_usage
+            GROUP BY command
+            ORDER BY total DESC;
+            """,
+            (last_24h_border,),
+        )
+        return cur.fetchall()
+    except Exception as e:
+        logger.exception("get_command_usage_stats failed: %s", e)
+        return []
+    finally:
+        if conn:
+            conn.close()
+
+
+
+
 # ensure DB quickly on import (best-effort)
 ensure_db()
 # ensure tests table on import (best-effort)
@@ -1202,3 +1290,4 @@ ensure_test_answers_table()
 ensure_test_scores_table()
 ensure_active_test_table()
 ensure_checker_state_table()
+ensure_command_usage_table()
