@@ -121,14 +121,14 @@ MAX_TELEGRAM_LEN = 4000
 
 
 def _send_long_message(message, text: str):
-    """
-    Safely send long text by splitting into Telegram-sized chunks.
-    """
     if not text:
         return
 
     for i in range(0, len(text), MAX_TELEGRAM_LEN):
-        message.reply_text(text[i:i + MAX_TELEGRAM_LEN])
+        message.reply_text(
+            text[i:i + MAX_TELEGRAM_LEN],
+            parse_mode="Markdown"
+        )
 
 
 # ---------- Handlers ----------
