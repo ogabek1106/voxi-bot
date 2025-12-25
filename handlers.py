@@ -5,9 +5,12 @@ import time
 from telegram import Update
 from telegram.ext import CallbackContext
 from books import BOOKS
+from database import log_command_use
+from database import log_book_request
 
 from features.sub_check import require_subscription
 from features.get_test import get_test
+
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +65,7 @@ def send_book_by_code(chat_id: int, code: str, context: CallbackContext):
             caption=caption,
             parse_mode="Markdown",
         )
+        log_book_request(code)  # ✅ ADD THIS LINE
     except Exception as e:
         logger.exception("Failed to send book: %s", e)
         return None, None
@@ -166,10 +170,12 @@ def start_handler(update: Update, context: CallbackContext):
     - If payload is numeric -> treat as book code (unchanged).
     - If payload is non-numeric and not '' -> ignore.
     """
-    
+ 
     # 🔒 subscription gate
     if not require_subscription(update, context):
         return
+
+    log_command_use("/start")  # ✅ ADD THIS LINE
 
     # 🔴 BLOCK /start logic during admin conversations
     if context.user_data:
