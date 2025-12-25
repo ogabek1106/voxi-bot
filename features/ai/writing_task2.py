@@ -5,9 +5,11 @@ IELTS Writing Task 2 AI checker (FREE MODE, command-based)
 
 Flow:
 1) User sends /check_writing2
-2) Bot asks for essay
-3) User sends essay
-4) Bot evaluates and replies in Uzbek
+2) Bot asks for TASK QUESTION (topic)
+3) User sends topic
+4) Bot asks for essay
+5) User sends essay
+6) Bot evaluates and replies in Uzbek
 """
 
 import logging
@@ -24,11 +26,11 @@ from telegram.ext import (
 
 from openai import OpenAI
 
-# ✅ ADD: checker state DB helpers
+# ✅ checker state DB helpers
 from database import (
     set_checker_mode,
     clear_checker_mode,
-    get_checker_mode,   # ✅ ADD
+    get_checker_mode,
 )
 
 logger = logging.getLogger(__name__)
@@ -37,18 +39,23 @@ logger = logging.getLogger(__name__)
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 # ---------- States ----------
-WAITING_FOR_ESSAY = 1
+WAITING_FOR_TOPIC = 0        # ✅ ADD
+WAITING_FOR_ESSAY = 1        # already existed
 
 # ---------- Prompt ----------
 SYSTEM_PROMPT = """
 You are an IELTS Writing Task 2 evaluator.
 
+You will be given:
+1) The IELTS Writing Task 2 QUESTION (topic)
+2) The student's ESSAY
+
 Your task:
-- Evaluate ONLY IELTS Writing Task 2 essays.
+- Evaluate the essay STRICTLY based on the given question.
 - Follow ONLY official public IELTS band descriptors.
 - Do NOT invent new criteria.
 - Do NOT claim this is an official IELTS score.
-- If text is too short or irrelevant, say it clearly.
+- If the essay does not fully answer the question, say it clearly.
 
 Evaluation rules:
 - Assess based on these 4 criteria only:
@@ -68,14 +75,14 @@ Output rules:
 - Be clear, calm, and teacher-like.
 - Do NOT use emojis.
 - Do NOT mention AI, model, or OpenAI.
-- Output must follow the structure exactly.
+- Output must be STRUCTURALLY FORMATTED.
 
 IMPORTANT:
 - This is an ESTIMATED band score, not official.
 
 FREE MODE:
 - Give only a band RANGE (example: 6.0–6.5).
-- List maximum 2 mistakes.
+- List maximum 2 important mistakes.
 - Give maximum 2 improvement tips.
 - Do NOT rewrite the essay.
 """
@@ -103,21 +110,55 @@ def start_check(update: Update, context: CallbackContext):
     if not user:
         return ConversationHandler.END
 
-    # ✅ ADD: prevent re-entry if already in checker mode
+    # prevent re-entry
     if get_checker_mode(user.id):
         update.message.reply_text(
             "⚠️ Siz allaqachon tekshiruv rejimidasiz.\n\n"
-            "Iltimos, inshoni yuboring yoki /cancel ni bosing."
+            "Iltimos, savolni yoki inshoni yuboring yoki /cancel ni bosing."
         )
-        return WAITING_FOR_ESSAY
+        return WAITING_FOR_TOPIC
 
-    # ✅ ADD: enable checker mode
+    # enable checker mode
     set_checker_mode(user.id, "writing_task2")
 
+    # clear any previous data
+    context.user_data.pop("writing_task2_topic", None)
+
     update.message.reply_text(
-        "✍️ IELTS Writing Task 2 inshongizni yuboring.\n\n"
-        "❗️Faqat to‘liq insho yuboring (kamida ~80 so‘z).\n"
-        "Bekor qilish uchun: /cancel"
+        "📝 IELTS Writing Task 2 SAVOLINI (topic) yuboring.\n\n"
+        "Masalan:\n"
+        "Some people believe that change is always positive..."
+    )
+    return WAITING_FOR_TOPIC
+
+
+def receive_topic(update: Update, context: CallbackContext):
+    message = update.message
+    user = update.effective_user
+
+    if not message or not message.text or not user:
+        return WAITING_FOR_TOPIC
+
+    # DB state check
+    if get_checker_mode(user.id) != "writing_task2":
+        return ConversationHandler.END
+
+    topic = message.text.strip()
+
+    if len(topic.split()) < 5:
+        message.reply_text(
+            "❗️Savol juda qisqa.\n\n"
+            "Iltimos, to‘liq IELTS Writing Task 2 savolini yuboring."
+        )
+        return WAITING_FOR_TOPIC
+
+    # store topic temporarily
+    context.user_data["writing_task2_topic"] = topic
+
+    message.reply_text(
+        "✅ Savol qabul qilindi.\n\n"
+        "Endi ushbu savol bo‘yicha yozgan inshongizni yuboring.\n"
+        "❗️Kamida ~80 so‘z."
     )
     return WAITING_FOR_ESSAY
 
@@ -129,20 +170,24 @@ def receive_essay(update: Update, context: CallbackContext):
     if not message or not message.text or not user:
         return WAITING_FOR_ESSAY
 
-    # ✅ ADD: HARD DB STATE CHECK (critical)
+    # DB state check
     if get_checker_mode(user.id) != "writing_task2":
-        # Conversation state may exist, but DB says NO
         return ConversationHandler.END
+
+    topic = context.user_data.get("writing_task2_topic")
+    if not topic:
+        message.reply_text("❗️Avval savolni yuboring.")
+        return WAITING_FOR_TOPIC
 
     essay = message.text.strip()
 
     if len(essay.split()) < 80:
         message.reply_text(
-            "❗️Matn juda qisqa. Iltimos, to‘liq IELTS Writing Task 2 inshosini yuboring."
+            "❗️Matn juda qisqa.\n\n"
+            "Iltimos, to‘liq IELTS Writing Task 2 inshosini yuboring."
         )
         return WAITING_FOR_ESSAY
 
-    # IMPORTANT: send immediately (UX + Telegram keep-alive)
     message.reply_text("⏳ Insho tahlil qilinmoqda, iltimos kuting...")
 
     try:
@@ -150,9 +195,12 @@ def receive_essay(update: Update, context: CallbackContext):
             model="gpt-5.2",
             input=[
                 {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": essay},
+                {
+                    "role": "user",
+                    "content": f"IELTS Writing Task 2 Question:\n{topic}\n\nStudent Essay:\n{essay}",
+                },
             ],
-            max_output_tokens=500,
+            max_output_tokens=600,
         )
 
         output_text = (response.output_text or "").strip()
@@ -165,8 +213,8 @@ def receive_essay(update: Update, context: CallbackContext):
         )
 
     finally:
-        # ✅ ADD: always clear checker mode
         clear_checker_mode(user.id)
+        context.user_data.pop("writing_task2_topic", None)
 
     return ConversationHandler.END
 
@@ -174,9 +222,9 @@ def receive_essay(update: Update, context: CallbackContext):
 def cancel(update: Update, context: CallbackContext):
     user = update.effective_user
     if user:
-        # ✅ ADD: clear checker mode on cancel
         clear_checker_mode(user.id)
 
+    context.user_data.pop("writing_task2_topic", None)
     update.message.reply_text("❌ Bekor qilindi.")
     return ConversationHandler.END
 
@@ -191,6 +239,9 @@ def register(dispatcher):
     conv = ConversationHandler(
         entry_points=[CommandHandler("check_writing2", start_check)],
         states={
+            WAITING_FOR_TOPIC: [
+                MessageHandler(Filters.text & ~Filters.command, receive_topic)
+            ],
             WAITING_FOR_ESSAY: [
                 MessageHandler(Filters.text & ~Filters.command, receive_essay)
             ],
@@ -199,7 +250,6 @@ def register(dispatcher):
         allow_reentry=False,
     )
 
-    # ✅ ADD: explicit group so gate (group=1) can run first
     dispatcher.add_handler(conv, group=2)
 
 
