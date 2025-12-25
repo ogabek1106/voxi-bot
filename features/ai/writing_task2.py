@@ -6,9 +6,9 @@ IELTS Writing Task 2 AI checker (FREE MODE, command-based)
 Flow:
 1) User sends /check_writing2
 2) Bot asks for TASK QUESTION (topic)
-3) User sends topic
+3) User sends topic (TEXT or IMAGE)
 4) Bot asks for essay
-5) User sends essay
+5) User sends essay (TEXT or IMAGE)
 6) Bot evaluates and replies in Uzbek
 """
 
@@ -131,6 +131,47 @@ def _send_long_message(message, text: str):
         )
 
 
+def _ocr_image_to_text(bot, photos):
+    """
+    OCR helper: reads text from Telegram image using OpenAI Vision.
+    """
+    try:
+        photo = photos[-1]  # highest resolution
+        file = bot.get_file(photo.file_id)
+        image_bytes = file.download_as_bytearray()
+
+        response = client.responses.create(
+            model="gpt-5.2",
+            input=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "input_text",
+                            "text": (
+                                "Extract ALL readable text from this image.\n"
+                                "Return ONLY the extracted text.\n"
+                                "Do NOT explain.\n"
+                                "Do NOT summarize."
+                            ),
+                        },
+                        {
+                            "type": "input_image",
+                            "image_bytes": bytes(image_bytes),
+                        },
+                    ],
+                }
+            ],
+            max_output_tokens=800,
+        )
+
+        return (response.output_text or "").strip()
+
+    except Exception:
+        logger.exception("OCR failed")
+        return ""
+
+
 # ---------- Handlers ----------
 
 def start_check(update: Update, context: CallbackContext):
@@ -138,7 +179,6 @@ def start_check(update: Update, context: CallbackContext):
     if not user:
         return ConversationHandler.END
 
-    # prevent re-entry
     if get_checker_mode(user.id):
         update.message.reply_text(
             "⚠️ Siz allaqachon tekshiruv rejimidasiz.\n\n"
@@ -146,16 +186,12 @@ def start_check(update: Update, context: CallbackContext):
         )
         return WAITING_FOR_TOPIC
 
-    # enable checker mode
     set_checker_mode(user.id, "writing_task2")
-
-    # clear any previous data
     context.user_data.pop("writing_task2_topic", None)
 
     update.message.reply_text(
         "📝 *IELTS Writing Task 2 SAVOLINI (topic) yuboring.*\n\n"
-        "Masalan:\n"
-        "Some people believe that change is always positive...",
+        "Matn yoki rasm yuborishingiz mumkin.",
         parse_mode="Markdown"
     )
     return WAITING_FOR_TOPIC
@@ -165,28 +201,34 @@ def receive_topic(update: Update, context: CallbackContext):
     message = update.message
     user = update.effective_user
 
-    if not message or not message.text or not user:
+    if not message or not user:
         return WAITING_FOR_TOPIC
 
-    # DB state check
     if get_checker_mode(user.id) != "writing_task2":
         return ConversationHandler.END
 
-    topic = message.text.strip()
+    if message.text:
+        topic = message.text.strip()
+    elif message.photo:
+        message.reply_text("🖼️ Savol rasmdan o‘qilmoqda...", parse_mode="Markdown")
+        topic = _ocr_image_to_text(context.bot, message.photo)
+    else:
+        message.reply_text("❗️Savolni matn yoki rasm sifatida yuboring.")
+        return WAITING_FOR_TOPIC
 
     if len(topic.split()) < 5:
         message.reply_text(
-            "❗️Savol juda qisqa.\n\n"
-            "Iltimos, to‘liq IELTS Writing Task 2 savolini yuboring."
+            "❗️Savol juda qisqa yoki noto‘g‘ri o‘qildi.\n"
+            "Iltimos, aniqroq savol yuboring."
         )
         return WAITING_FOR_TOPIC
 
-    # store topic temporarily
     context.user_data["writing_task2_topic"] = topic
 
     message.reply_text(
         "✅ *Savol qabul qilindi.*\n\n"
-        "Endi ushbu savol bo‘yicha yozgan inshongizni yuboring.\n"
+        "Endi ushbu savol bo‘yicha inshoni yuboring.\n"
+        "Matn yoki rasm bo‘lishi mumkin.\n"
         "❗️Kamida ~80 so‘z.",
         parse_mode="Markdown"
     )
@@ -197,10 +239,9 @@ def receive_essay(update: Update, context: CallbackContext):
     message = update.message
     user = update.effective_user
 
-    if not message or not message.text or not user:
+    if not message or not user:
         return WAITING_FOR_ESSAY
 
-    # DB state check
     if get_checker_mode(user.id) != "writing_task2":
         return ConversationHandler.END
 
@@ -209,12 +250,19 @@ def receive_essay(update: Update, context: CallbackContext):
         message.reply_text("❗️Avval savolni yuboring.")
         return WAITING_FOR_TOPIC
 
-    essay = message.text.strip()
+    if message.text:
+        essay = message.text.strip()
+    elif message.photo:
+        message.reply_text("🖼️ Insho rasmdan o‘qilmoqda...", parse_mode="Markdown")
+        essay = _ocr_image_to_text(context.bot, message.photo)
+    else:
+        message.reply_text("❗️Inshoni matn yoki rasm sifatida yuboring.")
+        return WAITING_FOR_ESSAY
 
     if len(essay.split()) < 80:
         message.reply_text(
-            "❗️Matn juda qisqa.\n\n"
-            "Iltimos, to‘liq IELTS Writing Task 2 inshosini yuboring."
+            "❗️Matn juda qisqa yoki rasm noto‘g‘ri o‘qildi.\n"
+            "Iltimos, to‘liq inshoni yuboring."
         )
         return WAITING_FOR_ESSAY
 
@@ -244,9 +292,7 @@ def receive_essay(update: Update, context: CallbackContext):
 
     except Exception:
         logger.exception("check_writing2 AI error")
-        message.reply_text(
-            "❌ Xatolik yuz berdi. Iltimos, keyinroq yana urinib ko‘ring."
-        )
+        message.reply_text("❌ Xatolik yuz berdi. Keyinroq urinib ko‘ring.")
 
     finally:
         clear_checker_mode(user.id)
@@ -268,18 +314,14 @@ def cancel(update: Update, context: CallbackContext):
 # ---------- Registration ----------
 
 def register(dispatcher):
-    """
-    Auto-loaded by your feature loader.
-    DO NOT rename.
-    """
     conv = ConversationHandler(
         entry_points=[CommandHandler("check_writing2", start_check)],
         states={
             WAITING_FOR_TOPIC: [
-                MessageHandler(Filters.text & ~Filters.command, receive_topic)
+                MessageHandler(Filters.text | Filters.photo, receive_topic)
             ],
             WAITING_FOR_ESSAY: [
-                MessageHandler(Filters.text & ~Filters.command, receive_essay)
+                MessageHandler(Filters.text | Filters.photo, receive_essay)
             ],
         },
         fallbacks=[CommandHandler("cancel", cancel)],
@@ -290,7 +332,4 @@ def register(dispatcher):
 
 
 def setup(dispatcher):
-    """
-    Entry point for Voxi feature loader.
-    """
     register(dispatcher)
