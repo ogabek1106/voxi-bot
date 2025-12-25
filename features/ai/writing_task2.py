@@ -14,6 +14,7 @@ Flow:
 
 import logging
 import os
+import base64
 
 from telegram import Update
 from telegram.ext import (
@@ -134,11 +135,14 @@ def _send_long_message(message, text: str):
 def _ocr_image_to_text(bot, photos):
     """
     OCR helper: reads text from Telegram image using OpenAI Vision.
+    FIXED: uses base64 (JSON-safe).
     """
     try:
         photo = photos[-1]  # highest resolution
         file = bot.get_file(photo.file_id)
         image_bytes = file.download_as_bytearray()
+
+        image_b64 = base64.b64encode(image_bytes).decode("utf-8")
 
         response = client.responses.create(
             model="gpt-5.2",
@@ -157,7 +161,7 @@ def _ocr_image_to_text(bot, photos):
                         },
                         {
                             "type": "input_image",
-                            "image_bytes": bytes(image_bytes),
+                            "image_base64": image_b64,
                         },
                     ],
                 }
