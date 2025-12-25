@@ -1277,6 +1277,89 @@ def get_command_usage_stats():
         if conn:
             conn.close()
 
+# ---------- BOOK REQUEST STATS ----------
+
+def ensure_book_usage_table():
+    """
+    Stores every successful book request with timestamp.
+    One row = one book request.
+    """
+    conn = None
+    try:
+        conn = _connect()
+        with conn:
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS book_usage (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp INTEGER NOT NULL
+                );
+                """
+            )
+    except Exception as e:
+        logger.exception("ensure_book_usage_table failed: %s", e)
+    finally:
+        if conn:
+            conn.close()
+
+
+def log_book_request(book_code: str = "") -> None:
+    """
+    Log a successful book request.
+    book_code is ignored for now (future-proof).
+    """
+    ensure_book_usage_table()
+    conn = None
+    try:
+        conn = _connect()
+        with conn:
+            conn.execute(
+                """
+                INSERT INTO book_usage (timestamp)
+                VALUES (?);
+                """,
+                (int(time.time()),),
+            )
+    except Exception as e:
+        logger.exception("log_book_request failed: %s", e)
+    finally:
+        if conn:
+            conn.close()
+
+
+def get_total_book_request_stats():
+    """
+    Returns:
+    (last_24h_count, total_count)
+    """
+    ensure_book_usage_table()
+
+    now = int(time.time())
+    last_24h_border = now - 86400
+
+    conn = None
+    try:
+        conn = _connect()
+        cur = conn.execute(
+            """
+            SELECT
+                SUM(CASE WHEN timestamp >= ? THEN 1 ELSE 0 END) AS last_24h,
+                COUNT(*) AS total
+            FROM book_usage;
+            """,
+            (last_24h_border,),
+        )
+        row = cur.fetchone()
+        return int(row[0] or 0), int(row[1] or 0)
+    except Exception as e:
+        logger.exception("get_total_book_request_stats failed: %s", e)
+        return 0, 0
+    finally:
+        if conn:
+            conn.close()
+
+
+
 
 
 
@@ -1291,3 +1374,4 @@ ensure_test_scores_table()
 ensure_active_test_table()
 ensure_checker_state_table()
 ensure_command_usage_table()
+ensure_book_usage_table()
