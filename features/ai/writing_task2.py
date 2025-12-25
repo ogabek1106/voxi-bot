@@ -73,6 +73,22 @@ FREE MODE:
 - Do NOT rewrite the essay.
 """
 
+# ---------- Helpers ----------
+
+MAX_TELEGRAM_LEN = 4000
+
+
+def _send_long_message(message, text: str):
+    """
+    Safely send long text by splitting into Telegram-sized chunks.
+    """
+    if not text:
+        return
+
+    for i in range(0, len(text), MAX_TELEGRAM_LEN):
+        message.reply_text(text[i:i + MAX_TELEGRAM_LEN])
+
+
 # ---------- Handlers ----------
 
 def start_check(update: Update, context: CallbackContext):
@@ -84,15 +100,20 @@ def start_check(update: Update, context: CallbackContext):
 
 
 def receive_essay(update: Update, context: CallbackContext):
-    essay = update.message.text.strip()
+    message = update.message
+    if not message or not message.text:
+        return WAITING_FOR_ESSAY
+
+    essay = message.text.strip()
 
     if len(essay.split()) < 80:
-        update.message.reply_text(
+        message.reply_text(
             "❗️Matn juda qisqa. Iltimos, to‘liq IELTS Writing Task 2 inshosini yuboring."
         )
         return WAITING_FOR_ESSAY
 
-    update.message.reply_text("⏳ Insho tahlil qilinmoqda, iltimos kuting...")
+    # IMPORTANT: send immediately (UX + Telegram keep-alive)
+    message.reply_text("⏳ Insho tahlil qilinmoqda, iltimos kuting...")
 
     try:
         response = client.responses.create(
@@ -104,11 +125,12 @@ def receive_essay(update: Update, context: CallbackContext):
             max_output_tokens=500,
         )
 
-        update.message.reply_text(response.output_text.strip())
+        output_text = (response.output_text or "").strip()
+        _send_long_message(message, output_text)
 
     except Exception:
         logger.exception("check_writing2 AI error")
-        update.message.reply_text(
+        message.reply_text(
             "❌ Xatolik yuz berdi. Iltimos, keyinroq yana urinib ko‘ring."
         )
 
@@ -146,4 +168,3 @@ def setup(dispatcher):
     Entry point for Voxi feature loader.
     """
     register(dispatcher)
-
