@@ -140,3 +140,10 @@ def register(dispatcher):
 
     dispatcher.add_handler(conv)
 
+
+def setup(dispatcher):
+    """
+    Entry point for Voxi feature loader.
+    """
+    register(dispatcher)
+
