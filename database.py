@@ -1093,8 +1093,103 @@ def get_active_test():
         if conn:
             conn.close()
 
+# ---------- AI CHECKER STATE ----------
 
+def ensure_checker_state_table():
+    """
+    Stores current AI checking mode per user.
+    One row = one active checker session.
+    """
+    conn = None
+    try:
+        conn = _connect()
+        with conn:
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS checker_state (
+                    user_id INTEGER PRIMARY KEY,
+                    mode TEXT NOT NULL,
+                    started_at INTEGER
+                );
+                """
+            )
+    except Exception as e:
+        logger.exception("ensure_checker_state_table failed: %s", e)
+    finally:
+        if conn:
+            conn.close()
 
+def set_checker_mode(user_id: int, mode: str) -> bool:
+    """
+    Enable AI checker mode for a user.
+    """
+    ensure_checker_state_table()
+    conn = None
+    try:
+        conn = _connect()
+        with conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO checker_state
+                (user_id, mode, started_at)
+                VALUES (?, ?, ?);
+                """,
+                (int(user_id), mode, int(time.time())),
+            )
+        return True
+    except Exception as e:
+        logger.exception("set_checker_mode failed for %s: %s", user_id, e)
+        return False
+    finally:
+        if conn:
+            conn.close()
+
+def get_checker_mode(user_id: int) -> Optional[str]:
+    """
+    Return current checker mode for user or None.
+    """
+    ensure_checker_state_table()
+    conn = None
+    try:
+        conn = _connect()
+        cur = conn.execute(
+            """
+            SELECT mode
+            FROM checker_state
+            WHERE user_id = ?
+            LIMIT 1;
+            """,
+            (int(user_id),),
+        )
+        row = cur.fetchone()
+        return row[0] if row else None
+    except Exception as e:
+        logger.exception("get_checker_mode failed for %s: %s", user_id, e)
+        return None
+    finally:
+        if conn:
+            conn.close()
+
+def clear_checker_mode(user_id: int) -> bool:
+    """
+    Disable AI checker mode for a user.
+    """
+    ensure_checker_state_table()
+    conn = None
+    try:
+        conn = _connect()
+        with conn:
+            conn.execute(
+                "DELETE FROM checker_state WHERE user_id = ?;",
+                (int(user_id),),
+            )
+        return True
+    except Exception as e:
+        logger.exception("clear_checker_mode failed for %s: %s", user_id, e)
+        return False
+    finally:
+        if conn:
+            conn.close()
 
 
 # ensure DB quickly on import (best-effort)
@@ -1106,4 +1201,4 @@ ensure_test_questions_table()
 ensure_test_answers_table()
 ensure_test_scores_table()
 ensure_active_test_table()
-
+ensure_checker_state_table()
