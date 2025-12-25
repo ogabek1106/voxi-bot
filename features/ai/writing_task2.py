@@ -39,8 +39,8 @@ logger = logging.getLogger(__name__)
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 # ---------- States ----------
-WAITING_FOR_TOPIC = 0        # ✅ ADD
-WAITING_FOR_ESSAY = 1        # already existed
+WAITING_FOR_TOPIC = 0
+WAITING_FOR_ESSAY = 1
 
 # ---------- Prompt ----------
 SYSTEM_PROMPT = """
@@ -58,7 +58,7 @@ Your task:
 - If the essay does not fully answer the question, say it clearly.
 
 Evaluation rules:
-- Assess based on these 4 criteria only:
+- Assess based ONLY on these 4 criteria internally:
   1) Task Response
   2) Coherence and Cohesion
   3) Lexical Resource
@@ -71,20 +71,48 @@ Language rules:
   - Showing corrected examples
 - Do NOT translate the whole essay.
 
-Output rules:
-- Be clear, calm, and teacher-like.
-- Do NOT use emojis.
-- Do NOT mention AI, model, or OpenAI.
-- Output must be STRUCTURALLY FORMATTED.
+IMPORTANT OUTPUT RULES (STRICT):
+- You MUST output the answer using EXACTLY the following FIXED STRUCTURE.
+- Section titles, wording, emojis, and order MUST NOT be changed.
+- Section titles MUST be bold.
+- You MUST NOT add any extra sections.
+- You MUST NOT remove any section.
+- You MUST NOT add explanations outside the sections.
+- ONLY the <content> inside sections may change.
+
+EXACT OUTPUT TEMPLATE (USE THIS VERBATIM):
+
+📊 **Umumiy taxminiy band (range):**
+<content>
+
+🌟 **Sizning ustun tarafingiz:**
+<content>
+
+❗ **Muhim xatolar:**
+<content>
+
+📝 **So‘z yozilishidagi / tanlashdagi xatolar:**
+<content>
+
+🔎 **Grammatik xatolar:**
+<content>
+
+FREE MODE LIMITS (MANDATORY):
+- Band: range only (e.g. 5.0–5.5), 1 line
+- Strength: max 1–2 short sentences
+- Muhim xatolar: max 2 items
+- Vocabulary errors: max 2 examples (wrong → correct)
+- Grammar: list of error types only
+- Do NOT rewrite the essay
+- Do NOT give more than requested
+
+Tone rules:
+- Calm, teacher-like, respectful
+- No exaggeration
+- No praise without reason
 
 IMPORTANT:
 - This is an ESTIMATED band score, not official.
-
-FREE MODE:
-- Give only a band RANGE (example: 6.0–6.5).
-- List maximum 2 important mistakes.
-- Give maximum 2 improvement tips.
-- Do NOT rewrite the essay.
 """
 
 # ---------- Helpers ----------
@@ -197,7 +225,10 @@ def receive_essay(update: Update, context: CallbackContext):
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {
                     "role": "user",
-                    "content": f"IELTS Writing Task 2 Question:\n{topic}\n\nStudent Essay:\n{essay}",
+                    "content": (
+                        f"IELTS Writing Task 2 Question:\n{topic}\n\n"
+                        f"Student Essay:\n{essay}"
+                    ),
                 },
             ],
             max_output_tokens=600,
