@@ -153,7 +153,7 @@ def start_check(update: Update, context: CallbackContext):
     context.user_data.pop("writing_task2_topic", None)
 
     update.message.reply_text(
-        "📝 IELTS Writing Task 2 SAVOLINI (topic) yuboring.\n\n"
+        "📝 *IELTS Writing Task 2 SAVOLINI (topic) yuboring.*\n\n"
         "Masalan:\n"
         "Some people believe that change is always positive..."
     )
@@ -184,7 +184,7 @@ def receive_topic(update: Update, context: CallbackContext):
     context.user_data["writing_task2_topic"] = topic
 
     message.reply_text(
-        "✅ Savol qabul qilindi.\n\n"
+        "✅ *Savol qabul qilindi.*\n\n"
         "Endi ushbu savol bo‘yicha yozgan inshongizni yuboring.\n"
         "❗️Kamida ~80 so‘z."
     )
@@ -216,7 +216,7 @@ def receive_essay(update: Update, context: CallbackContext):
         )
         return WAITING_FOR_ESSAY
 
-    message.reply_text("⏳ Insho tahlil qilinmoqda, iltimos kuting...")
+    message.reply_text("*⏳ Insho tahlil qilinmoqda, iltimos kuting...*")
 
     try:
         response = client.responses.create(
