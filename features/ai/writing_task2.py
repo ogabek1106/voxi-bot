@@ -24,6 +24,9 @@ from telegram.ext import (
 
 from openai import OpenAI
 
+# ✅ ADD: checker state DB helpers
+from database import set_checker_mode, clear_checker_mode
+
 logger = logging.getLogger(__name__)
 
 # ---------- OpenAI ----------
@@ -92,6 +95,11 @@ def _send_long_message(message, text: str):
 # ---------- Handlers ----------
 
 def start_check(update: Update, context: CallbackContext):
+    user = update.effective_user
+    if user:
+        # ✅ ADD: enable checker mode
+        set_checker_mode(user.id, "writing_task2")
+
     update.message.reply_text(
         "✍️ IELTS Writing Task 2 inshongizni yuboring.\n\n"
         "❗️Faqat to‘liq insho yuboring (kamida ~80 so‘z)."
@@ -101,6 +109,8 @@ def start_check(update: Update, context: CallbackContext):
 
 def receive_essay(update: Update, context: CallbackContext):
     message = update.message
+    user = update.effective_user
+
     if not message or not message.text:
         return WAITING_FOR_ESSAY
 
@@ -134,10 +144,20 @@ def receive_essay(update: Update, context: CallbackContext):
             "❌ Xatolik yuz berdi. Iltimos, keyinroq yana urinib ko‘ring."
         )
 
+    finally:
+        # ✅ ADD: always clear checker mode
+        if user:
+            clear_checker_mode(user.id)
+
     return ConversationHandler.END
 
 
 def cancel(update: Update, context: CallbackContext):
+    user = update.effective_user
+    if user:
+        # ✅ ADD: clear checker mode on cancel
+        clear_checker_mode(user.id)
+
     update.message.reply_text("❌ Bekor qilindi.")
     return ConversationHandler.END
 
