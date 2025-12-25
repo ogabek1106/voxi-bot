@@ -82,19 +82,19 @@ IMPORTANT OUTPUT RULES (STRICT):
 
 EXACT OUTPUT TEMPLATE (USE THIS VERBATIM):
 
-📊 **Umumiy taxminiy band (range):**
+📊 *Umumiy taxminiy band (range):*
 <content>
 
-🌟 **Sizning ustun tarafingiz:**
+🌟 *Sizning ustun tarafingiz:*
 <content>
 
-❗ **Muhim xatolar:**
+❗ *Muhim xatolar:*
 <content>
 
-📝 **So‘z yozilishidagi / tanlashdagi xatolar:**
+📝 *So‘z yozilishidagi / tanlashdagi xatolar:*
 <content>
 
-🔎 **Grammatik xatolar:**
+🔎 *Grammatik xatolar:*
 <content>
 
 FREE MODE LIMITS (MANDATORY):
