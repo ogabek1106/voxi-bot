@@ -323,12 +323,19 @@ def register(dispatcher):
         entry_points=[CommandHandler("check_writing2", start_check)],
         states={
             WAITING_FOR_TOPIC: [
-                MessageHandler(Filters.text | Filters.photo, receive_topic)
+                MessageHandler(
+                    (Filters.text & ~Filters.command) | Filters.photo,
+                    receive_topic
+                )
             ],
             WAITING_FOR_ESSAY: [
-                MessageHandler(Filters.text | Filters.photo, receive_essay)
+                MessageHandler(
+                    (Filters.text & ~Filters.command) | Filters.photo,
+                    receive_essay
+                )
             ],
         },
+
         fallbacks=[CommandHandler("cancel", cancel)],
         allow_reentry=False,
     )
