@@ -31,10 +31,10 @@ def main():
     dp = updater.dispatcher
 
     # 🚪 GLOBAL COMMAND DOOR (MUST BE FIRST)
-    dp.add_handler(
-        MessageHandler(Filters.command, track_command),
-        group=0
-    )
+    #dp.add_handler(
+    #    MessageHandler(Filters.command, track_command),
+    #    group=0
+    #)
 
     # core handlers (unchanged)
     dp.add_handler(CommandHandler("start", handlers.start_handler, pass_args=True))
