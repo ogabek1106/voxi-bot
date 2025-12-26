@@ -50,6 +50,9 @@ active_bridges: Dict[int, Dict] = {}
 # user_id warned before bridge
 pre_bridge_warned = set()
 
+# ✅ users who were ACTUALLY invited to contact admin
+contact_invited_users = set()
+
 
 # ---------- helpers ----------
 
@@ -149,6 +152,10 @@ def contact_decision(update: Update, context: CallbackContext):
 
     try:
         context.bot.send_message(chat_id=user_id, text=winner_text, reply_markup=kb)
+
+        # ✅ mark user as invited (CRITICAL FIX)
+        contact_invited_users.add(user_id)
+
         query.edit_message_text("✅ Winner message sent to user.")
         logger.info("Winner message sent admin=%s user=%s", admin_id, user_id)
     except Exception as e:
@@ -249,8 +256,12 @@ def relay_messages(update: Update, context: CallbackContext):
             logger.info("RELAY user=%s -> admin=%s msg_id=%s", user.id, admin_id, msg.message_id)
             return
 
-    # Extra 4 — user talks before bridge (warn once)
-    if not _is_admin(user.id) and user.id not in pre_bridge_warned:
+    # ⚠️ warn ONLY if user was ACTUALLY invited
+    if (
+        not _is_admin(user.id)
+        and user.id in contact_invited_users
+        and user.id not in pre_bridge_warned
+    ):
         update.message.reply_text("❗ Admin hali bog‘lanmadi. Tugmani bosing.")
         pre_bridge_warned.add(user.id)
 
