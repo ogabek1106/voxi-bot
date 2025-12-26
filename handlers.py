@@ -175,8 +175,6 @@ def start_handler(update: Update, context: CallbackContext):
     if not require_subscription(update, context):
         return
 
-    log_command_use("/start")  # ✅ ADD THIS LINE
-
     # 🔴 BLOCK /start logic during admin conversations
     if context.user_data:
         return
