@@ -6,6 +6,7 @@ from telegram.ext import CallbackQueryHandler
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
 import handlers
 from features.sub_check import check_subscription_callback
+from features.track_commands import track_command   # ✅ ADD THIS
 
 # import our features autoloader (must exist: features/__init__.py with register_all_features)
 try:
@@ -28,6 +29,12 @@ if not TOKEN:
 def main():
     updater = Updater(TOKEN, use_context=True)
     dp = updater.dispatcher
+
+    # 🚪 GLOBAL COMMAND DOOR (MUST BE FIRST)
+    dp.add_handler(
+        MessageHandler(Filters.command, track_command),
+        group=0
+    )
 
     # core handlers (unchanged)
     dp.add_handler(CommandHandler("start", handlers.start_handler, pass_args=True))
