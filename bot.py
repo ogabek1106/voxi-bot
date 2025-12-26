@@ -60,5 +60,6 @@ def main():
     updater.idle()
 
 
+# ENTRY POINT
 if __name__ == "__main__":
     main()
