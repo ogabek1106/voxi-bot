@@ -10,6 +10,7 @@ from database import log_book_request
 
 from features.sub_check import require_subscription
 from features.get_test import get_test
+from features.ielts_checkup_ui import _main_user_keyboard
 
 
 logger = logging.getLogger(__name__)
@@ -209,7 +210,9 @@ def start_handler(update: Update, context: CallbackContext):
     # use user's first name (or fallback 'do‘st')
     name = (user.first_name or "do‘st") if user else "do‘st"
     update.message.reply_text(
-        f"Assalomu alaykum, {name}!\nMenga faqat kitob kodini yuboring (masalan: 3)"
+        f"Assalomu alaykum, {name}!\n"
+        "Menga kitob kodini yuboring yoki kerakli bo'limni tanlang 👇",
+        reply_markup=_main_user_keyboard()
     )
 
 
