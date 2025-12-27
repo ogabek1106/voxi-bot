@@ -212,7 +212,7 @@ def start_handler(update: Update, context: CallbackContext):
     update.message.reply_text(
         f"*Assalomu alaykum*, {name}!\n"
         "Menga *kitob kodini* yuboring yoki kerakli *bo'limni* tanlang 👇",
-        reply_markup=_main_user_keyboard()
+        reply_markup=_main_user_keyboard(),
         parse_mode="Markdown"        
     )
 
