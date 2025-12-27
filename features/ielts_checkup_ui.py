@@ -17,6 +17,7 @@ IMPORTANT:
 """
 
 import logging
+from database import set_checker_mode, clear_checker_mode
 
 from telegram import (
     Update,
@@ -42,7 +43,7 @@ def _main_user_keyboard():
     )
 
 
-# ✅ NEW: IELTS SKILLS — REPLY KEYBOARD (BOTTOM BAR)
+# IELTS skills (bottom bar)
 def _ielts_skills_reply_keyboard():
     return ReplyKeyboardMarkup(
         [
@@ -50,6 +51,14 @@ def _ielts_skills_reply_keyboard():
             ["🎧 Listening", "📖 Reading"],
             ["⬅️ Back"],
         ],
+        resize_keyboard=True
+    )
+
+
+# Cancel-only keyboard (checker mode)
+def _checker_cancel_keyboard():
+    return ReplyKeyboardMarkup(
+        [["❌ Cancel"]],
         resize_keyboard=True
     )
 
@@ -77,30 +86,65 @@ def open_ielts_checkup(update: Update, context: CallbackContext):
     update.message.reply_text(
         "🎓 *IELTS Check Up*\n"
         "Choose the skill you want to check.",
-        reply_markup=_ielts_skills_reply_keyboard(),  # ✅ REPLY KEYBOARD
+        reply_markup=_ielts_skills_reply_keyboard(),
         parse_mode="Markdown"
     )
 
 
-# ✅ NEW: HANDLE REPLY KEYBOARD BUTTONS
 def ielts_skill_text_handler(update: Update, context: CallbackContext):
+    """
+    Handles ALL reply-keyboard actions for IELTS Check Up
+    """
     if not update.message or not update.message.text:
         return
 
     text = update.message.text.strip()
+    user = update.effective_user
 
+    # ❌ Cancel button (EXACTLY like /cancel)
+    if text == "❌ Cancel":
+        if user:
+            clear_checker_mode(user.id)
+
+        update.message.reply_text(
+            "❌ Tekshiruv bekor qilindi.",
+            reply_markup=_main_user_keyboard()
+        )
+        return
+
+    # ✍️ Writing — ENTER CHECKER MODE (same as /check_writing2)
     if text == "✍️ Writing":
+        if not user:
+            return
+
+        # 1) Explicitly enter checker mode (GLOBAL truth)
+        set_checker_mode(user.id, "writing_task2")
+
+        # 2) Lock UI to Cancel-only
+        update.message.reply_text(
+            "✍️ *IELTS Writing Task 2 tekshiruv rejimi boshlandi.*\n\n"
+            "❌ Bekor qilish uchun Cancel tugmasini bosing yoki /cancel yuboring.",
+            reply_markup=_checker_cancel_keyboard(),
+            parse_mode="Markdown"
+        )
+
+        # 3) Start the real Writing checker
         from features.ai.writing_task2 import start_check
         start_check(update, context)
+        return
 
-    elif text in {"🗣️ Speaking", "🎧 Listening", "📖 Reading"}:
+    # Other skills (future)
+    if text in {"🗣️ Speaking", "🎧 Listening", "📖 Reading"}:
         update.message.reply_text("🚧 This section is coming soon.")
+        return
 
-    elif text == "⬅️ Back":
+    # Back to main menu
+    if text == "⬅️ Back":
         update.message.reply_text(
             "⬅️ Back to main menu.",
             reply_markup=_main_user_keyboard()
         )
+        return
 
 
 # 🔒 OLD INLINE CALLBACK HANDLER (KEPT, NOT USED — DO NOT REMOVE)
@@ -139,18 +183,18 @@ def register(dispatcher):
         group=1
     )
 
-    # ✅ NEW: ReplyKeyboard skill handler
+    # ReplyKeyboard skill handler
     dispatcher.add_handler(
         MessageHandler(
             Filters.text & Filters.regex(
-                "^(✍️ Writing|🗣️ Speaking|🎧 Listening|📖 Reading|⬅️ Back)$"
+                "^(✍️ Writing|🗣️ Speaking|🎧 Listening|📖 Reading|⬅️ Back|❌ Cancel)$"
             ),
             ielts_skill_text_handler
         ),
         group=1
     )
 
-    # 🔒 OLD inline handler (kept, not active unless inline used)
+    # Old inline handler (kept for compatibility)
     dispatcher.add_handler(
         CallbackQueryHandler(
             ielts_callbacks,
@@ -162,4 +206,3 @@ def register(dispatcher):
 
 def setup(dispatcher):
     register(dispatcher)
-
