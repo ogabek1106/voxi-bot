@@ -328,11 +328,8 @@ def register(dispatcher):
     conv = ConversationHandler(
         entry_points=[
             CommandHandler("check_writing2", start_check),
-            MessageHandler(
-                Filters.text & Filters.regex("^✍️ Writing$"),
-                start_check
-            ),
         ],
+
         states={
             WAITING_FOR_TOPIC: [
                 MessageHandler(
