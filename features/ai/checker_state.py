@@ -56,11 +56,12 @@ def checker_gate(update: Update, context: CallbackContext):
 
     text = message.text.strip() if message.text else ""
 
-    # ✅ HANDLE /cancel HERE (FIX)
-    if text.startswith("/cancel"):
+    # ✅ HANDLE /cancel AND ❌ Cancel HERE
+    if text.startswith("/cancel") or text == "❌ Cancel":
         clear_checker_mode(user_id)
         message.reply_text("❌ AI tekshiruv rejimi bekor qilindi.")
         raise DispatcherHandlerStop()
+
 
     # ❌ Block ALL other commands
     if text.startswith("/"):
