@@ -328,6 +328,11 @@ def register(dispatcher):
     conv = ConversationHandler(
         entry_points=[
             CommandHandler("check_writing2", start_check),
+            # ✅ ADD THIS
+            MessageHandler(
+                Filters.regex("^✍️ Writing$"),
+                start_check
+            ),
         ],
 
         states={
