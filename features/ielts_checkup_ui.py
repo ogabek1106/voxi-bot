@@ -32,7 +32,7 @@ from telegram.ext import (
 )
 
 # 🔗 Reuse existing Writing checker entry point
-from features.ai.check_writing2 import start_check
+# from features.ai.import start_check
 
 logger = logging.getLogger(__name__)
 
@@ -87,7 +87,7 @@ def ielts_callbacks(update: Update, context: CallbackContext):
     update.message = query.message
 
     if data == "ielts_writing":
-        # 🔥 Start Writing checker WITHOUT showing /command
+        from features.ai.check_writing2 import start_check
         start_check(update, context)
 
     elif data in {"ielts_speaking", "ielts_listening", "ielts_reading"}:
@@ -126,3 +126,4 @@ def register(dispatcher):
 
 def setup(dispatcher):
     register(dispatcher)
+
