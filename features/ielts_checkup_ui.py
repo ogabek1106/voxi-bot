@@ -120,12 +120,10 @@ def ielts_skill_text_handler(update: Update, context: CallbackContext):
         # 1) Explicitly enter checker mode (GLOBAL truth)
         set_checker_mode(user.id, "writing_task2")
 
-        # 2) Lock UI to Cancel-only
+        # 2) Lock UI to Cancel-only (UI responsibility ONLY)
         update.message.reply_text(
-            "✍️ *IELTS Writing Task 2 tekshiruv rejimi boshlandi.*\n\n"
-            "❌ Bekor qilish uchun Cancel tugmasini bosing yoki /cancel yuboring.",
-            reply_markup=_checker_cancel_keyboard(),
-            parse_mode="Markdown"
+            "✍️ Writing",
+            reply_markup=_checker_cancel_keyboard()
         )
 
         # 3) Start the real Writing checker
@@ -206,5 +204,6 @@ def register(dispatcher):
 
 def setup(dispatcher):
     register(dispatcher)
+
 
 
