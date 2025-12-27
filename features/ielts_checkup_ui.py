@@ -47,8 +47,8 @@ def _main_user_keyboard():
 def _ielts_skills_reply_keyboard():
     return ReplyKeyboardMarkup(
         [
-            ["✍️ Writing", "🗣️ Speaking"],
-            ["🎧 Listening", "📖 Reading"],
+            ["✍️ Writing", "🗣️ Speaking (Coming soon)"],
+            ["🎧 Listening (Coming soon)", "📖 Reading (Coming soon)"],
             ["⬅️ Back"],
         ],
         resize_keyboard=True
@@ -204,6 +204,7 @@ def register(dispatcher):
 
 def setup(dispatcher):
     register(dispatcher)
+
 
 
 
