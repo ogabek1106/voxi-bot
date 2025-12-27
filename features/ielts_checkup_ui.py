@@ -118,7 +118,7 @@ def ielts_skill_text_handler(update: Update, context: CallbackContext):
             return
 
         # 1) Explicitly enter checker mode (GLOBAL truth)
-        # set_checker_mode(user.id, "writing_task2")
+        set_checker_mode(user.id, "writing_task2")
 
         # 2) Lock UI to Cancel-only
         update.message.reply_text(
@@ -206,4 +206,5 @@ def register(dispatcher):
 
 def setup(dispatcher):
     register(dispatcher)
+
 
