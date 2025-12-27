@@ -118,7 +118,7 @@ def ielts_skill_text_handler(update: Update, context: CallbackContext):
             return
 
         # 1) Explicitly enter checker mode (GLOBAL truth)
-        set_checker_mode(user.id, "writing_task2")
+        # set_checker_mode(user.id, "writing_task2")
 
         # 2) Lock UI to Cancel-only (UI responsibility ONLY)
         update.message.reply_text(
@@ -127,8 +127,8 @@ def ielts_skill_text_handler(update: Update, context: CallbackContext):
         )
 
         # 3) Start the real Writing checker
-        from features.ai.writing_task2 import start_check
-        start_check(update, context)
+        # from features.ai.writing_task2 import start_check
+        # start_check(update, context)
         return
 
     # Other skills (future)
@@ -204,6 +204,7 @@ def register(dispatcher):
 
 def setup(dispatcher):
     register(dispatcher)
+
 
 
 
