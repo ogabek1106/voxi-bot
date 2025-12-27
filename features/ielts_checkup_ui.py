@@ -12,7 +12,7 @@ Flow:
 
 IMPORTANT:
 - NO commands are shown to user
-- Writing logic is reused from check_writing2.py
+- Writing logic is reused from writing_task2.py
 - This file contains UI ONLY
 """
 
@@ -90,7 +90,7 @@ def ielts_skill_text_handler(update: Update, context: CallbackContext):
     text = update.message.text.strip()
 
     if text == "✍️ Writing":
-        from features.ai.check_writing2 import start_check
+        from features.ai.writing_task2 import start_check
         start_check(update, context)
 
     elif text in {"🗣️ Speaking", "🎧 Listening", "📖 Reading"}:
@@ -114,7 +114,7 @@ def ielts_callbacks(update: Update, context: CallbackContext):
     update.message = query.message
 
     if data == "ielts_writing":
-        from features.ai.check_writing2 import start_check
+        from features.ai.writing_task2 import start_check
         start_check(update, context)
 
     elif data in {"ielts_speaking", "ielts_listening", "ielts_reading"}:
@@ -162,3 +162,4 @@ def register(dispatcher):
 
 def setup(dispatcher):
     register(dispatcher)
+
