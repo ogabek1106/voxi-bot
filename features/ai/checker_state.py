@@ -14,6 +14,7 @@ from typing import Optional
 from telegram import Update
 from telegram.ext import CallbackContext, MessageHandler, Filters
 from telegram.ext import DispatcherHandlerStop
+from features.ielts_checkup_ui import _main_user_keyboard
 
 from database import get_checker_mode, clear_checker_mode  # ✅ ADDED (DO NOT REMOVE get_checker_mode)
 
@@ -59,9 +60,11 @@ def checker_gate(update: Update, context: CallbackContext):
     # ✅ HANDLE /cancel AND ❌ Cancel HERE
     if text.startswith("/cancel") or text == "❌ Cancel":
         clear_checker_mode(user_id)
-        message.reply_text("❌ AI tekshiruv rejimi bekor qilindi.")
+        message.reply_text(
+            "❌ AI tekshiruv rejimi bekor qilindi.",
+            reply_markup=_main_user_keyboard()  # ✅ FIX: restore UI
+        )
         raise DispatcherHandlerStop()
-
 
     # ❌ Block ALL other commands
     if text.startswith("/"):
