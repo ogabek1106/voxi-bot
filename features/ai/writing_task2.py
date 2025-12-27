@@ -303,6 +303,12 @@ def receive_essay(update: Update, context: CallbackContext):
         clear_checker_mode(user.id)
         context.user_data.pop("writing_task2_topic", None)
 
+        from features.ielts_checkup_ui import _main_user_keyboard
+        message.reply_text(
+            "✅ Tekshiruv yakunlandi.",
+            reply_markup=_main_user_keyboard()
+        )
+
     return ConversationHandler.END
 
 
