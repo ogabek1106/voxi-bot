@@ -71,18 +71,19 @@ def checker_gate(update: Update, context: CallbackContext):
         message.reply_text(BLOCK_MESSAGE)
         raise DispatcherHandlerStop()
 
-    # ❌ Block non-text (photos, pdfs, voice, etc.)
-    if not message.text:
+    # ❌ Block unsupported message types (allow text & photos)
+    if not message.text and not message.photo:
         message.reply_text(BLOCK_MESSAGE)
         raise DispatcherHandlerStop()
-
-    # ❌ Block short text
-    if len(text) < MIN_TEXT_LEN:
+        
+    # ❌ Block short TEXT only (images are allowed)
+    if message.text and len(text) < MIN_TEXT_LEN:
         message.reply_text(
             "❗️Matn juda qisqa.\n\n"
             "Iltimos, to‘liq javob yuboring yoki /cancel ni bosing."
         )
         raise DispatcherHandlerStop()
+
 
     # ✅ Valid checker input → allow ONLY checker handlers
     logger.debug("checker_gate: passing to checker (%s)", mode)
