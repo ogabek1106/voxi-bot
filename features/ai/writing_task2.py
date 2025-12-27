@@ -1,4 +1,4 @@
-# features/ai/check_writing2.py
+# features/ai/writing_task2.py
 """
 /check_writing2
 IELTS Writing Task 2 AI checker (FREE MODE, command-based)
@@ -320,7 +320,13 @@ def cancel(update: Update, context: CallbackContext):
 
 def register(dispatcher):
     conv = ConversationHandler(
-        entry_points=[CommandHandler("check_writing2", start_check)],
+        entry_points=[
+            CommandHandler("check_writing2", start_check),
+            MessageHandler(
+                Filters.text & Filters.regex("^✍️ Writing$"),
+                start_check
+            ),
+        ],
         states={
             WAITING_FOR_TOPIC: [
                 MessageHandler(
