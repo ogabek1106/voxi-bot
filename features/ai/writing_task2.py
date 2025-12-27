@@ -184,12 +184,12 @@ def start_check(update: Update, context: CallbackContext):
     if not user:
         return ConversationHandler.END
 
-    if get_checker_mode(user.id):
-        update.message.reply_text(
-            "⚠️ Siz allaqachon tekshiruv rejimidasiz.\n\n"
-            "Iltimos, savolni yoki inshoni yuboring yoki /cancel ni bosing."
-        )
-        return WAITING_FOR_TOPIC
+    #if get_checker_mode(user.id):
+        #update.message.reply_text(
+            #"⚠️ Siz allaqachon tekshiruv rejimidasiz.\n\n"
+            #"Iltimos, savolni yoki inshoni yuboring yoki /cancel ni bosing."
+        #)
+        #return WAITING_FOR_TOPIC
 
     set_checker_mode(user.id, "writing_task2")
     context.user_data.pop("writing_task2_topic", None)
