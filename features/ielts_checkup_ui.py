@@ -122,7 +122,7 @@ def ielts_skill_text_handler(update: Update, context: CallbackContext):
 
         # 2) Lock UI to Cancel-only (UI responsibility ONLY)
         update.message.reply_text(
-            "✍️ IELTS Writing",
+            "✍️ Writing",
             reply_markup=_checker_cancel_keyboard()
         )
 
@@ -204,6 +204,7 @@ def register(dispatcher):
 
 def setup(dispatcher):
     register(dispatcher)
+
 
 
 
