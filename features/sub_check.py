@@ -50,12 +50,19 @@ def require_subscription(update, context) -> bool:
     # STORE USER INTENT (INTENT-BASED, SAFE)
     # ==================================================
     try:
-        # /start payload (deep links)
         args = getattr(context, "args", None)
+
+        # /start with payload
         if args:
             context.user_data["pending_action"] = {
                 "type": "start",
                 "payload": args[0]
+            }
+
+        # plain /start (NO payload)
+        elif update.message and update.message.text == "/start":
+            context.user_data["pending_action"] = {
+                "type": "start_plain"
             }
 
         # numeric input (book code)
@@ -64,6 +71,7 @@ def require_subscription(update, context) -> bool:
                 "type": "numeric",
                 "value": update.message.text.strip()
             }
+
     except Exception:
         pass
     # ==================================================
@@ -132,7 +140,7 @@ def check_subscription_callback(update, context):
         send_book_by_code(chat_id, pending["value"], context)
         return
 
-    # 🔹 PRIORITY 2: start payload
+    # 🔹 PRIORITY 2: start payload (/start something)
     if pending["type"] == "start":
         payload = pending["payload"].lower()
 
@@ -146,7 +154,12 @@ def check_subscription_callback(update, context):
             get_test(update, context)
             return
 
-        # Unknown payload → ignore safely
+        return
+
+    # 🔹 PRIORITY 3: plain /start
+    if pending["type"] == "start_plain":
+        from handlers import start_handler
+        start_handler(update, context)
         return
     # ==================================================
 
