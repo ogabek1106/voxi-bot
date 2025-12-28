@@ -177,7 +177,7 @@ def start_handler(update: Update, context: CallbackContext):
         return
 
     # 🔴 BLOCK /start logic during admin conversations
-    if context.user_data:
+    if context.user_data.get("admin_mode"):
         return
         
     args = context.args or []
