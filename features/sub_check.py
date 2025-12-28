@@ -31,7 +31,10 @@ def require_subscription(update, context) -> bool:
     """
     Universal guard.
     Returns True if user is subscribed.
-    Otherwise stores intent, shows subscribe UI, returns False.
+    Otherwise:
+      - stores user intent
+      - shows Uzbek subscribe UI
+      - returns False
     """
 
     user = update.effective_user
@@ -44,7 +47,7 @@ def require_subscription(update, context) -> bool:
         return True
 
     # ==================================================
-    # STORE USER INTENT (NO TEXT, NO FAKE COMMANDS)
+    # STORE USER INTENT (INTENT-BASED, SAFE)
     # ==================================================
     try:
         # /start payload (deep links)
@@ -66,14 +69,15 @@ def require_subscription(update, context) -> bool:
     # ==================================================
 
     text = (
-        "🔒 *Access restricted*\n\n"
-        "To use *Voxi Bot*, you must subscribe to our official channel.\n\n"
-        "👇 Join first, then press *Check subscription*"
+        "🔒 *Kirish cheklangan*\n\n"
+        "*Voxi Bot*dan foydalanish uchun rasmiy kanalimizga "
+        "obuna bo‘lishingiz kerak.\n\n"
+        "👇 Avval obuna bo‘ling, so‘ng qaytib kelib *Tekshirish* tugmasini bosing."
     )
 
     keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("📢 Subscribe", url="https://t.me/IELTSforeverybody")],
-        [InlineKeyboardButton("🔄 Check subscription", callback_data="check_sub")]
+        [InlineKeyboardButton("📢 Kanalga obuna bo‘lish", url="https://t.me/IELTSforeverybody")],
+        [InlineKeyboardButton("🔄 Obunani tekshirish", callback_data="check_sub")]
     ])
 
     if update.message:
@@ -98,20 +102,23 @@ def require_subscription(update, context) -> bool:
 # ==========================================================
 
 def check_subscription_callback(update, context):
-    """Handles 🔄 Check subscription button"""
+    """Handles 🔄 Obunani tekshirish tugmasi"""
 
     query = update.callback_query
     user_id = query.from_user.id
 
     if not is_subscribed(context.bot, user_id):
-        query.answer("❌ Still not subscribed")
+        query.answer("❌ Hali obuna bo‘linmagan")
         return
 
-    query.answer("✅ Subscription confirmed!")
-    query.message.reply_text("🎉 Access unlocked. Processing your request...")
+    query.answer("✅ Obuna tasdiqlandi!")
+    query.message.reply_text(
+        "🎉 Obuna muvaffaqiyatli!\n"
+        "⏳ So‘rov bajarilmoqda..."
+    )
 
     # ==================================================
-    # REPLAY STORED INTENT (NO FAKE UPDATES)
+    # REPLAY STORED INTENT (AUTO-RUN)
     # ==================================================
     pending = context.user_data.pop("pending_action", None)
     if not pending:
@@ -119,7 +126,7 @@ def check_subscription_callback(update, context):
 
     chat_id = query.message.chat_id
 
-    # 🔹 PRIORITY 1: numeric (book)
+    # 🔹 PRIORITY 1: numeric (book code)
     if pending["type"] == "numeric":
         from handlers import send_book_by_code
         send_book_by_code(chat_id, pending["value"], context)
