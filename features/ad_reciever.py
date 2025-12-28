@@ -37,15 +37,10 @@ AD_TEXT = (
 # ================== HANDLER ==================
 
 def ad_rec_handler(update: Update, context: CallbackContext):
-    """
-    Entry point for /ad_rec and /start ad_rec
-    """
-
     # 🔒 Subscription gate
     if not require_subscription(update, context):
         return
 
-    # ✅ Access granted
     if update.message:
         update.message.reply_text(
             AD_TEXT,
@@ -53,10 +48,10 @@ def ad_rec_handler(update: Update, context: CallbackContext):
         )
 
 
-# ================== REGISTRATION ==================
+# ================== ENTRYPOINT (IMPORTANT) ==================
 
-def register(dispatcher):
+def setup(dispatcher):
     """
-    Called by feature loader
+    Required by feature loader
     """
     dispatcher.add_handler(CommandHandler("ad_rec", ad_rec_handler))
