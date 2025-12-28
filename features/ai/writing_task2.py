@@ -180,16 +180,14 @@ def _ocr_image_to_text(bot, photos):
 # ---------- Handlers ----------
 
 def start_check(update: Update, context: CallbackContext):
+    # 🔒 SUBSCRIPTION GATE (CRITICAL)
+    from features.sub_check import require_subscription
+    if not require_subscription(update, context):
+        return ConversationHandler.END
+
     user = update.effective_user
     if not user:
         return ConversationHandler.END
-
-    #if get_checker_mode(user.id):
-        #update.message.reply_text(
-            #"⚠️ Siz allaqachon tekshiruv rejimidasiz.\n\n"
-            #"Iltimos, savolni yoki inshoni yuboring yoki /cancel ni bosing."
-        #)
-        #return WAITING_FOR_TOPIC
 
     set_checker_mode(user.id, "writing_task2")
     context.user_data.pop("writing_task2_topic", None)
