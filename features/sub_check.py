@@ -152,8 +152,8 @@ def check_subscription_callback(update, context):
 
     # 🔹 PRIORITY 3: plain /start
     if pending["type"] == "start_plain":
-        from handlers import start_handler
-        start_handler(update, context)
+        from handlers import _send_start_menu
+        _send_start_menu(update, context)
         return
     # ==================================================
 
