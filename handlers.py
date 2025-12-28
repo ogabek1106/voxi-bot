@@ -163,6 +163,27 @@ def _countdown_updater_thread(context: CallbackContext, chat_id: int, doc_msg_id
         time.sleep(sleep_for)
 
 
+def _send_start_menu(update: Update, context: CallbackContext):
+    """
+    Sends the main start greeting + keyboard.
+    Safe to call from messages AND callbacks.
+    """
+    user = update.effective_user
+    name = (user.first_name or "do‘st") if user else "do‘st"
+
+    msg = update.effective_message
+    if not msg:
+        return
+
+    msg.reply_text(
+        f"*Assalomu alaykum*, {name}!\n"
+        "Menga *kitob kodini* yuboring yoki kerakli *bo'limni* tanlang 👇",
+        reply_markup=_main_user_keyboard(),
+        parse_mode="Markdown"
+    )
+
+
+
 def start_handler(update: Update, context: CallbackContext):
     """Handles /start and deep links.
 
@@ -207,19 +228,6 @@ def start_handler(update: Update, context: CallbackContext):
         if payload.lower() == "ad_rec":
             from features.ad_reciever import ad_rec_handler
             return ad_rec_handler(update, context)
-
-
-    # No payload: regular /start invoked by user — keep original greeting behaviour.
-    user = update.effective_user
-    # use user's first name (or fallback 'do‘st')
-    name = (user.first_name or "do‘st") if user else "do‘st"
-    update.message.reply_text(
-        f"*Assalomu alaykum*, {name}!\n"
-        "Menga *kitob kodini* yuboring yoki kerakli *bo'limni* tanlang 👇",
-        reply_markup=_main_user_keyboard(),
-        parse_mode="Markdown"        
-    )
-
 
 def numeric_message_handler(update: Update, context: CallbackContext):
     # 🔒 subscription gate
