@@ -6,25 +6,32 @@ Used by ALL features that require EBAI channel subscription.
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CallbackQueryHandler
-
-from telegram import Update  # ✅ needed for replay
+from telegram import Update
 
 EBAI_CHANNEL = "@IELTSforeverybody"   # 🔁 change once, everywhere updated
 
+
+# ==========================================================
+# SUBSCRIPTION CHECK
+# ==========================================================
 
 def is_subscribed(bot, user_id: int) -> bool:
     try:
         member = bot.get_chat_member(EBAI_CHANNEL, user_id)
         return member.status in ("member", "administrator", "creator")
-    except:
+    except Exception:
         return False
 
+
+# ==========================================================
+# MAIN GATE
+# ==========================================================
 
 def require_subscription(update, context) -> bool:
     """
     Universal guard.
     Returns True if user is subscribed.
-    Sends block message and returns False otherwise.
+    Otherwise stores intent, shows subscribe UI, returns False.
     """
 
     user = update.effective_user
@@ -36,21 +43,27 @@ def require_subscription(update, context) -> bool:
     if is_subscribed(bot, user.id):
         return True
 
-    # ================================
-    # ✅ STORE PENDING ACTION
-    # ================================
+    # ==================================================
+    # STORE USER INTENT (NO TEXT, NO FAKE COMMANDS)
+    # ==================================================
     try:
         # /start payload (deep links)
         args = getattr(context, "args", None)
         if args:
-            context.user_data["pending_start_payload"] = args[0]
+            context.user_data["pending_action"] = {
+                "type": "start",
+                "payload": args[0]
+            }
 
-        # numeric input (books)
+        # numeric input (book code)
         elif update.message and update.message.text and update.message.text.strip().isdigit():
-            context.user_data["pending_numeric"] = update.message.text.strip()
+            context.user_data["pending_action"] = {
+                "type": "numeric",
+                "value": update.message.text.strip()
+            }
     except Exception:
         pass
-    # ================================
+    # ==================================================
 
     text = (
         "🔒 *Access restricted*\n\n"
@@ -80,6 +93,10 @@ def require_subscription(update, context) -> bool:
     return False
 
 
+# ==========================================================
+# CALLBACK: CHECK SUBSCRIPTION
+# ==========================================================
+
 def check_subscription_callback(update, context):
     """Handles 🔄 Check subscription button"""
 
@@ -93,37 +110,45 @@ def check_subscription_callback(update, context):
     query.answer("✅ Subscription confirmed!")
     query.message.reply_text("🎉 Access unlocked. Processing your request...")
 
-    # ================================
-    # ✅ REPLAY PENDING ACTION (WITH CORRECT PRIORITY)
-    # ================================
-    pending_start = context.user_data.pop("pending_start_payload", None)
-    pending_numeric = context.user_data.pop("pending_numeric", None)
-
-    # 🔹 PRIORITY 1: numeric intent (send book directly)
-    if pending_numeric:
-        from handlers import numeric_message_handler
-
-        fake_update = Update(
-            update.update_id,
-            message=query.message
-        )
-        fake_update.message.text = pending_numeric
-        fake_update.message.entities = []
-
-        numeric_message_handler(fake_update, context)
+    # ==================================================
+    # REPLAY STORED INTENT (NO FAKE UPDATES)
+    # ==================================================
+    pending = context.user_data.pop("pending_action", None)
+    if not pending:
         return
 
-    # 🔹 PRIORITY 2: deep-link payload (/start something)
-    if pending_start:
-        from handlers import start_handler
+    chat_id = query.message.chat_id
 
-        fake_update = Update(
-            update.update_id,
-            message=query.message
-        )
-        fake_update.message.text = f"/start {pending_start}"
-        fake_update.message.entities = []
-
-        start_handler(fake_update, context)
+    # 🔹 PRIORITY 1: numeric (book)
+    if pending["type"] == "numeric":
+        from handlers import send_book_by_code
+        send_book_by_code(chat_id, pending["value"], context)
         return
-    # ================================
+
+    # 🔹 PRIORITY 2: start payload
+    if pending["type"] == "start":
+        payload = pending["payload"].lower()
+
+        if payload == "ad_rec":
+            from features.ad_reciever import ad_rec_handler
+            ad_rec_handler(update, context)
+            return
+
+        if payload == "get_test":
+            from features.get_test import get_test
+            get_test(update, context)
+            return
+
+        # Unknown payload → ignore safely
+        return
+    # ==================================================
+
+
+# ==========================================================
+# HANDLER REGISTRATION
+# ==========================================================
+
+def setup(dispatcher):
+    dispatcher.add_handler(
+        CallbackQueryHandler(check_subscription_callback, pattern="^check_sub$")
+    )
