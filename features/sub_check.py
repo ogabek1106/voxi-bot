@@ -53,7 +53,7 @@ def require_subscription(update, context) -> bool:
         args = getattr(context, "args", None)
 
         # /start with payload
-        if args:
+        if update.message and update.message.text.startswith("/start") and args:
             context.user_data["pending_action"] = {
                 "type": "start",
                 "payload": args[0]
