@@ -228,6 +228,9 @@ def start_handler(update: Update, context: CallbackContext):
         if payload.lower() == "ad_rec":
             from features.ad_reciever import ad_rec_handler
             return ad_rec_handler(update, context)
+            # ✅ plain /start (no payload)
+    _send_start_menu(update, context)
+    return
 
 def numeric_message_handler(update: Update, context: CallbackContext):
     # 🔒 subscription gate
@@ -235,7 +238,7 @@ def numeric_message_handler(update: Update, context: CallbackContext):
         return
 
     # 🔴 BLOCK numeric handler during admin conversations (e.g. /create_test)
-    if context.user_data:
+    if context.user_data.get("admin_mode"):
         return
         
     if not update.message or not update.message.text:
