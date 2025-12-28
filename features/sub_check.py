@@ -88,15 +88,9 @@ def require_subscription(update, context) -> bool:
         [InlineKeyboardButton("🔄 Obunani tekshirish", callback_data="check_sub")]
     ])
 
-    if update.message:
-        update.message.reply_text(
-            text,
-            reply_markup=keyboard,
-            parse_mode="Markdown"
-        )
-    elif update.callback_query:
-        update.callback_query.answer()
-        update.callback_query.message.reply_text(
+    # ❗ ALWAYS show subscription keyboard while blocked
+    if update.effective_message:
+        update.effective_message.reply_text(
             text,
             reply_markup=keyboard,
             parse_mode="Markdown"
