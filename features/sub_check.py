@@ -142,6 +142,12 @@ def check_subscription_callback(update, context):
     _debug(update, context, "User IS subscribed — replaying intent")
 
     # ==================================================
+    # NORMALIZE UPDATE (🔥 THE FIX)
+    # ==================================================
+    if not update.message and query and query.message:
+        update.message = query.message
+
+    # ==================================================
     # REPLAY STORED INTENT (AUTO-RUN)
     # ==================================================
     pending = context.user_data.pop("pending_action", None)
