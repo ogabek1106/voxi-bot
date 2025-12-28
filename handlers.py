@@ -203,7 +203,21 @@ def start_handler(update: Update, context: CallbackContext):
 
         # Non-numeric payload (not get_test) -> ignore (no reply).
         # This avoids misinterpreting arbitrary deep-link payloads and prevents unwanted replies.
+
+        # Non-numeric payload -> treat as command deep-link
+        # Example: /start ad_rec  →  /ad_rec
+        from telegram import Update
+
+        fake_update = Update(
+            update.update_id,
+            message=update.message
+        )
+        fake_update.message.text = f"/{payload}"
+        fake_update.message.entities = []
+
+        context.dispatcher.process_update(fake_update)
         return
+
 
     # No payload: regular /start invoked by user — keep original greeting behaviour.
     user = update.effective_user
