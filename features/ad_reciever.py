@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 # ================== CORE MESSAGE ==================
 
 AD_TEXT = (
-    "🏆 *MMT (Monthly Mastery Test)*\n\n"
+    "🏆 *MMT (Monthly Mastery Test)* - Ingliz tili daraja testi\n\n"
     "📆 *30-dekabr*\n"
     "⏰ *20:00 da*\n\n"
     "❗️ *Eslatib o'taman bu qanday test:*\n"
