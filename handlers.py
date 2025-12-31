@@ -7,7 +7,7 @@ from telegram.ext import CallbackContext
 from books import BOOKS
 from database import log_command_use
 from database import log_book_request
-
+from telegram.ext import MessageHandler, Filters
 from features.sub_check import require_subscription
 from features.get_test import get_test
 from features.ielts_checkup_ui import _main_user_keyboard
@@ -18,6 +18,13 @@ logger = logging.getLogger(__name__)
 DELETE_SECONDS = 15 * 60  # ⬅️ 15 mins
 PROGRESS_BAR_LENGTH = 12  # adjust length of bar if you want
 
+
+def global_text_gate(update: Update, context: CallbackContext):
+    """
+    Global subscription gate for ALL text messages.
+    Must run before UI and feature handlers.
+    """
+    require_subscription(update, context)
 
 def _format_mmss(seconds: int) -> str:
     """Return MM:SS formatted string for given seconds (non-negative)."""
@@ -194,8 +201,8 @@ def start_handler(update: Update, context: CallbackContext):
     """
  
     # 🔒 subscription gate
-    if not require_subscription(update, context):
-        return
+    #if not require_subscription(update, context):
+        #return
 
     # 🔴 BLOCK /start logic during admin conversations
     if context.user_data.get("admin_mode"):
@@ -234,8 +241,8 @@ def start_handler(update: Update, context: CallbackContext):
 
 def numeric_message_handler(update: Update, context: CallbackContext):
     # 🔒 subscription gate
-    if not require_subscription(update, context):
-        return
+    #if not require_subscription(update, context):
+        #return
 
     # 🔴 BLOCK numeric handler during admin conversations (e.g. /create_test)
     if context.user_data.get("admin_mode"):
