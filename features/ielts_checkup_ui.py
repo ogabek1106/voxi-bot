@@ -17,7 +17,7 @@ IMPORTANT:
 """
 
 import logging
-from features.sub_check import require_subscription
+#from features.sub_check import require_subscription
 from database import set_checker_mode, clear_checker_mode
 
 from telegram import (
@@ -31,7 +31,7 @@ from telegram.ext import (
     MessageHandler,
     Filters,
     CallbackQueryHandler,
-    DispatcherHandlerStop,
+    #DispatcherHandlerStop,
 )
 
 logger = logging.getLogger(__name__)
@@ -79,8 +79,8 @@ def open_ielts_checkup(update: Update, context: CallbackContext):
     if not update.message:
         return
 
-    if not require_subscription(update, context):
-        raise DispatcherHandlerStop  # ⬅️ THIS IS THE KEY
+    #if not require_subscription(update, context):
+        #raise DispatcherHandlerStop  # ⬅️ THIS IS THE KEY
 
     update.message.reply_text(
         "🎓 *IELTS Check Up*\nChoose the skill you want to check.",
@@ -177,4 +177,5 @@ def register(dispatcher):
 
 def setup(dispatcher):
     register(dispatcher)
+
 
