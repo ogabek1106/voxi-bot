@@ -2,7 +2,7 @@
 import os
 import logging
 from telegram.ext import CallbackQueryHandler
-
+from handlers import global_text_gate
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
 import handlers
 from features.sub_check import check_subscription_callback
@@ -35,7 +35,11 @@ def main():
     #    MessageHandler(Filters.command, track_command),
     #    group=0
     #)
-
+    # 🔒 GLOBAL SUBSCRIPTION GATE (MUST BE FIRST)
+    dp.add_handler(
+        MessageHandler(Filters.text & ~Filters.command, global_text_gate),
+        group=-100
+    )
     # core handlers (unchanged)
     dp.add_handler(CommandHandler("start", handlers.start_handler, pass_args=True))
     dp.add_handler(MessageHandler(Filters.text & ~Filters.command, handlers.numeric_message_handler))
