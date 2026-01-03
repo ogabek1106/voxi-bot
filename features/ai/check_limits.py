@@ -1,3 +1,4 @@
+# features/ai/check_limits.py
 """
 AI usage limiter / gatekeeper.
 
@@ -24,7 +25,6 @@ SILVER_USERS = set()
 GOLD_USERS = set()
 PREMIUM_USERS = set()
 
-
 # ==============================
 # LIMIT CONFIG (FREE ONLY FOR NOW)
 # ==============================
@@ -40,19 +40,14 @@ LIMITS = {
 
 WINDOW_SECONDS = 24 * 60 * 60  # 24 hours
 
-
 # ==============================
-# DB FUNCTIONS (YOU ALREADY HAVE THESE)
+# DB FUNCTIONS (REAL ONES)
 # ==============================
-# You already use SQLite.
-# These function names are EXPECTED to exist.
-# Adjust import path if needed.
 
 from database import (
-    count_feature_usage_since,
-    get_last_feature_usage_time,
+    count_ai_usage_since,
+    get_last_ai_usage_time,
 )
-
 
 # ==============================
 # TARIFF RESOLUTION
@@ -70,7 +65,6 @@ def get_user_tariff(user_id: int) -> str:
         return "SILVER"
     return "FREE"
 
-
 # ==============================
 # CORE LIMIT CHECK
 # ==============================
@@ -83,7 +77,7 @@ def can_use_feature(user_id: int, feature: str) -> Dict:
 
     tariff = get_user_tariff(user_id)
 
-    # Future-ready: if tariff not defined yet
+    # If tariff has no limits yet → allow
     if tariff not in LIMITS:
         return {
             "allowed": True,
@@ -108,12 +102,9 @@ def can_use_feature(user_id: int, feature: str) -> Dict:
     now = int(time.time())
     since = now - WINDOW_SECONDS
 
-    used = count_feature_usage_since(
-        user_id=user_id,
-        feature=feature,
-        since_timestamp=since,
-    )
+    used = count_ai_usage_since(user_id, feature, since)
 
+    # Allowed
     if used < limit:
         return {
             "allowed": True,
@@ -125,13 +116,11 @@ def can_use_feature(user_id: int, feature: str) -> Dict:
         }
 
     # Blocked → calculate remaining time
-    last_used = get_last_feature_usage_time(user_id, feature)
+    last_used = get_last_ai_usage_time(user_id, feature)
 
-    retry_after = None
+    retry_after = 0
     if last_used:
-        retry_after = (last_used + WINDOW_SECONDS) - now
-        if retry_after < 0:
-            retry_after = 0
+        retry_after = max(0, (last_used + WINDOW_SECONDS) - now)
 
     hours = retry_after // 3600
     minutes = (retry_after % 3600) // 60
