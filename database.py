@@ -1359,9 +1359,112 @@ def get_total_book_request_stats():
             conn.close()
 
 
+# ---------- AI CHECKER USAGE (LIMITER) ----------
 
+def ensure_ai_usage_table():
+    """
+    Stores every successful AI checker usage.
+    One row = one completed check.
+    """
+    conn = None
+    try:
+        conn = _connect()
+        with conn:
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS ai_usage (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    feature TEXT NOT NULL,
+                    used_at INTEGER NOT NULL
+                );
+                """
+            )
+    except Exception as e:
+        logger.exception("ensure_ai_usage_table failed: %s", e)
+    finally:
+        if conn:
+            conn.close()
 
+def log_ai_usage(user_id: int, feature: str) -> None:
+    """
+    Log one successful AI checker usage.
+    """
+    if not feature:
+        return
 
+    ensure_ai_usage_table()
+    conn = None
+    try:
+        conn = _connect()
+        with conn:
+            conn.execute(
+                """
+                INSERT INTO ai_usage (user_id, feature, used_at)
+                VALUES (?, ?, ?);
+                """,
+                (int(user_id), feature, int(time.time())),
+            )
+    except Exception as e:
+        logger.exception("log_ai_usage failed for %s (%s): %s", user_id, feature, e)
+    finally:
+        if conn:
+            conn.close()
+
+def count_ai_usage_since(user_id: int, feature: str, since_ts: int) -> int:
+    """
+    Count how many times user used a feature since timestamp.
+    """
+    ensure_ai_usage_table()
+    conn = None
+    try:
+        conn = _connect()
+        cur = conn.execute(
+            """
+            SELECT COUNT(*)
+            FROM ai_usage
+            WHERE user_id = ?
+              AND feature = ?
+              AND used_at >= ?;
+            """,
+            (int(user_id), feature, int(since_ts)),
+        )
+        row = cur.fetchone()
+        return int(row[0] or 0)
+    except Exception as e:
+        logger.exception("count_ai_usage_since failed: %s", e)
+        return 0
+    finally:
+        if conn:
+            conn.close()
+
+def get_last_ai_usage_time(user_id: int, feature: str) -> Optional[int]:
+    """
+    Return last usage timestamp for a feature or None.
+    """
+    ensure_ai_usage_table()
+    conn = None
+    try:
+        conn = _connect()
+        cur = conn.execute(
+            """
+            SELECT used_at
+            FROM ai_usage
+            WHERE user_id = ?
+              AND feature = ?
+            ORDER BY used_at DESC
+            LIMIT 1;
+            """,
+            (int(user_id), feature),
+        )
+        row = cur.fetchone()
+        return int(row[0]) if row else None
+    except Exception as e:
+        logger.exception("get_last_ai_usage_time failed: %s", e)
+        return None
+    finally:
+        if conn:
+            conn.close()
 
 # ensure DB quickly on import (best-effort)
 ensure_db()
@@ -1375,3 +1478,4 @@ ensure_active_test_table()
 ensure_checker_state_table()
 ensure_command_usage_table()
 ensure_book_usage_table()
+ensure_ai_usage_table()
