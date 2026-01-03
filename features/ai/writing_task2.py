@@ -17,6 +17,7 @@ import os
 import base64
 from features.ai.check_limits import can_use_feature
 from database import log_ai_usage
+from telegram.ext import DispatcherHandlerStop
 
 from telegram import Update
 from telegram.ext import (
@@ -195,11 +196,15 @@ def start_check(update: Update, context: CallbackContext):
     limit_result = can_use_feature(user.id, "writing")
 
     if not limit_result["allowed"]:
+        from features.ielts_checkup_ui import _main_user_keyboard
+
         update.message.reply_text(
             limit_result["message"],
-            parse_mode="Markdown"
+            parse_mode="Markdown",
+            reply_markup=_main_user_keyboard()
         )
-        return ConversationHandler.END
+
+        raise DispatcherHandlerStop
 
     # ✅ allowed → continue flow
     set_checker_mode(user.id, "writing_task2")
