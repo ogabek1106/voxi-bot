@@ -15,6 +15,8 @@ Flow:
 import logging
 import os
 import base64
+from features.ai.check_limits import can_use_feature
+from database import log_ai_usage
 
 from telegram import Update
 from telegram.ext import (
@@ -189,6 +191,17 @@ def start_check(update: Update, context: CallbackContext):
     if not user:
         return ConversationHandler.END
 
+    # 🔒 LIMITER GATE (ADD THIS)
+    limit_result = can_use_feature(user.id, "writing")
+
+    if not limit_result["allowed"]:
+        update.message.reply_text(
+            limit_result["message"],
+            parse_mode="Markdown"
+        )
+        return ConversationHandler.END
+
+    # ✅ allowed → continue flow
     set_checker_mode(user.id, "writing_task2")
     context.user_data.pop("writing_task2_topic", None)
 
@@ -292,6 +305,7 @@ def receive_essay(update: Update, context: CallbackContext):
 
         output_text = (response.output_text or "").strip()
         _send_long_message(message, output_text)
+        log_ai_usage(user.id, "writing")
 
     except Exception:
         logger.exception("check_writing2 AI error")
