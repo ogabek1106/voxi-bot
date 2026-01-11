@@ -55,6 +55,16 @@ def _ielts_skills_reply_keyboard():
         resize_keyboard=True
     )
 
+def _writing_submenu_keyboard():
+    return ReplyKeyboardMarkup(
+        [
+            ["📝 Writing Task 1"],
+            ["🧠 Writing Task 2"],
+            ["⬅️ Back"],
+        ],
+        resize_keyboard=True
+    )
+
 
 def _checker_cancel_keyboard():
     return ReplyKeyboardMarkup(
@@ -107,12 +117,23 @@ def ielts_skill_text_handler(update: Update, context: CallbackContext):
         return
 
     if text == "✍️ Writing":
-        update.message.reply_text(
-            "✍️ Writing",
-            reply_markup=_checker_cancel_keyboard()
-        )
-        return
+       update.message.reply_text(
+           "✍️ Writing bo‘limini tanlang:",
+           reply_markup=_writing_submenu_keyboard(),
+           parse_mode="Markdown"
+       )
+       return
+    
+    if text == "📝 Writing Task 1":
+       from features.ai.writing_task1 import start_check
+       start_check(update, context)
+       return
 
+    if text == "🧠 Writing Task 2":
+       from features.ai.writing_task2 import start_check
+       start_check(update, context)
+       return
+   
     if text in {"🗣️ Speaking", "🎧 Listening", "📖 Reading"}:
         update.message.reply_text("🚧 This section is coming soon.")
         return
@@ -158,9 +179,13 @@ def register(dispatcher):
 
     dispatcher.add_handler(
         MessageHandler(
-            Filters.text & Filters.regex(
-                "^(✍️ Writing|🗣️ Speaking|🎧 Listening|📖 Reading|⬅️ Back|❌ Cancel)$"
-            ),
+            Filters.regex(
+                "^(✍️ Writing|📝 Writing Task 1|🧠 Writing Task 2|🗣️ Speaking|🎧 Listening|📖 Reading|⬅️ Back|❌ Cancel)$"
+            )
+        
+            #Filters.text & Filters.regex(
+            #    "^(✍️ Writing|🗣️ Speaking|🎧 Listening|📖 Reading|⬅️ Back|❌ Cancel)$"
+            #),
             ielts_skill_text_handler
         ),
         group=1
@@ -177,5 +202,6 @@ def register(dispatcher):
 
 def setup(dispatcher):
     register(dispatcher)
+
 
 
