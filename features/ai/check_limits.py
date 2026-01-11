@@ -15,6 +15,7 @@ This file is FUTURE-PROOF:
 
 import time
 from typing import Dict
+from admins import ADMIN_IDS
 
 # ==============================
 # TEMPORARY TARIFF LISTS
@@ -74,6 +75,17 @@ def can_use_feature(user_id: int, feature: str) -> Dict:
     Main limiter function.
     Returns a structured decision dict.
     """
+    # 🔑 ADMIN / OWNER BYPASS (NO LIMITS)
+    if user_id in ADMIN_IDS:
+        return {
+            "allowed": True,
+            "tariff": "ADMIN",
+            "used": 0,
+            "limit": None,
+            "remaining": None,
+            "retry_after_seconds": None,
+            "message": None,
+        }
 
     tariff = get_user_tariff(user_id)
 
