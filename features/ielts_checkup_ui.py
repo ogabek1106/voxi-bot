@@ -112,7 +112,7 @@ def ielts_skill_text_handler(update: Update, context: CallbackContext):
 
         update.message.reply_text(
             "❌ Tekshiruv bekor qilindi.",
-            reply_markup=_main_user_keyboard()
+            reply_markup=_ielts_skills_reply_keyboard()
         )
         return
 
@@ -199,6 +199,7 @@ def register(dispatcher):
 
 def setup(dispatcher):
     register(dispatcher)
+
 
 
 
