@@ -107,49 +107,62 @@ def ielts_skill_text_handler(update: Update, context: CallbackContext):
     user = update.effective_user
 
     from database import get_checker_mode
+    from features.ielts_checkup_ui import (
+        _ielts_skills_reply_keyboard,
+        _writing_submenu_keyboard,
+        _main_user_keyboard,
+    )
+    from database import clear_checker_mode
 
-   if text == "❌ Cancel":
-       # If a checker is active, DO NOTHING (ConversationHandler handles it)
-       if user and get_checker_mode(user.id):
-           return
+    # ❌ Cancel (UI-level only, NOT checker-level)
+    if text == "❌ Cancel":
+        # If a checker is active, let ConversationHandler handle it
+        if user and get_checker_mode(user.id):
+            return
 
-       # Otherwise, normal UI cancel
-       if user:
-           clear_checker_mode(user.id)
+        if user:
+            clear_checker_mode(user.id)
 
-       update.message.reply_text(
-           "❌ Tekshiruv bekor qilindi.",
-           reply_markup=_ielts_skills_reply_keyboard()
-       )
-       return
+        update.message.reply_text(
+            "❌ Tekshiruv bekor qilindi.",
+            reply_markup=_ielts_skills_reply_keyboard()
+        )
+        return
 
+    # ✍️ Writing main button
     if text == "✍️ Writing":
-       update.message.reply_text(
-           "✍️ Writing bo‘limini tanlang:",
-           reply_markup=_writing_submenu_keyboard(),
-           parse_mode="Markdown"
-       )
-       return
-    
-    if text == "📝 Writing Task 1":
-       from features.ai.writing_task1 import start_check
-       start_check(update, context)
-       return
+        update.message.reply_text(
+            "✍️ Writing bo‘limini tanlang:",
+            reply_markup=_writing_submenu_keyboard(),
+            parse_mode="Markdown"
+        )
+        return
 
+    # 📝 Writing Task 1
+    if text == "📝 Writing Task 1":
+        from features.ai.writing_task1 import start_check
+        start_check(update, context)
+        return
+
+    # 🧠 Writing Task 2
     if text == "🧠 Writing Task 2":
-       from features.ai.writing_task2 import start_check
-       start_check(update, context)
-       return
-   
+        from features.ai.writing_task2 import start_check
+        start_check(update, context)
+        return
+
+    # 🚧 Coming soon
     if text in {"🗣️ Speaking", "🎧 Listening", "📖 Reading"}:
         update.message.reply_text("🚧 This section is coming soon.")
         return
 
+    # ⬅️ Back
     if text == "⬅️ Back":
         update.message.reply_text(
             "⬅️ Back to main menu.",
             reply_markup=_main_user_keyboard()
         )
+        return
+
 
 
 def ielts_callbacks(update: Update, context: CallbackContext):
@@ -206,6 +219,7 @@ def register(dispatcher):
 
 def setup(dispatcher):
     register(dispatcher)
+
 
 
 
