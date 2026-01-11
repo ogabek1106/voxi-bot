@@ -140,20 +140,15 @@ def ielts_skill_text_handler(update: Update, context: CallbackContext):
 
     # 📝 Writing Task 1
     if text == "📝 Writing Task 1":
-        context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text="/check_writing1"
-        )
+        from features.ai.writing_task1 import start_check
+        start_check(update, context)
         return
 
     # 🧠 Writing Task 2
     if text == "🧠 Writing Task 2":
-        context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text="/check_writing2"
-        )
+        from features.ai.writing_task2 import start_check
+        start_check(update, context)
         return
-
 
     # 🚧 Coming soon
     if text in {"🗣️ Speaking", "🎧 Listening", "📖 Reading"}:
@@ -226,6 +221,7 @@ def register(dispatcher):
 
 def setup(dispatcher):
     register(dispatcher)
+
 
 
 
