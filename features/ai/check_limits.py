@@ -75,6 +75,17 @@ def can_use_feature(user_id: int, feature: str) -> Dict:
     Main limiter function.
     Returns a structured decision dict.
     """
+    # 🚧 TEMPORARILY DISABLE ALL LIMITS
+    return {
+        "allowed": True,
+        "tariff": "UNLIMITED",
+        "used": 0,
+        "limit": None,
+        "remaining": None,
+        "retry_after_seconds": None,
+        "message": None,
+    }
+    
     # 🔑 ADMIN / OWNER BYPASS (NO LIMITS)
     if user_id in ADMIN_IDS:
         return {
