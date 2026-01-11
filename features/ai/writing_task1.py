@@ -344,7 +344,6 @@ def register(dispatcher):
     conv = ConversationHandler(
         entry_points=[
             CommandHandler("check_writing1", start_check),
-            MessageHandler(Filters.regex("^📝 Writing Task 1$"), start_check),
         ],
         states={
             WAITING_FOR_TOPIC: [
