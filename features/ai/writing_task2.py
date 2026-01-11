@@ -338,8 +338,14 @@ def cancel(update: Update, context: CallbackContext):
         clear_checker_mode(user.id)
 
     context.user_data.pop("writing_task2_topic", None)
-    update.message.reply_text("❌ Bekor qilindi.")
+
+    from features.ielts_checkup_ui import _ielts_skills_reply_keyboard
+    update.message.reply_text(
+        "❌ Tekshiruv bekor qilindi.",
+        reply_markup=_ielts_skills_reply_keyboard()
+    )
     return ConversationHandler.END
+
 
 
 # ---------- Registration ----------
