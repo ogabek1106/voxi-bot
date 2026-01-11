@@ -329,11 +329,15 @@ def cancel(update: Update, context: CallbackContext):
     context.user_data.pop("writing_task1_topic", None)
 
     from features.ielts_checkup_ui import _ielts_skills_reply_keyboard
+    from telegram.ext import DispatcherHandlerStop
+
     update.message.reply_text(
         "❌ Tekshiruv bekor qilindi.",
         reply_markup=_ielts_skills_reply_keyboard()
     )
-    return ConversationHandler.END
+
+    raise DispatcherHandlerStop
+
 
 # ---------- Registration ----------
 def register(dispatcher):
