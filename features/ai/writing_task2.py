@@ -48,10 +48,10 @@ WAITING_FOR_ESSAY = 1
 
 # ---------- Prompt ----------
 SYSTEM_PROMPT = """
-You are an IELTS Writing Task 2 evaluator.
+You are an IELTS  Task 2 evaluator.
 
 You will be given:
-1) The IELTS Writing Task 2 QUESTION (topic)
+1) The IELTS  Task 2 QUESTION (topic)
 2) The student's ESSAY
 
 Your task:
@@ -346,10 +346,10 @@ def register(dispatcher):
         entry_points=[
             CommandHandler("check_writing2", start_check),
             # ✅ ADD THIS
-            MessageHandler(
-                Filters.regex("^✍️ Writing$"),
-                start_check
-            ),
+            # MessageHandler(
+                # Filters.regex("^✍️ Writing$"),
+                # start_check
+            # ),
         ],
 
         states={
