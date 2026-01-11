@@ -355,7 +355,10 @@ def register(dispatcher):
                 )
             ],
         },
-        fallbacks=[CommandHandler("cancel", cancel)],
+        fallbacks=[
+            CommandHandler("cancel", cancel),
+            MessageHandler(Filters.regex("^❌ Cancel$"), cancel),
+        ],
         allow_reentry=False,
     )
 
