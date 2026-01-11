@@ -353,7 +353,7 @@ def cancel(update: Update, context: CallbackContext):
 def register(dispatcher):
     conv = ConversationHandler(
         entry_points=[
-            #CommandHandler("check_writing2", start_check),
+            CommandHandler("check_writing2", start_check),
             MessageHandler(Filters.regex("^🧠 Writing Task 2$"), start_check),            
         ],
 
