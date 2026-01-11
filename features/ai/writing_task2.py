@@ -210,10 +210,13 @@ def start_check(update: Update, context: CallbackContext):
     set_checker_mode(user.id, "writing_task2")
     context.user_data.pop("writing_task2_topic", None)
 
+    from features.ielts_checkup_ui import _checker_cancel_keyboard
+   
     update.message.reply_text(
         "📝 *IELTS Writing Task 2 SAVOLINI (topic) yuboring.*\n\n"
         "Matn yoki rasm yuborishingiz mumkin.",
-        parse_mode="Markdown"
+        parse_mode="Markdown",
+        reply_markup=_checker_cancel_keyboard()
     )
     return WAITING_FOR_TOPIC
 
