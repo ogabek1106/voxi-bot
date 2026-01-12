@@ -117,8 +117,8 @@ def ielts_skill_text_handler(update: Update, context: CallbackContext):
     user = update.effective_user
 
     # 🚫 If any checker is active, DO NOT intercept messages
-    if user and get_checker_mode(user.id):
-        return
+    #if user and get_checker_mode(user.id):
+        # return
 
     # ❌ Cancel (UI-level only, NOT checker-level)
     if text == "❌ Cancel":
@@ -241,6 +241,7 @@ def register(dispatcher):
 
 def setup(dispatcher):
     register(dispatcher)
+
 
 
 
