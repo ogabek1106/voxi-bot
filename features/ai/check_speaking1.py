@@ -25,7 +25,8 @@ from telegram.ext import (
 )
 from telegram.ext import DispatcherHandlerStop
 
-from openai import OpenAI
+import openai
+import os
 
 from features.ai.check_limits import can_use_feature
 from database import log_ai_usage
@@ -37,12 +38,8 @@ from database import (
 
 logger = logging.getLogger(__name__)
 
-# ---------- OpenAI ----------
-from openai import OpenAI
-client = OpenAI(
-    api_key=os.getenv("OPENAI_API_KEY"),
-    http_client=None,
-)
+# ---------- OpenAI (OLD SDK – STABLE) ----------
+openai.api_key = os.getenv("OPENAI_API_KEY")
 
 # ---------- States ----------
 WAITING_FOR_QUESTION = 0
