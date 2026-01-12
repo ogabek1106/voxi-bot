@@ -143,7 +143,7 @@ def _ocr_image_to_text(bot, photos):
         image_data_url = f"data:image/jpeg;base64,{image_b64}"
 
         response = openai.ChatCompletion.create(
-            model="gpt-4-vision-preview",
+            model="gpt-4o-mini",
             messages=[
                 {
                     "role": "user",
