@@ -198,9 +198,17 @@ def receive_voice(update: Update, context: CallbackContext):
     )
 
     try:
-        file = context.bot.get_file(message.voice.file_id)
-        audio_bytes = bytes(file.download_as_bytearray())
+        # 1️⃣ Download Telegram voice
+        tg_file = context.bot.get_file(message.voice.file_id)
+        audio_bytes = bytes(tg_file.download_as_bytearray())
 
+        # 2️⃣ Upload audio to OpenAI (SUPPORTED WAY)
+        uploaded_file = client.files.create(
+            file=("speech.ogg", audio_bytes, "audio/ogg"),
+            purpose="assistants"
+        )
+
+        # 3️⃣ Transcribe using file_id
         transcription_response = client.responses.create(
             model="gpt-5.2",
             input=[
@@ -209,15 +217,13 @@ def receive_voice(update: Update, context: CallbackContext):
                     "content": [
                         {
                             "type": "input_text",
-                            "text": "Transcribe the attached audio accurately. Return ONLY the text."
+                            "text": "Transcribe this audio accurately. Return ONLY the text."
+                        },
+                        {
+                            "type": "input_file",
+                            "file_id": uploaded_file.id
                         }
                     ]
-                }
-            ],
-            files=[
-                {
-                    "name": "speech",
-                    "file": ("speech.ogg", audio_bytes, "audio/ogg")
                 }
             ],
             max_output_tokens=300,
@@ -225,7 +231,7 @@ def receive_voice(update: Update, context: CallbackContext):
 
         transcription = (transcription_response.output_text or "").strip()
 
-
+        # 4️⃣ IELTS Speaking evaluation
         response = client.responses.create(
             model="gpt-5.2",
             input=[
