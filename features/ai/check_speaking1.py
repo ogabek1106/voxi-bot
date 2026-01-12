@@ -296,7 +296,7 @@ def register(dispatcher):
             ],
         },
         fallbacks=[CommandHandler("cancel", cancel)],
-        allow_reentry=False,
+        allow_reentry=True,
     )
 
     dispatcher.add_handler(conv, group=2)
