@@ -116,17 +116,9 @@ def ielts_skill_text_handler(update: Update, context: CallbackContext):
     text = update.message.text.strip()
     user = update.effective_user
 
-   # 🚫 If any checker is active, DO NOT intercept messages
-   if user and get_checker_mode(user.id):
-       return
-
-    from database import get_checker_mode
-    from features.ielts_checkup_ui import (
-        _ielts_skills_reply_keyboard,
-        _writing_submenu_keyboard,
-        _main_user_keyboard,
-    )
-    from database import clear_checker_mode
+    # 🚫 If any checker is active, DO NOT intercept messages
+    if user and get_checker_mode(user.id):
+        return
 
     # ❌ Cancel (UI-level only, NOT checker-level)
     if text == "❌ Cancel":
@@ -250,6 +242,7 @@ def register(dispatcher):
 
 def setup(dispatcher):
     register(dispatcher)
+
 
 
 
