@@ -38,7 +38,10 @@ from database import (
 logger = logging.getLogger(__name__)
 
 # ---------- OpenAI ----------
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+client = OpenAI(
+    api_key=os.getenv("OPENAI_API_KEY"),
+    http_client=None,
+)
 
 # ---------- States ----------
 WAITING_FOR_QUESTION = 0
