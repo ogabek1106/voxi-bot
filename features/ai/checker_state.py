@@ -71,8 +71,10 @@ def checker_gate(update: Update, context: CallbackContext):
         message.reply_text(BLOCK_MESSAGE)
         raise DispatcherHandlerStop()
 
+    checker_step = context.user_data.get("checker_step")
+
     # ======================================================
-    # ✍️ WRITING MODES → TEXT / PHOTO ONLY
+    # ✍️ WRITING MODES → TEXT / PHOTO ONLY (UNCHANGED LOGIC)
     # ======================================================
     if mode in ("writing_task1", "writing_task2"):
         # Block voice in writing
@@ -99,16 +101,28 @@ def checker_gate(update: Update, context: CallbackContext):
             raise DispatcherHandlerStop()
 
     # ======================================================
-    # 🎤 SPEAKING MODES → VOICE ONLY
+    # 🎤 SPEAKING MODES → STEP-AWARE
     # ======================================================
     if mode in ("speaking_part1", "speaking_part2", "speaking_part3"):
-        # Block everything except voice
-        if not message.voice:
-            message.reply_text(
-                "🎙 Siz hozir Speaking tekshiruvdasiz.\n\n"
-                "Iltimos, faqat OVOZLI javob yuboring yoki /cancel."
-            )
-            raise DispatcherHandlerStop()
+
+        # 🔹 STEP 1: EXPECTING QUESTION / TOPIC
+        # Allowed: TEXT, PHOTO, VOICE
+        if checker_step == "speaking_topic":
+            if not (message.text or message.photo or message.voice):
+                message.reply_text(
+                    "❗️Iltimos, Speaking savolini MATN, RASM yoki OVOZ orqali yuboring.\n\n"
+                    "Yoki /cancel."
+                )
+                raise DispatcherHandlerStop()
+
+        # 🔹 STEP 2: EXPECTING ANSWER
+        # Allowed: VOICE ONLY
+        elif checker_step == "speaking_answer":
+            if not message.voice:
+                message.reply_text(
+                    "🎙 Endi faqat OVOZLI javob yuboring yoki /cancel."
+                )
+                raise DispatcherHandlerStop()
 
     # ✅ Valid checker input → allow ONLY checker handlers
     logger.debug("checker_gate: passing to checker (%s)", mode)
