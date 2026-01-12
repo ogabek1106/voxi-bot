@@ -14,6 +14,7 @@ Flow:
 
 import logging
 import os
+import io
 
 from telegram import Update
 from telegram.ext import (
@@ -26,7 +27,6 @@ from telegram.ext import (
 from telegram.ext import DispatcherHandlerStop
 
 import openai
-import os
 
 from features.ai.check_limits import can_use_feature
 from database import log_ai_usage
@@ -201,18 +201,22 @@ def receive_voice(update: Update, context: CallbackContext):
     try:
         # 1️⃣ Download Telegram voice
         tg_file = context.bot.get_file(message.voice.file_id)
-        audio_bytes = bytes(tg_file.download_as_bytearray())
+        audio_bytes = tg_file.download_as_bytearray()
 
-        # ✅ 2️⃣ TRANSCRIBE WITH WHISPER (THIS IS THE KEY LINE)
-        transcription = client.audio.transcriptions.create(
+        audio_file = io.BytesIO(audio_bytes)
+        audio_file.name = "speech.ogg"
+
+        # 2️⃣ TRANSCRIBE WITH WHISPER (OLD SDK – CORRECT)
+        transcription_result = openai.Audio.transcribe(
             model="whisper-1",
-            file=audio_bytes,
-        ).text
+            file=audio_file
+        )
+        transcription = transcription_result["text"]
 
-        # 3️⃣ IELTS Speaking evaluation (UNCHANGED)
-        response = client.responses.create(
-            model="gpt-5.2",
-            input=[
+        # 3️⃣ IELTS Speaking evaluation (OLD SDK – CORRECT)
+        response = openai.ChatCompletion.create(
+            model="gpt-4o-mini",
+            messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {
                     "role": "user",
@@ -222,10 +226,10 @@ def receive_voice(update: Update, context: CallbackContext):
                     ),
                 },
             ],
-            max_output_tokens=500,
+            max_tokens=500,
         )
 
-        output_text = (response.output_text or "").strip()
+        output_text = response["choices"][0]["message"]["content"].strip()
         message.reply_text(output_text, parse_mode="Markdown")
         log_ai_usage(user.id, "speaking")
 
