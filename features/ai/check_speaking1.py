@@ -141,6 +141,12 @@ def start_check(update: Update, context: CallbackContext):
 def receive_question(update: Update, context: CallbackContext):
     message = update.message
     user = update.effective_user
+    
+    logger.error(
+        "🔥 RECEIVE_QUESTION HIT | text=%r | checker_mode=%s",
+        update.message.text if update.message else None,
+        get_checker_mode(user.id) if user else None
+    )
 
     if not message or not user:
         return WAITING_FOR_QUESTION
