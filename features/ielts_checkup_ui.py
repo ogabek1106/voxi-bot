@@ -162,8 +162,8 @@ def ielts_skill_text_handler(update: Update, context: CallbackContext):
         return
 
     # 🗣️ Part 1 – Introduction
-    if text == "🗣️ Part 1 – Introduction":
-        return
+    #if text == "🗣️ Part 1 – Introduction":
+        #return
 
     # 🚧 Speaking Part 2 & 3 not ready
     if text in {"🗣️ Part 2 – Cue Card", "🗣️ Part 3 – Discussion"}:
@@ -241,6 +241,7 @@ def register(dispatcher):
 
 def setup(dispatcher):
     register(dispatcher)
+
 
 
 
