@@ -38,6 +38,7 @@ from database import (
 logger = logging.getLogger(__name__)
 
 # ---------- OpenAI ----------
+from openai import OpenAI
 client = OpenAI(
     api_key=os.getenv("OPENAI_API_KEY"),
     http_client=None,
