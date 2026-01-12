@@ -120,7 +120,7 @@ def start_check(update: Update, context: CallbackContext):
             parse_mode="Markdown",
             reply_markup=_main_user_keyboard()
         )
-        raise DispatcherHandlerStop
+        return WAITING_FOR_QUESTION
 
     set_checker_mode(user.id, "speaking_part1")
     context.user_data.pop("speaking_p1_question", None)
