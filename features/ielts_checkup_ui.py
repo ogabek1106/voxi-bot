@@ -19,7 +19,7 @@ IMPORTANT:
 import logging
 #from features.sub_check import require_subscription
 from database import set_checker_mode, clear_checker_mode
-
+from database import get_checker_mode
 from telegram import (
     Update,
     ReplyKeyboardMarkup,
@@ -115,8 +115,6 @@ def ielts_skill_text_handler(update: Update, context: CallbackContext):
 
     text = update.message.text.strip()
     user = update.effective_user
-
-   from database import get_checker_mode
 
    # 🚫 If any checker is active, DO NOT intercept messages
    if user and get_checker_mode(user.id):
@@ -252,6 +250,7 @@ def register(dispatcher):
 
 def setup(dispatcher):
     register(dispatcher)
+
 
 
 
