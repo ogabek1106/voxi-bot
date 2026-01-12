@@ -18,6 +18,7 @@ import base64
 from features.ai.check_limits import can_use_feature
 from database import log_ai_usage
 from telegram.ext import DispatcherHandlerStop
+from features.admin_feedback import send_admin_card
 
 from telegram import Update
 from telegram.ext import (
@@ -317,6 +318,13 @@ def receive_essay(update: Update, context: CallbackContext):
         output_text = response["choices"][0]["message"]["content"].strip()
 
         _send_long_message(message, output_text)
+        send_admin_card(
+            context.bot,
+            user.id,
+            "New IELTS Writing Task 2 feedback",
+            output_text
+        )
+        
         log_ai_usage(user.id, "writing")
 
     except Exception:
