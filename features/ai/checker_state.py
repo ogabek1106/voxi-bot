@@ -26,7 +26,7 @@ MIN_TEXT_LEN = 20
 
 BLOCK_MESSAGE = (
     "✋ Siz hozir AI tekshiruv rejimidasiz.\n\n"
-    "✍️ Iltimos, faqat insho matnini yuboring yoki /cancel buyrug‘idan foydalaning."
+    "Iltimos, to‘g‘ri formatdagi javobni yuboring yoki /cancel buyrug‘idan foydalaning."
 )
 
 # ---------------- CORE ----------------
@@ -57,12 +57,12 @@ def checker_gate(update: Update, context: CallbackContext):
 
     text = message.text.strip() if message.text else ""
 
-    # ✅ HANDLE /cancel AND ❌ Cancel HERE
+    # ✅ HANDLE /cancel AND ❌ Cancel HERE (ALWAYS ALLOWED)
     if text.startswith("/cancel") or text == "❌ Cancel":
         clear_checker_mode(user_id)
         message.reply_text(
             "❌ AI tekshiruv rejimi bekor qilindi.",
-            reply_markup=_main_user_keyboard()  # ✅ FIX: restore UI
+            reply_markup=_main_user_keyboard()
         )
         raise DispatcherHandlerStop()
 
@@ -71,19 +71,44 @@ def checker_gate(update: Update, context: CallbackContext):
         message.reply_text(BLOCK_MESSAGE)
         raise DispatcherHandlerStop()
 
-    # ❌ Block unsupported message types (allow text & photos)
-    if not message.text and not message.photo:
-        message.reply_text(BLOCK_MESSAGE)
-        raise DispatcherHandlerStop()
-        
-    # ❌ Block short TEXT only (images are allowed)
-    if message.text and len(text) < MIN_TEXT_LEN:
-        message.reply_text(
-            "❗️Matn juda qisqa.\n\n"
-            "Iltimos, to‘liq javob yuboring yoki /cancel ni bosing."
-        )
-        raise DispatcherHandlerStop()
+    # ======================================================
+    # ✍️ WRITING MODES → TEXT / PHOTO ONLY
+    # ======================================================
+    if mode in ("writing_task1", "writing_task2"):
+        # Block voice in writing
+        if message.voice:
+            message.reply_text(
+                "✋ Siz hozir Writing tekshiruvdasiz.\n\n"
+                "✍️ Iltimos, inshoni MATN yoki RASM sifatida yuboring.\n"
+                "🎙 Ovozli javob Speaking bo‘limi uchun.\n\n"
+                "Agar xato bosgan bo‘lsangiz, /cancel."
+            )
+            raise DispatcherHandlerStop()
 
+        # Block unsupported message types (non-text, non-photo)
+        if not message.text and not message.photo:
+            message.reply_text(BLOCK_MESSAGE)
+            raise DispatcherHandlerStop()
+
+        # Block short TEXT (images are allowed)
+        if message.text and len(text) < MIN_TEXT_LEN:
+            message.reply_text(
+                "❗️Matn juda qisqa.\n\n"
+                "Iltimos, to‘liq javob yuboring yoki /cancel ni bosing."
+            )
+            raise DispatcherHandlerStop()
+
+    # ======================================================
+    # 🎤 SPEAKING MODES → VOICE ONLY
+    # ======================================================
+    if mode in ("speaking_part1", "speaking_part2", "speaking_part3"):
+        # Block everything except voice
+        if not message.voice:
+            message.reply_text(
+                "🎙 Siz hozir Speaking tekshiruvdasiz.\n\n"
+                "Iltimos, faqat OVOZLI javob yuboring yoki /cancel."
+            )
+            raise DispatcherHandlerStop()
 
     # ✅ Valid checker input → allow ONLY checker handlers
     logger.debug("checker_gate: passing to checker (%s)", mode)
