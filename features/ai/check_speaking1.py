@@ -199,7 +199,7 @@ def receive_voice(update: Update, context: CallbackContext):
 
     try:
         file = context.bot.get_file(message.voice.file_id)
-        audio_bytes = file.download_as_bytearray()
+        audio_bytes = bytes(file.download_as_bytearray())
 
         transcription = client.audio.transcriptions.create(
             file=audio_bytes,
