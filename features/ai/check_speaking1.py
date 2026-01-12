@@ -25,6 +25,7 @@ from telegram.ext import (
     Filters,
 )
 from telegram.ext import DispatcherHandlerStop
+from features.admin_feedback import send_admin_card
 
 import openai
 
@@ -231,6 +232,12 @@ def receive_voice(update: Update, context: CallbackContext):
 
         output_text = response["choices"][0]["message"]["content"].strip()
         message.reply_text(output_text, parse_mode="Markdown")
+        send_admin_card(
+            context.bot,
+            user.id,
+            "New IELTS feedback processed",
+            output_text
+        )       
         log_ai_usage(user.id, "speaking")
 
     except Exception:
