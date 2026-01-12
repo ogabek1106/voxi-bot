@@ -1,5 +1,7 @@
 from datetime import datetime
-from config import STORAGE_CHAT_ID
+mport os
+
+STORAGE_CHAT_ID = int(os.getenv("STORAGE_CHAT_ID"))
 
 
 def send_admin_card(bot, user_id: int, title: str, content: str):
