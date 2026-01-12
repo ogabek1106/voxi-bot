@@ -48,8 +48,8 @@ def _main_user_keyboard():
 def _ielts_skills_reply_keyboard():
     return ReplyKeyboardMarkup(
         [
-            ["✍️ Writing", "🗣️ Speaking (Coming soon)"],
-            ["🎧 Listening (Coming soon)", "📖 Reading (Coming soon)"],
+            ["✍️ Writing", "🗣️ Speaking"],
+            ["🎧 Listening", "📖 Reading"],
             ["⬅️ Back"],
         ],
         resize_keyboard=True
@@ -82,6 +82,16 @@ def _ielts_skills_keyboard():
         [InlineKeyboardButton("⬅️ Back", callback_data="ielts_back")],
     ])
 
+def _speaking_submenu_keyboard():
+    return ReplyKeyboardMarkup(
+        [
+            ["🗣️ Part 1 – Introduction"],
+            ["🗣️ Part 2 – Cue Card"],
+            ["🗣️ Part 3 – Discussion"],
+            ["⬅️ Back"],
+        ],
+        resize_keyboard=True
+    )
 
 # ---------- Handlers ----------
 
@@ -146,8 +156,27 @@ def ielts_skill_text_handler(update: Update, context: CallbackContext):
     if text == "🧠 Writing Task 2":
         return
 
+    # 🗣️ Speaking (READY)
+    if text == "🗣️ Speaking":
+        update.message.reply_text(
+            "🗣️ Speaking bo‘limini tanlang:",
+            reply_markup=_speaking_submenu_keyboard(),
+            parse_mode="Markdown"
+        )
+        return
+
+    # 🗣️ Part 1 – Introduction
+    if text == "🗣️ Part 1 – Introduction":
+        from features.ai.check_speaking1 import start_check
+        return start_check(update, context)
+
+    # 🚧 Speaking Part 2 & 3 not ready
+    if text in {"🗣️ Part 2 – Cue Card", "🗣️ Part 3 – Discussion"}:
+        update.message.reply_text("🚧 This section is coming soon.")
+        return
+
     # 🚧 Coming soon
-    if text in {"🗣️ Speaking", "🎧 Listening", "📖 Reading"}:
+    if text in {"🎧 Listening", "📖 Reading"}:
         update.message.reply_text("🚧 This section is coming soon.")
         return
 
@@ -197,8 +226,8 @@ def register(dispatcher):
 
     dispatcher.add_handler(
         MessageHandler(
-            Filters.text & ~Filters.command & Filters.regex(
-                "^(✍️ Writing|📝 Writing Task 1|🧠 Writing Task 2|🗣️ Speaking|🎧 Listening|📖 Reading|⬅️ Back|❌ Cancel)$"
+            Filters.regex(
+                "^(✍️ Writing|📝 Writing Task 1|🧠 Writing Task 2|🗣️ Speaking|🗣️ Part 1 – Introduction|🗣️ Part 2 – Cue Card|🗣️ Part 3 – Discussion|🎧 Listening|📖 Reading|⬅️ Back|❌ Cancel)$"
             ),
             ielts_skill_text_handler
         ),
@@ -217,6 +246,7 @@ def register(dispatcher):
 
 def setup(dispatcher):
     register(dispatcher)
+
 
 
 
