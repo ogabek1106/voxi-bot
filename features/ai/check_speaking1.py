@@ -198,13 +198,36 @@ def receive_voice(update: Update, context: CallbackContext):
     )
 
     try:
+        import base64
+
         file = context.bot.get_file(message.voice.file_id)
         audio_bytes = bytes(file.download_as_bytearray())
+        audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
 
-        transcription = client.audio.transcriptions.create(
-            file=audio_bytes,
+        transcription_response = client.responses.create(
             model="gpt-5.2",
-        ).text
+            input=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "input_text",
+                            "text": "Transcribe this audio accurately. Return ONLY the text."
+                        },
+                        {
+                            "type": "input_audio",
+                            "input_audio": {
+                                "data": audio_b64,
+                                "format": "ogg"
+                            }
+                        }
+                    ]
+                }
+            ],
+            max_output_tokens=300,
+        )
+
+        transcription = (transcription_response.output_text or "").strip()
 
         response = client.responses.create(
             model="gpt-5.2",
@@ -240,6 +263,7 @@ def receive_voice(update: Update, context: CallbackContext):
         )
 
     return ConversationHandler.END
+
 
 
 def cancel(update: Update, context: CallbackContext):
