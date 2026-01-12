@@ -28,7 +28,7 @@ from telegram.ext import (
     Filters,
 )
 
-from openai import OpenAI
+import openai
 
 # ✅ checker state DB helpers
 from database import (
@@ -40,7 +40,7 @@ from database import (
 logger = logging.getLogger(__name__)
 
 # ---------- OpenAI ----------
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+openai.api_key = os.getenv("OPENAI_API_KEY")
 
 # ---------- States ----------
 WAITING_FOR_TOPIC = 0
@@ -148,14 +148,14 @@ def _ocr_image_to_text(bot, photos):
         image_b64 = base64.b64encode(image_bytes).decode("utf-8")
         image_data_url = f"data:image/jpeg;base64,{image_b64}"
 
-        response = client.responses.create(
-            model="gpt-5.2",
-            input=[
+        response = openai.ChatCompletion.create(
+            model="gpt-4o-mini",
+            messages=[
                 {
                     "role": "user",
                     "content": [
                         {
-                            "type": "input_text",
+                            "type": "text",
                             "text": (
                                 "Extract ALL readable text from this image.\n"
                                 "Return ONLY the extracted text.\n"
@@ -164,16 +164,19 @@ def _ocr_image_to_text(bot, photos):
                             ),
                         },
                         {
-                            "type": "input_image",
-                            "image_url": image_data_url,
+                            "type": "image_url",
+                            "image_url": {
+                                "url": image_data_url
+                            },
                         },
                     ],
                 }
             ],
-            max_output_tokens=800,
+            max_tokens=800,
         )
 
-        return (response.output_text or "").strip()
+        return response["choices"][0]["message"]["content"].strip()
+
 
     except Exception:
         logger.exception("OCR failed")
@@ -296,9 +299,9 @@ def receive_essay(update: Update, context: CallbackContext):
     )
 
     try:
-        response = client.responses.create(
-            model="gpt-5.2",
-            input=[
+        response = openai.ChatCompletion.create(
+            model="gpt-4o-mini",
+            messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {
                     "role": "user",
@@ -308,10 +311,11 @@ def receive_essay(update: Update, context: CallbackContext):
                     ),
                 },
             ],
-            max_output_tokens=600,
+            max_tokens=600,
         )
 
-        output_text = (response.output_text or "").strip()
+        output_text = response["choices"][0]["message"]["content"].strip()
+
         _send_long_message(message, output_text)
         log_ai_usage(user.id, "writing")
 
