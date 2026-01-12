@@ -134,7 +134,8 @@ def start_check(update: Update, context: CallbackContext):
         parse_mode="Markdown",
         reply_markup=_checker_cancel_keyboard()
     )
-    return WAITING_FOR_QUESTION
+    # 🔥 THIS IS THE KEY (same as Writing)
+    raise DispatcherHandlerStop
 
 
 def receive_question(update: Update, context: CallbackContext):
@@ -278,6 +279,7 @@ def register(dispatcher):
     conv = ConversationHandler(
         entry_points=[
             CommandHandler("check_speaking1", start_check),
+            MessageHandler(Filters.regex("^🗣️ Part 1 – Introduction$"), start_check),
         ],
         states={
             WAITING_FOR_QUESTION: [
