@@ -115,6 +115,11 @@ def ielts_skill_text_handler(update: Update, context: CallbackContext):
 
     text = update.message.text.strip()
     user = update.effective_user
+    logger.error(
+        "🧱 UI HANDLER HIT | text=%r | checker_mode=%s",
+        update.message.text,
+        get_checker_mode(user.id) if user else None
+    )
 
     # 🚫 If any checker is active, DO NOT intercept messages
     #if user and get_checker_mode(user.id):
@@ -241,6 +246,7 @@ def register(dispatcher):
 
 def setup(dispatcher):
     register(dispatcher)
+
 
 
 
