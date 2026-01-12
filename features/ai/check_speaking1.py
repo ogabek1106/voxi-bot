@@ -135,7 +135,7 @@ def start_check(update: Update, context: CallbackContext):
         reply_markup=_checker_cancel_keyboard()
     )
     # 🔥 THIS IS THE KEY (same as Writing)
-    raise DispatcherHandlerStop
+    return WAITING_FOR_QUESTION
 
 
 def receive_question(update: Update, context: CallbackContext):
