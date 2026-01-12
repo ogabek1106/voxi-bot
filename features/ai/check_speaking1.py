@@ -201,7 +201,6 @@ def receive_voice(update: Update, context: CallbackContext):
         file = context.bot.get_file(message.voice.file_id)
         audio_bytes = bytes(file.download_as_bytearray())
 
-        # ✅ CORRECT transcription via input_file
         transcription_response = client.responses.create(
             model="gpt-5.2",
             input=[
@@ -210,19 +209,22 @@ def receive_voice(update: Update, context: CallbackContext):
                     "content": [
                         {
                             "type": "input_text",
-                            "text": "Transcribe this audio accurately. Return ONLY the text."
-                        },
-                        {
-                            "type": "input_file",
-                            "file": ("speech.ogg", audio_bytes, "audio/ogg")
+                            "text": "Transcribe the attached audio accurately. Return ONLY the text."
                         }
                     ]
+                }
+            ],
+            files=[
+                {
+                    "name": "speech",
+                    "file": ("speech.ogg", audio_bytes, "audio/ogg")
                 }
             ],
             max_output_tokens=300,
         )
 
         transcription = (transcription_response.output_text or "").strip()
+
 
         response = client.responses.create(
             model="gpt-5.2",
