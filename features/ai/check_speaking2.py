@@ -326,7 +326,7 @@ def register(dispatcher):
     conv = ConversationHandler(
         entry_points=[
             CommandHandler("check_speaking2", start_check),
-            MessageHandler(Filters.regex("^🗣️ Part 2 – Long Turn$"), start_check),
+            MessageHandler(Filters.regex("^🗣️ Part 2 – Cue Card$"), start_check),
         ],
         states={
             WAITING_FOR_CUE_CARD: [
