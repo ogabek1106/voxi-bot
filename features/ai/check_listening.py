@@ -128,6 +128,24 @@ OUTPUT STRUCTURE RULES (IMPORTANT):
    - Say so briefly and clearly.
    - Do NOT invent content.
 
+SECTION TITLE FORMAT (MANDATORY):
+
+- EVERY section title MUST follow this exact format:
+
+  **<emoji> <Title text>**
+
+  Example:
+  **🧠 Umumiy fikr**
+  **❌ Xatolar va sabablari**
+  **📝 Imlo yoki shakl**
+  **⚠️ IELTS listening tuzoqlari**
+  **🎯 Amaliy maslahat**
+
+- If a section title does NOT follow this format, the response is INVALID.
+- Emojis are NOT optional.
+- Bold formatting is REQUIRED for section titles.
+- Body text MUST NOT be bold.
+
 FREE PLAN DEPTH RULES:
 - Keep feedback short and clear.
 - Focus only on the most important mistakes.
