@@ -5,9 +5,9 @@ IELTS Listening AI checker (FREE MODE, command-based)
 
 Flow:
 1) User sends /check_listening
-2) Bot asks for LISTENING AUDIO (mp3 / mp4 / voice)
+2) Bot asks for LISTENING AUDIO (mp3 / mp4 / voice / document)
 3) User sends audio
-4) Bot warns about detection (informational only)
+4) Bot transcribes audio (Whisper)
 5) Bot asks for QUESTION IMAGES
 6) User sends images
 7) Bot asks for USER ANSWERS (text or image)
@@ -16,6 +16,7 @@ Flow:
 
 import logging
 import os
+import io
 import base64
 
 from telegram import Update
@@ -26,16 +27,14 @@ from telegram.ext import (
     MessageHandler,
     Filters,
 )
+from telegram.ext import DispatcherHandlerStop
 
 import openai
-from telegram.ext import DispatcherHandlerStop
 
 from features.ai.check_limits import can_use_feature
 from features.admin_feedback import send_admin_card
-from database import log_ai_usage
-
-# checker state helpers
 from database import (
+    log_ai_usage,
     set_checker_mode,
     clear_checker_mode,
     get_checker_mode,
@@ -50,73 +49,61 @@ WAITING_FOR_AUDIO = 0
 WAITING_FOR_QUESTIONS = 1
 WAITING_FOR_ANSWERS = 2
 
-# ---------- System Prompt ----------
+# ---------- SYSTEM PROMPT ----------
 SYSTEM_PROMPT = """
-You are an IELTS Listening evaluator.
+You are an IELTS Listening teacher evaluating a student's performance.
 
 You will be given:
-1) Listening AUDIO (content already analyzed)
-2) Images of Listening QUESTIONS
-3) The student's ANSWERS (text or extracted from image)
+1) The Listening AUDIO transcription
+2) Images of Listening QUESTIONS (already extracted)
+3) The student's ANSWERS (typed or OCR)
 
 Your task:
-- Reconstruct the most likely correct answers from the audio using the questions.
-- Evaluate the student's answers STRICTLY according to official IELTS Listening rules.
-- Follow ONLY public IELTS Listening marking principles.
-- Do NOT invent answers if audio is unclear — state uncertainty.
-- Do NOT claim this is an official IELTS score.
+- Reconstruct the most likely correct answers from the audio USING the questions.
+- Evaluate the student's answers strictly according to IELTS Listening rules.
+- Do NOT invent answers if the audio is unclear — say this clearly.
+- This is NOT an official IELTS score.
 
-IELTS rules to apply:
+IELTS Listening rules:
 - Spelling matters.
 - Singular / plural matters.
-- Word limits must be respected.
-- Articles (a, an, the) are usually ignored unless meaning changes.
-- Numbers must be correct in form.
-- Accept reasonable variants if IELTS would accept them.
+- Word limits matter.
+- Articles are usually ignored unless meaning changes.
+- Numbers must be correct.
+- Accept reasonable variants IELTS would accept.
 
 Language rules:
 - ALL explanations must be in Uzbek.
-- English allowed ONLY for:
-  - showing wrong → correct answers
+- English ONLY for:
+  - wrong → correct examples
   - quoting answers
 - Do NOT translate the questions.
 
-IMPORTANT OUTPUT RULES (STRICT):
-- Use EXACTLY the structure below.
-- Do NOT add or remove sections.
-- Do NOT add text outside sections.
-
-EXACT OUTPUT TEMPLATE:
+STRICT OUTPUT FORMAT (DO NOT CHANGE):
 
 📊 *Umumiy natija:*
-<score /40 + taxminiy band>
+<score range /40 + taxminiy band>
 
 ❌ *Xatolar va sabablari:*
-<content>
+<max 3 short explanations>
 
 📝 *Imlo yoki shakl xatolari:*
-<wrong → correct>
+<wrong → correct examples>
 
 ⚠️ *IELTS listening tuzoqlari:*
-<content>
+<short list>
 
 🎯 *Maslahat:*
-<content>
-
-FREE MODE LIMITS:
-- Show score as range (e.g. 24–26 / 40)
-- Max 3 mistake explanations
-- Max 3 spelling/form examples
-- Short advice only
+<short practical advice>
 
 Tone:
 - Calm
 - Teacher-like
 - Natural Uzbek
-- No exaggeration
+- Supportive, not robotic
 
 IMPORTANT:
-- This is an ESTIMATED result, not official.
+- This is an ESTIMATED result.
 """
 
 MAX_TELEGRAM_LEN = 4000
@@ -137,11 +124,11 @@ def _send_long_message(message, text: str):
 def _ocr_image_to_text(bot, photos):
     try:
         photo = photos[-1]
-        file = bot.get_file(photo.file_id)
-        image_bytes = file.download_as_bytearray()
+        tg_file = bot.get_file(photo.file_id)
+        image_bytes = tg_file.download_as_bytearray()
 
-        image_b64 = base64.b64encode(image_bytes).decode("utf-8")
-        image_data_url = f"data:image/jpeg;base64,{image_b64}"
+        image_b64 = base64.b64encode(image_bytes).decode()
+        image_url = f"data:image/jpeg;base64,{image_b64}"
 
         response = openai.ChatCompletion.create(
             model="gpt-4o-mini",
@@ -153,14 +140,13 @@ def _ocr_image_to_text(bot, photos):
                             "type": "text",
                             "text": (
                                 "Extract ALL readable text from this image.\n"
-                                "Return ONLY the extracted text.\n"
-                                "Do NOT explain.\n"
-                                "Do NOT summarize."
+                                "Return ONLY the text.\n"
+                                "Do NOT explain."
                             ),
                         },
                         {
                             "type": "image_url",
-                            "image_url": {"url": image_data_url},
+                            "image_url": {"url": image_url},
                         },
                     ],
                 }
@@ -202,7 +188,10 @@ def start_check(update: Update, context: CallbackContext):
     from features.ielts_checkup_ui import _checker_cancel_keyboard
     update.message.reply_text(
         "🎧 *IELTS Listening audio yuboring.*\n\n"
-        "mp3 / mp4 / voice message bo‘lishi mumkin.",
+        "Qabul qilinadi:\n"
+        "• mp3 / mp4\n"
+        "• Voice message\n"
+        "• Audio fayl",
         parse_mode="Markdown",
         reply_markup=_checker_cancel_keyboard()
     )
@@ -210,21 +199,56 @@ def start_check(update: Update, context: CallbackContext):
 
 
 def receive_audio(update: Update, context: CallbackContext):
-    user = update.effective_user
     message = update.message
+    user = update.effective_user
 
     if get_checker_mode(user.id) != "listening":
         return ConversationHandler.END
 
-    if not (message.audio or message.voice or message.video or message.document):
+    if not (message.voice or message.audio or message.video or message.document):
         message.reply_text("❗️Audio fayl yuboring.")
         return WAITING_FOR_AUDIO
 
-    context.user_data["audio_received"] = True
+    message.reply_text("🎧 Audio o‘qilmoqda...", parse_mode="Markdown")
+
+    try:
+        # ---------- Download audio ----------
+        if message.voice:
+            tg_file = context.bot.get_file(message.voice.file_id)
+            audio_bytes = tg_file.download_as_bytearray()
+            audio_name = "listening.ogg"
+        elif message.audio:
+            tg_file = context.bot.get_file(message.audio.file_id)
+            audio_bytes = tg_file.download_as_bytearray()
+            audio_name = "listening.mp3"
+        elif message.video:
+            tg_file = context.bot.get_file(message.video.file_id)
+            audio_bytes = tg_file.download_as_bytearray()
+            audio_name = "listening.mp4"
+        else:  # document
+            tg_file = context.bot.get_file(message.document.file_id)
+            audio_bytes = tg_file.download_as_bytearray()
+            audio_name = message.document.file_name or "listening"
+
+        audio_file = io.BytesIO(audio_bytes)
+        audio_file.name = audio_name
+
+        transcription = openai.Audio.transcribe(
+            model="whisper-1",
+            file=audio_file
+        )["text"].strip()
+
+        context.user_data["audio_text"] = transcription
+
+    except Exception:
+        logger.exception("Audio transcription failed")
+        message.reply_text(
+            "❌ Audio o‘qilmadi. Iltimos, boshqa audio yuboring."
+        )
+        return WAITING_FOR_AUDIO
 
     message.reply_text(
         "✅ Audio qabul qilindi.\n\n"
-        "ℹ️ Section aniqlanishi tekshirildi (agar topilmasa ham muammo emas).\n\n"
         "📸 Endi *Listening savollari rasmlarini* yuboring.",
         parse_mode="Markdown"
     )
@@ -232,8 +256,8 @@ def receive_audio(update: Update, context: CallbackContext):
 
 
 def receive_questions(update: Update, context: CallbackContext):
-    user = update.effective_user
     message = update.message
+    user = update.effective_user
 
     if get_checker_mode(user.id) != "listening":
         return ConversationHandler.END
@@ -247,8 +271,7 @@ def receive_questions(update: Update, context: CallbackContext):
 
     if len(questions_text.split()) < 10:
         message.reply_text(
-            "❗️Savollar to‘liq o‘qilmadi.\n"
-            "Iltimos, aniqroq rasm yuboring."
+            "❗️Savollar to‘liq o‘qilmadi. Iltimos, aniqroq rasm yuboring."
         )
         return WAITING_FOR_QUESTIONS
 
@@ -263,8 +286,8 @@ def receive_questions(update: Update, context: CallbackContext):
 
 
 def receive_answers(update: Update, context: CallbackContext):
-    user = update.effective_user
     message = update.message
+    user = update.effective_user
 
     if get_checker_mode(user.id) != "listening":
         return ConversationHandler.END
@@ -279,15 +302,10 @@ def receive_answers(update: Update, context: CallbackContext):
         return WAITING_FOR_ANSWERS
 
     if len(answers.split()) < 5:
-        message.reply_text(
-            "❗️Javoblar juda qisqa yoki noto‘g‘ri o‘qildi."
-        )
+        message.reply_text("❗️Javoblar juda qisqa yoki noto‘g‘ri o‘qildi.")
         return WAITING_FOR_ANSWERS
 
-    message.reply_text(
-        "*⏳ Listening tahlil qilinmoqda, iltimos kuting...*",
-        parse_mode="Markdown"
-    )
+    message.reply_text("*⏳ Listening tahlil qilinmoqda...*", parse_mode="Markdown")
 
     try:
         response = openai.ChatCompletion.create(
@@ -297,6 +315,7 @@ def receive_answers(update: Update, context: CallbackContext):
                 {
                     "role": "user",
                     "content": (
+                        f"Listening Audio Transcript:\n{context.user_data['audio_text']}\n\n"
                         f"Listening Questions:\n{context.user_data['questions']}\n\n"
                         f"Student Answers:\n{answers}"
                     ),
@@ -360,7 +379,7 @@ def register(dispatcher):
         states={
             WAITING_FOR_AUDIO: [
                 MessageHandler(
-                    Filters.audio | Filters.voice | Filters.video | Filters.document,
+                    Filters.voice | Filters.audio | Filters.video | Filters.document,
                     receive_audio
                 )
             ],
