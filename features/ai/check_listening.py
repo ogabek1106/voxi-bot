@@ -197,8 +197,8 @@ def start_check(update: Update, context: CallbackContext):
     context.user_data["audios"] = []
     context.user_data["questions"] = []
     context.user_data["answers"] = []
+    context.user_data["audio_notified"] = False
 
-    from features.ielts_checkup_ui import _checker_cancel_keyboard
     update.message.reply_text(
         "🎧 *Listening audio yuboring.*\n"
         "Bir nechta fayl yuborishingiz mumkin.\n\n"
@@ -214,7 +214,11 @@ def start_check(update: Update, context: CallbackContext):
 def collect_audio(update: Update, context: CallbackContext):
     if update.message.voice or update.message.audio or update.message.video or update.message.document:
         context.user_data["audios"].append(update.message)
-        update.message.reply_text("🎧 Audio qabul qilindi.")
+
+        if not context.user_data.get("audio_notified"):
+            update.message.reply_text("🎧 Audio fayllar qabul qilinmoqda...")
+            context.user_data["audio_notified"] = True
+
     return WAITING_FOR_AUDIO
 
 
@@ -234,7 +238,17 @@ def audio_done(update: Update, context: CallbackContext):
 
         audio_bytes = tg_file.download_as_bytearray()
         audio_file = io.BytesIO(audio_bytes)
-        audio_file.name = "listening_audio"
+
+        if msg.voice:
+            audio_file.name = "audio.ogg"
+        elif msg.audio and msg.audio.file_name:
+            audio_file.name = msg.audio.file_name
+        elif msg.video:
+            audio_file.name = "audio.mp4"
+        elif msg.document and msg.document.file_name:
+            audio_file.name = msg.document.file_name
+        else:
+            audio_file.name = "audio.wav"
 
         text = openai.Audio.transcribe(
             model="whisper-1",
@@ -364,6 +378,7 @@ def cancel(update: Update, context: CallbackContext):
 
 def register(dispatcher):
     conv = ConversationHandler(
+        per_message=True,
         entry_points=[
             CommandHandler("check_listening", start_check),
             MessageHandler(Filters.regex("^🎧 Listening$"), start_check),
