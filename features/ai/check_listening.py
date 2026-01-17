@@ -3,14 +3,14 @@
 /check_listening
 IELTS Listening AI checker (FREE MODE, command-based)
 
-Flow:
+Desired Flow (BUTTON-GATED):
 1) User sends /check_listening
-2) Bot asks for LISTENING AUDIO (mp3 / mp4 / voice / document)
-3) User sends audio
-4) Bot transcribes audio (Whisper)
-5) Bot asks for QUESTION IMAGES
-6) User sends images
-7) Bot asks for USER ANSWERS (text or image)
+2) User sends LISTENING AUDIOS (multiple allowed)
+3) User presses "Davom etish"
+4) User sends QUESTION IMAGES (multiple allowed)
+5) User presses "Davom etish"
+6) User sends ANSWERS (text or image, multiple allowed)
+7) User presses "Davom etish"
 8) Bot evaluates and replies in Uzbek
 """
 
@@ -19,12 +19,17 @@ import os
 import io
 import base64
 
-from telegram import Update
+from telegram import (
+    Update,
+    InlineKeyboardMarkup,
+    InlineKeyboardButton,
+)
 from telegram.ext import (
     CallbackContext,
     CommandHandler,
     ConversationHandler,
     MessageHandler,
+    CallbackQueryHandler,
     Filters,
 )
 from telegram.ext import DispatcherHandlerStop
@@ -41,7 +46,6 @@ from database import (
 )
 
 logger = logging.getLogger(__name__)
-
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
 # ---------- States ----------
@@ -121,6 +125,12 @@ def _send_long_message(message, text: str):
         )
 
 
+def _continue_keyboard(cb):
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("➡️ Davom etish", callback_data=cb)]
+    ])
+
+
 def _ocr_image_to_text(bot, photos):
     try:
         photo = photos[-1]
@@ -184,171 +194,154 @@ def start_check(update: Update, context: CallbackContext):
 
     set_checker_mode(user.id, "listening")
     context.user_data.clear()
+    context.user_data["audios"] = []
+    context.user_data["questions"] = []
+    context.user_data["answers"] = []
 
     from features.ielts_checkup_ui import _checker_cancel_keyboard
     update.message.reply_text(
-        "🎧 *IELTS Listening audio yuboring.*\n\n"
-        "Qabul qilinadi:\n"
-        "• mp3 / mp4\n"
-        "• Voice message\n"
-        "• Audio fayl",
+        "🎧 *Listening audio yuboring.*\n"
+        "Bir nechta fayl yuborishingiz mumkin.\n\n"
+        "Tugatgach tugmani bosing 👇",
         parse_mode="Markdown",
-        reply_markup=_checker_cancel_keyboard()
+        reply_markup=_continue_keyboard("audio_done")
     )
     return WAITING_FOR_AUDIO
 
 
-def receive_audio(update: Update, context: CallbackContext):
-    message = update.message
-    user = update.effective_user
+# ---------- AUDIO COLLECTION ----------
 
-    if get_checker_mode(user.id) != "listening":
-        return ConversationHandler.END
+def collect_audio(update: Update, context: CallbackContext):
+    if update.message.voice or update.message.audio or update.message.video or update.message.document:
+        context.user_data["audios"].append(update.message)
+        update.message.reply_text("🎧 Audio qabul qilindi.")
+    return WAITING_FOR_AUDIO
 
-    if not (message.voice or message.audio or message.video or message.document):
-        message.reply_text("❗️Audio fayl yuboring.")
-        return WAITING_FOR_AUDIO
 
-    message.reply_text("🎧 Audio o‘qilmoqda...", parse_mode="Markdown")
+def audio_done(update: Update, context: CallbackContext):
+    query = update.callback_query
+    query.answer()
 
-    try:
-        # ---------- Download audio ----------
-        if message.voice:
-            tg_file = context.bot.get_file(message.voice.file_id)
-            audio_bytes = tg_file.download_as_bytearray()
-            audio_name = "listening.ogg"
-        elif message.audio:
-            tg_file = context.bot.get_file(message.audio.file_id)
-            audio_bytes = tg_file.download_as_bytearray()
-            audio_name = "listening.mp3"
-        elif message.video:
-            tg_file = context.bot.get_file(message.video.file_id)
-            audio_bytes = tg_file.download_as_bytearray()
-            audio_name = "listening.mp4"
-        else:  # document
-            tg_file = context.bot.get_file(message.document.file_id)
-            audio_bytes = tg_file.download_as_bytearray()
-            audio_name = message.document.file_name or "listening"
+    transcripts = []
 
+    for msg in context.user_data["audios"]:
+        tg_file = context.bot.get_file(
+            msg.voice.file_id if msg.voice else
+            msg.audio.file_id if msg.audio else
+            msg.video.file_id if msg.video else
+            msg.document.file_id
+        )
+
+        audio_bytes = tg_file.download_as_bytearray()
         audio_file = io.BytesIO(audio_bytes)
-        audio_file.name = audio_name
+        audio_file.name = "listening_audio"
 
-        transcription = openai.Audio.transcribe(
+        text = openai.Audio.transcribe(
             model="whisper-1",
             file=audio_file
-        )["text"].strip()
+        )["text"]
 
-        context.user_data["audio_text"] = transcription
+        transcripts.append(text)
 
-    except Exception:
-        logger.exception("Audio transcription failed")
-        message.reply_text(
-            "❌ Audio o‘qilmadi. Iltimos, boshqa audio yuboring."
-        )
-        return WAITING_FOR_AUDIO
+    context.user_data["audio_text"] = "\n".join(transcripts)
 
-    message.reply_text(
-        "✅ Audio qabul qilindi.\n\n"
-        "📸 Endi *Listening savollari rasmlarini* yuboring.",
-        parse_mode="Markdown"
+    query.message.reply_text(
+        "📸 *Endi Listening savollari rasmlarini yuboring.*\n"
+        "Bir nechta rasm bo‘lishi mumkin.\n\n"
+        "Tugatgach tugmani bosing 👇",
+        parse_mode="Markdown",
+        reply_markup=_continue_keyboard("questions_done")
     )
     return WAITING_FOR_QUESTIONS
 
 
-def receive_questions(update: Update, context: CallbackContext):
-    message = update.message
-    user = update.effective_user
+# ---------- QUESTIONS COLLECTION ----------
 
-    if get_checker_mode(user.id) != "listening":
-        return ConversationHandler.END
+def collect_questions(update: Update, context: CallbackContext):
+    if update.message.photo:
+        text = _ocr_image_to_text(context.bot, update.message.photo)
+        context.user_data["questions"].append(text)
+        update.message.reply_text("🖼️ Savol rasmi qabul qilindi.")
+    return WAITING_FOR_QUESTIONS
 
-    if not message.photo:
-        message.reply_text("❗️Savollarni rasm sifatida yuboring.")
-        return WAITING_FOR_QUESTIONS
 
-    message.reply_text("🖼️ Savollar o‘qilmoqda...", parse_mode="Markdown")
-    questions_text = _ocr_image_to_text(context.bot, message.photo)
+def questions_done(update: Update, context: CallbackContext):
+    query = update.callback_query
+    query.answer()
 
-    if len(questions_text.split()) < 10:
-        message.reply_text(
-            "❗️Savollar to‘liq o‘qilmadi. Iltimos, aniqroq rasm yuboring."
-        )
-        return WAITING_FOR_QUESTIONS
-
-    context.user_data["questions"] = questions_text
-
-    message.reply_text(
-        "✍️ Endi *javoblaringizni* yuboring.\n\n"
-        "Matn yoki qo‘lda yozilgan rasm bo‘lishi mumkin.",
-        parse_mode="Markdown"
+    query.message.reply_text(
+        "✍️ *Endi javoblaringizni yuboring.*\n"
+        "Matn yoki rasm bo‘lishi mumkin.\n\n"
+        "Tugatgach tugmani bosing 👇",
+        parse_mode="Markdown",
+        reply_markup=_continue_keyboard("answers_done")
     )
     return WAITING_FOR_ANSWERS
 
 
-def receive_answers(update: Update, context: CallbackContext):
-    message = update.message
-    user = update.effective_user
+# ---------- ANSWERS COLLECTION ----------
 
-    if get_checker_mode(user.id) != "listening":
-        return ConversationHandler.END
+def collect_answers(update: Update, context: CallbackContext):
+    msg = update.message
+    if msg.text:
+        context.user_data["answers"].append(msg.text)
+    elif msg.photo:
+        text = _ocr_image_to_text(context.bot, msg.photo)
+        context.user_data["answers"].append(text)
 
-    if message.text:
-        answers = message.text.strip()
-    elif message.photo:
-        message.reply_text("🖼️ Javoblar rasmdan o‘qilmoqda...", parse_mode="Markdown")
-        answers = _ocr_image_to_text(context.bot, message.photo)
-    else:
-        message.reply_text("❗️Javoblarni matn yoki rasm sifatida yuboring.")
-        return WAITING_FOR_ANSWERS
+    msg.reply_text("✍️ Javob qabul qilindi.")
+    return WAITING_FOR_ANSWERS
 
-    if len(answers.split()) < 5:
-        message.reply_text("❗️Javoblar juda qisqa yoki noto‘g‘ri o‘qildi.")
-        return WAITING_FOR_ANSWERS
 
-    message.reply_text("*⏳ Listening tahlil qilinmoqda...*", parse_mode="Markdown")
+def answers_done(update: Update, context: CallbackContext):
+    query = update.callback_query
+    query.answer()
 
-    try:
-        response = openai.ChatCompletion.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {
-                    "role": "user",
-                    "content": (
-                        f"Listening Audio Transcript:\n{context.user_data['audio_text']}\n\n"
-                        f"Listening Questions:\n{context.user_data['questions']}\n\n"
-                        f"Student Answers:\n{answers}"
-                    ),
-                },
-            ],
-            max_tokens=700,
-        )
+    audio_text = context.user_data.get("audio_text", "")
+    questions = "\n".join(context.user_data.get("questions", []))
+    answers = "\n".join(context.user_data.get("answers", []))
 
-        output = response["choices"][0]["message"]["content"].strip()
-        _send_long_message(message, output)
+    query.message.reply_text(
+        "*⏳ Listening tahlil qilinmoqda...*",
+        parse_mode="Markdown"
+    )
 
-        send_admin_card(
-            context.bot,
-            user.id,
-            "New IELTS Listening feedback",
-            output
-        )
+    response = openai.ChatCompletion.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {
+                "role": "user",
+                "content": (
+                    f"Listening Audio Transcript:\n{audio_text}\n\n"
+                    f"Listening Questions:\n{questions}\n\n"
+                    f"Student Answers:\n{answers}"
+                ),
+            },
+        ],
+        max_tokens=700,
+    )
 
-        log_ai_usage(user.id, "listening")
+    output = response["choices"][0]["message"]["content"].strip()
+    _send_long_message(query.message, output)
 
-    except Exception:
-        logger.exception("Listening AI error")
-        message.reply_text("❌ Xatolik yuz berdi. Keyinroq urinib ko‘ring.")
+    send_admin_card(
+        context.bot,
+        query.from_user.id,
+        "New IELTS Listening feedback",
+        output
+    )
 
-    finally:
-        clear_checker_mode(user.id)
-        context.user_data.clear()
+    log_ai_usage(query.from_user.id, "listening")
 
-        from features.ielts_checkup_ui import _main_user_keyboard
-        message.reply_text(
-            "✅ Tekshiruv yakunlandi.",
-            reply_markup=_main_user_keyboard()
-        )
+    clear_checker_mode(query.from_user.id)
+    context.user_data.clear()
+
+    from features.ielts_checkup_ui import _main_user_keyboard
+    query.message.reply_text(
+        "✅ Tekshiruv yakunlandi.",
+        reply_markup=_main_user_keyboard()
+    )
 
     return ConversationHandler.END
 
@@ -357,7 +350,6 @@ def cancel(update: Update, context: CallbackContext):
     user = update.effective_user
     if user:
         clear_checker_mode(user.id)
-
     context.user_data.clear()
 
     from features.ielts_checkup_ui import _ielts_skills_reply_keyboard
@@ -380,17 +372,20 @@ def register(dispatcher):
             WAITING_FOR_AUDIO: [
                 MessageHandler(
                     Filters.voice | Filters.audio | Filters.video | Filters.document,
-                    receive_audio
-                )
+                    collect_audio
+                ),
+                CallbackQueryHandler(audio_done, pattern="^audio_done$")
             ],
             WAITING_FOR_QUESTIONS: [
-                MessageHandler(Filters.photo, receive_questions)
+                MessageHandler(Filters.photo, collect_questions),
+                CallbackQueryHandler(questions_done, pattern="^questions_done$")
             ],
             WAITING_FOR_ANSWERS: [
                 MessageHandler(
                     (Filters.text & ~Filters.command) | Filters.photo,
-                    receive_answers
-                )
+                    collect_answers
+                ),
+                CallbackQueryHandler(answers_done, pattern="^answers_done$")
             ],
         },
         fallbacks=[CommandHandler("cancel", cancel)],
