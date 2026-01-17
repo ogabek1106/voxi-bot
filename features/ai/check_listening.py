@@ -378,7 +378,7 @@ def cancel(update: Update, context: CallbackContext):
 
 def register(dispatcher):
     conv = ConversationHandler(
-        per_message=True,
+        per_message=False,
         entry_points=[
             CommandHandler("check_listening", start_check),
             MessageHandler(Filters.regex("^🎧 Listening$"), start_check),
