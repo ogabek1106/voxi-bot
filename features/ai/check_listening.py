@@ -191,7 +191,7 @@ def _ocr_image_to_text(bot, photos):
 
 
 def _format_listening_feedback(data: dict) -> str:
-    band = data.get("apr_band", "—")
+    band = _escape_md(data.get("apr_band", "—"))
     raw = data.get("raw_score")
 
     score_line = (
