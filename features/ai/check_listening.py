@@ -190,7 +190,7 @@ def _format_listening_feedback(data: dict) -> str:
     raw = data.get("raw_score")
 
     score_line = (
-        f"<b>📊 Taxminiy natija:<b/> {band} ({raw}/40)"
+        f"<b>📊 Taxminiy natija:</b> {band} ({raw}/40)"
         if raw else
         f"<b>📊 Taxminiy natija:</b> {band}"
     )
