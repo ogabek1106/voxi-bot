@@ -65,7 +65,7 @@ def _patch_method(func_name: str):
         def wrapper(*args, **kwargs):
             try:
                 # --- LISTENING / AI SAFE BYPASS ---
-                if kwargs.get("_no_bold_patch"):
+                if kwargs.get("_no_bold_patch", False):
                     return orig_fn(*args, **kwargs)
 
                 # If parse_mode explicitly set (and not None), respect caller
