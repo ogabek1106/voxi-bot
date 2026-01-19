@@ -18,6 +18,7 @@ import logging
 import os
 import io
 import base64
+import json
 
 from telegram import (
     Update,
@@ -57,102 +58,58 @@ You are an IELTS Listening teacher evaluating a student's performance.
 
 You will be given:
 1) The Listening AUDIO transcription
-2) Images of Listening QUESTIONS (already extracted)
+2) Listening QUESTIONS (text extracted from images)
 3) The student's ANSWERS (typed or OCR)
 
 Your task:
 - Reconstruct the most likely correct answers from the audio USING the questions.
 - Evaluate the student's answers strictly according to IELTS Listening rules.
 - If the audio or question is unclear, DO NOT invent explanations.
-  Instead, say clearly that the reason cannot be determined.
+  Say clearly that evaluation is limited or unclear.
 - This is NOT an official IELTS score.
 
 IELTS Listening rules:
-- Spelling matters (very important).
+- Spelling matters.
 - Singular / plural matters.
 - Word limits matter.
 - Articles are usually ignored unless meaning changes.
-- Numbers must be correct.
-- Accept only reasonable variants IELTS would accept.
+- Numbers must be exact.
+- Accept only reasonable IELTS variants.
 
-LANGUAGE & QUALITY RULES (CRITICAL):
-- Use ONLY correct, standard Uzbek (Latin).
-- Spelling mistakes in Uzbek are NOT acceptable.
-- Do NOT use mixed, awkward, or literal translations.
-- Sentences MUST be logically connected and meaningful.
-- Prefer simple, natural Uzbek over complex phrases.
-- NEVER invent explanations.
-- NEVER give advice related to Speaking or Writing.
-- LISTENING feedback only.
+LANGUAGE RULES:
+- Use ONLY correct Uzbek (Latin).
+- Simple, natural teacher language.
+- No awkward or literal translations.
 
-ERROR REPORTING RULE (VERY IMPORTANT):
-- ONLY mention answers that are WRONG or PROBLEMATIC.
+ERROR RULES:
+- Mention ONLY wrong or problematic answers.
 - NEVER list correct answers.
 - NEVER explain why a correct answer is correct.
 
-ANTI-HALLUCINATION RULE:
-- Refer ONLY to information that exists in the audio or questions.
-- If something cannot be confirmed, say it is unclear.
+CRITICAL LOGIC RULE (LISTENING):
+- If the estimated band is BELOW 7.0, at least ONE problem MUST be reported.
+- It is NOT allowed to say “no mistakes” for band < 7.
+- If confirmation is impossible due to unclear audio or OCR, say so explicitly.
 
-OUTPUT STRUCTURE RULES (ABSOLUTE — NO EXCEPTIONS):
+OUTPUT FORMAT (STRICT — NO FORMATTING):
 
-1) FIRST LINE (MANDATORY):
-📊 Taxminiy natija: <band range>
+Return ONLY a valid JSON object with EXACTLY these keys:
 
-- Must be EXACT.
-- Must be the FIRST line.
-- Must appear ONCE.
+{
+  "apr_band": "<band range, e.g. 5.0–6.0>",
+  "overall": "<short overall feedback>",
+  "mistakes": "<wrong or problematic answers OR clear limitation note>",
+  "spelling": "<spelling or form issues OR 'Yo‘q'>",
+  "traps": "<listening traps OR 'Aniqlanmadi'>",
+  "advice": "<ONE short practical advice>"
+}
 
-2) REQUIRED SECTIONS (IN THIS ORDER):
-- Umumiy fikr
-- Xatolar va sabablari
-- Imlo yoki shakl
-- IELTS listening tuzoqlari
-- Amaliy maslahat
-
-3) SECTION TITLE FORMAT (MANDATORY — MARKDOWN REQUIRED):
-
-EVERY section title MUST:
-- Be wrapped in DOUBLE ASTERISKS (** **)
-- Start with an emoji
-- Be on its own line
-
-✅ CORRECT:
-**🧠 Umumiy fikr**
-
-❌ INVALID:
-🧠 Umumiy fikr  
-**Umumiy fikr**  
-🧠 **Umumiy fikr**
-
-4) FORMATTING RULES:
-- ONLY section titles may be bold.
-- Body text MUST NEVER be bold.
-- Use short paragraphs.
-- No blocky or dry text.
-
-5) EMPTY SECTIONS:
-- If nothing meaningful exists, say so briefly.
-- DO NOT invent content.
-
-FREE PLAN DEPTH RULES:
-- Maximum 2–3 key issues.
-- ONE short practical advice only.
-- No long explanations.
-
-TONE & STYLE:
-- Calm, supportive teacher tone.
-- Natural Uzbek.
-- Human, not robotic.
-
-FINAL SELF-CHECK (MANDATORY):
-Before sending the final answer:
-- Verify ALL section titles are bold (** **).
-- Verify emojis are present in ALL titles.
-- If ANY title is not bolded, REWRITE THE OUTPUT.
-
-IMPORTANT:
-- This is an ESTIMATED result.
+Rules:
+- Do NOT add any extra text.
+- Do NOT use Markdown.
+- Do NOT include emojis.
+- Do NOT change key names.
+- Keep feedback short.
 """
 
 MAX_TELEGRAM_LEN = 4000
@@ -215,6 +172,22 @@ def _ocr_image_to_text(bot, photos):
     except Exception:
         logger.exception("OCR failed")
         return ""
+
+
+def _format_listening_feedback(data: dict) -> str:
+    return (
+        f"📊 Taxminiy natija: {data.get('apr_band', '—')}\n\n"
+        f"**🧠 Umumiy fikr**\n"
+        f"{data.get('overall', '—')}\n\n"
+        f"**❌ Xatolar va sabablari**\n"
+        f"{data.get('mistakes', '—')}\n\n"
+        f"**📝 Imlo yoki shakl**\n"
+        f"{data.get('spelling', '—')}\n\n"
+        f"**⚠️ IELTS listening tuzoqlari**\n"
+        f"{data.get('traps', '—')}\n\n"
+        f"**🎯 Amaliy maslahat**\n"
+        f"{data.get('advice', '—')}"
+    )
 
 
 # ---------- Handlers ----------
@@ -403,7 +376,21 @@ def finalize_listening(update: Update, context: CallbackContext):
         max_tokens=700,
     )
 
-    output = response["choices"][0]["message"]["content"].strip()
+    raw = response["choices"][0]["message"]["content"]
+
+    try:
+        ai_data = json.loads(raw)
+    except Exception:
+        ai_data = {
+            "apr_band": "—",
+            "overall": "Baholashda texnik noaniqlik yuz berdi.",
+            "mistakes": "Audio yoki OCR aniqligi yetarli emas.",
+            "spelling": "Aniqlanmadi.",
+            "traps": "Aniqlanmadi.",
+            "advice": "Keyinroq qayta urinib ko‘ring."
+        }
+
+    output = _format_listening_feedback(ai_data)
     _send_long_message(update.message, output)
 
     send_admin_card(
