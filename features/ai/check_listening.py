@@ -146,7 +146,8 @@ def _send_long_message(message, text: str):
     for i in range(0, len(text), MAX_TELEGRAM_LEN):
         message.reply_text(
             text[i:i + MAX_TELEGRAM_LEN],
-            parse_mode="MarkdownV2"
+            parse_mode="MarkdownV2",
+            _no_bold_patch=True
         )
 
 
