@@ -19,6 +19,7 @@ import os
 import io
 import base64
 import json
+import re
 
 from telegram import (
     Update,
@@ -81,6 +82,11 @@ LANGUAGE RULES:
 - Simple, natural teacher language.
 - No awkward or literal translations.
 
+FREE MODE RULE:
+- Do NOT explain reasons.
+- Do NOT justify corrections.
+- Only list incorrect answers briefly.
+
 ERROR RULES:
 - Mention ONLY wrong or problematic answers.
 - NEVER list correct answers.
@@ -91,14 +97,15 @@ CRITICAL LOGIC RULE (LISTENING):
 - It is NOT allowed to say “no mistakes” for band < 7.
 - If confirmation is impossible due to unclear audio or OCR, say so explicitly.
 
-OUTPUT FORMAT (STRICT — NO FORMATTING):
+OUTPUT FORMAT (STRICT):
 
 Return ONLY a valid JSON object with EXACTLY these keys:
 
 {
   "apr_band": "<band range, e.g. 5.0–6.0>",
+  "raw_score": "<estimated correct answers from 0 to 40>",
   "overall": "<short overall feedback>",
-  "mistakes": "<wrong or problematic answers OR clear limitation note>",
+  "mistakes": "<ONLY a list of wrong answer numbers and student answers. NO explanations.>",
   "spelling": "<spelling or form issues OR 'Yo‘q'>",
   "traps": "<listening traps OR 'Aniqlanmadi'>",
   "advice": "<ONE short practical advice>"
@@ -106,8 +113,6 @@ Return ONLY a valid JSON object with EXACTLY these keys:
 
 Rules:
 - Do NOT add any extra text.
-- Do NOT use Markdown.
-- Do NOT include emojis.
 - Do NOT change key names.
 - Keep feedback short.
 """
@@ -124,13 +129,19 @@ def _listening_keyboard():
     )
 
 
+def _escape_md(text: str) -> str:
+    if not text:
+        return "—"
+    return re.sub(r'([_*\[\]()~`>#+\-=|{}.!])', r'\\\1', text)
+
+
 def _send_long_message(message, text: str):
     if not text:
         return
     for i in range(0, len(text), MAX_TELEGRAM_LEN):
         message.reply_text(
             text[i:i + MAX_TELEGRAM_LEN],
-            parse_mode="Markdown"
+            parse_mode="MarkdownV2"
         )
 
 
@@ -175,18 +186,27 @@ def _ocr_image_to_text(bot, photos):
 
 
 def _format_listening_feedback(data: dict) -> str:
+    band = data.get("apr_band", "—")
+    raw = data.get("raw_score")
+
+    score_line = (
+        f"📊 Taxminiy natija: {band} \\({raw}/40\\)"
+        if raw else
+        f"📊 Taxminiy natija: {band}"
+    )
+
     return (
-        f"📊 Taxminiy natija: {data.get('apr_band', '—')}\n\n"
+        f"{score_line}\n\n"
         f"**🧠 Umumiy fikr**\n"
-        f"{data.get('overall', '—')}\n\n"
-        f"**❌ Xatolar va sabablari**\n"
-        f"{data.get('mistakes', '—')}\n\n"
+        f"{_escape_md(data.get('overall'))}\n\n"
+        f"**❌ Xatolar**\n"
+        f"{_escape_md(data.get('mistakes'))}\n\n"
         f"**📝 Imlo yoki shakl**\n"
-        f"{data.get('spelling', '—')}\n\n"
+        f"{_escape_md(data.get('spelling'))}\n\n"
         f"**⚠️ IELTS listening tuzoqlari**\n"
-        f"{data.get('traps', '—')}\n\n"
+        f"{_escape_md(data.get('traps'))}\n\n"
         f"**🎯 Amaliy maslahat**\n"
-        f"{data.get('advice', '—')}"
+        f"{_escape_md(data.get('advice'))}"
     )
 
 
@@ -218,7 +238,6 @@ def start_check(update: Update, context: CallbackContext):
         "audios": [],
         "questions": [],
         "answers": [],
-        "state": WAITING_FOR_AUDIO,
         "audio_notified": False,
         "questions_notified": False,
         "answers_notified": False,
@@ -255,7 +274,8 @@ def collect_audio(update: Update, context: CallbackContext):
 def collect_questions(update: Update, context: CallbackContext):
     if update.message.photo:
         text = _ocr_image_to_text(context.bot, update.message.photo)
-        context.user_data["questions"].append(text)
+        if text.strip():
+            context.user_data["questions"].append(text)
 
         if not context.user_data["questions_notified"]:
             update.message.reply_text(
@@ -277,7 +297,8 @@ def collect_answers(update: Update, context: CallbackContext):
         context.user_data["answers"].append(msg.text)
     elif msg.photo:
         text = _ocr_image_to_text(context.bot, msg.photo)
-        context.user_data["answers"].append(text)
+        if text.strip():
+            context.user_data["answers"].append(text)
 
     if not context.user_data["answers_notified"]:
         msg.reply_text(
@@ -293,34 +314,31 @@ def collect_answers(update: Update, context: CallbackContext):
 # ---------- FLOW CONTROL ----------
 
 def proceed_next(update: Update, context: CallbackContext):
-    state = context.user_data.get("state")
-
-    if state == WAITING_FOR_AUDIO:
-        if not context.user_data["audios"]:
-            update.message.reply_text("⚠️ Avval listening audio yuboring.")
-            return WAITING_FOR_AUDIO
-
+    if context.user_data.get("audios") is not None and not context.user_data.get("audio_text"):
         transcripts = []
         for msg in context.user_data["audios"]:
-            tg_file = context.bot.get_file(
-                msg.voice.file_id if msg.voice else
-                msg.audio.file_id if msg.audio else
-                msg.video.file_id if msg.video else
-                msg.document.file_id
-            )
-            audio_bytes = tg_file.download_as_bytearray()
-            audio_file = io.BytesIO(audio_bytes)
-            audio_file.name = "audio.wav"
+            try:
+                tg_file = context.bot.get_file(
+                    msg.voice.file_id if msg.voice else
+                    msg.audio.file_id if msg.audio else
+                    msg.video.file_id if msg.video else
+                    msg.document.file_id
+                )
+                audio_bytes = tg_file.download_as_bytearray()
+                audio_file = io.BytesIO(audio_bytes)
+                audio_file.name = "audio.wav"
 
-            text = openai.Audio.transcribe(
-                model="whisper-1",
-                file=audio_file
-            )["text"]
+                text = openai.Audio.transcribe(
+                    model="whisper-1",
+                    file=audio_file
+                )["text"]
+            except Exception:
+                text = ""
 
-            transcripts.append(text)
+            if text.strip():
+                transcripts.append(text)
 
         context.user_data["audio_text"] = "\n".join(transcripts)
-        context.user_data["state"] = WAITING_FOR_QUESTIONS
 
         update.message.reply_text(
             "📸 *Listening savollari rasmlarini yuboring.*",
@@ -329,12 +347,7 @@ def proceed_next(update: Update, context: CallbackContext):
         )
         return WAITING_FOR_QUESTIONS
 
-    if state == WAITING_FOR_QUESTIONS:
-        if not context.user_data["questions"]:
-            update.message.reply_text("⚠️ Avval savol rasmlarini yuboring.")
-            return WAITING_FOR_QUESTIONS
-
-        context.user_data["state"] = WAITING_FOR_ANSWERS
+    if context.user_data.get("questions") and not context.user_data.get("answers"):
         update.message.reply_text(
             "✍️ *Javoblaringizni yuboring.*",
             parse_mode="Markdown",
@@ -342,18 +355,21 @@ def proceed_next(update: Update, context: CallbackContext):
         )
         return WAITING_FOR_ANSWERS
 
-    if state == WAITING_FOR_ANSWERS:
-        if not context.user_data["answers"]:
-            update.message.reply_text("⚠️ Avval javoblaringizni yuboring.")
-            return WAITING_FOR_ANSWERS
-
-        return finalize_listening(update, context)
+    return finalize_listening(update, context)
 
 
 def finalize_listening(update: Update, context: CallbackContext):
     audio_text = context.user_data.get("audio_text", "")
     questions = "\n".join(context.user_data["questions"])
     answers = "\n".join(context.user_data["answers"])
+
+    update.message.reply_text(
+        "ℹ️ *Eslatma:*\n"
+        "Listening feedback ingliz tilida beriladi.\n"
+        "Bu bo‘limda AI aniqligi taxminan *80%*.\n"
+        "Natijalar taxminiy hisoblanadi.",
+        parse_mode="Markdown"
+    )
 
     update.message.reply_text(
         "*⏳ Listening tahlil qilinmoqda...*",
@@ -383,10 +399,11 @@ def finalize_listening(update: Update, context: CallbackContext):
     except Exception:
         ai_data = {
             "apr_band": "—",
+            "raw_score": "—",
             "overall": "Baholashda texnik noaniqlik yuz berdi.",
             "mistakes": "Audio yoki OCR aniqligi yetarli emas.",
-            "spelling": "Aniqlanmadi.",
-            "traps": "Aniqlanmadi.",
+            "spelling": "Aniqlanmadi",
+            "traps": "Aniqlanmadi",
             "advice": "Keyinroq qayta urinib ko‘ring."
         }
 
