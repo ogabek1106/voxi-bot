@@ -129,17 +129,6 @@ def _listening_keyboard():
     )
 
 
-def _escape_md(text) -> str:
-    if not text:
-        return "—"
-
-    # ✅ Normalize list → string (FREE mode safe)
-    if isinstance(text, list):
-        text = "; ".join(str(x) for x in text)
-
-    return re.sub(r'([_*\[\]()~`>#+\-=|{}.!])', r'\\\1', str(text))
-
-
 def _send_long_message(message, text: str):
     if not text:
         return
@@ -151,8 +140,7 @@ def _send_long_message(message, text: str):
         bot.send_message(
             chat_id=chat_id,
             text=text[i:i + MAX_TELEGRAM_LEN],
-            parse_mode="MarkdownV2",
-            _no_bold_patch=True
+            parse_mode="HTML"
         )
 
 
@@ -198,29 +186,33 @@ def _ocr_image_to_text(bot, photos):
 
 
 def _format_listening_feedback(data: dict) -> str:
-    band = _escape_md(data.get("apr_band", "—"))
+    band = data.get("apr_band", "—")
     raw = data.get("raw_score")
 
     score_line = (
-        f"📊 Taxminiy natija: {band} \\({raw}/40\\)"
+        f"📊 Taxminiy natija: {band} ({raw}/40)"
         if raw else
         f"📊 Taxminiy natija: {band}"
     )
 
+    def norm(x):
+        if isinstance(x, list):
+            return "; ".join(str(i) for i in x)
+        return x or "—"
+
     return (
         f"{score_line}\n\n"
-        f"**🧠 Umumiy fikr**\n"
-        f"{_escape_md(data.get('overall'))}\n\n"
-        f"**❌ Xatolar**\n"
-        f"{_escape_md(data.get('mistakes'))}\n\n"
-        f"**📝 Imlo yoki shakl**\n"
-        f"{_escape_md(data.get('spelling'))}\n\n"
-        f"**⚠️ IELTS listening tuzoqlari**\n"
-        f"{_escape_md(data.get('traps'))}\n\n"
-        f"**🎯 Amaliy maslahat**\n"
-        f"{_escape_md(data.get('advice'))}"
+        f"<b>🧠 Umumiy fikr</b>\n"
+        f"{norm(data.get('overall'))}\n\n"
+        f"<b>❌ Xatolar</b>\n"
+        f"{norm(data.get('mistakes'))}\n\n"
+        f"<b>📝 Imlo yoki shakl</b>\n"
+        f"{norm(data.get('spelling'))}\n\n"
+        f"<b>⚠️ IELTS listening tuzoqlari</b>\n"
+        f"{norm(data.get('traps'))}\n\n"
+        f"<b>🎯 Amaliy maslahat</b>\n"
+        f"{norm(data.get('advice'))}"
     )
-
 
 # ---------- Handlers ----------
 
