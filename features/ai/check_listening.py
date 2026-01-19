@@ -129,10 +129,15 @@ def _listening_keyboard():
     )
 
 
-def _escape_md(text: str) -> str:
+def _escape_md(text) -> str:
     if not text:
         return "—"
-    return re.sub(r'([_*\[\]()~`>#+\-=|{}.!])', r'\\\1', text)
+
+    # ✅ Normalize list → string (FREE mode safe)
+    if isinstance(text, list):
+        text = "; ".join(str(x) for x in text)
+
+    return re.sub(r'([_*\[\]()~`>#+\-=|{}.!])', r'\\\1', str(text))
 
 
 def _send_long_message(message, text: str):
