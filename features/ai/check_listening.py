@@ -143,12 +143,18 @@ def _escape_md(text) -> str:
 def _send_long_message(message, text: str):
     if not text:
         return
+
+    bot = message.bot
+    chat_id = message.chat_id
+
     for i in range(0, len(text), MAX_TELEGRAM_LEN):
-        message.reply_text(
-            text[i:i + MAX_TELEGRAM_LEN],
+        bot.send_message(
+            chat_id=chat_id,
+            text=text[i:i + MAX_TELEGRAM_LEN],
             parse_mode="MarkdownV2",
             _no_bold_patch=True
         )
+
 
 
 def _ocr_image_to_text(bot, photos):
