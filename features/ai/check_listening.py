@@ -233,6 +233,14 @@ def start_check(update: Update, context: CallbackContext):
 
     set_checker_mode(user.id, "listening")
 
+    update.message.reply_text(
+        "ℹ️ *Eslatma:*\n"
+        "Listening feedback ingliz tilida beriladi.\n"
+        "Bu bo‘limda AI aniqligi taxminan *80%*.\n"
+        "Natijalar taxminiy hisoblanadi.",
+        parse_mode="Markdown"
+    )
+    
     context.user_data.clear()
     context.user_data.update({
         "audios": [],
@@ -362,14 +370,6 @@ def finalize_listening(update: Update, context: CallbackContext):
     audio_text = context.user_data.get("audio_text", "")
     questions = "\n".join(context.user_data["questions"])
     answers = "\n".join(context.user_data["answers"])
-
-    update.message.reply_text(
-        "ℹ️ *Eslatma:*\n"
-        "Listening feedback ingliz tilida beriladi.\n"
-        "Bu bo‘limda AI aniqligi taxminan *80%*.\n"
-        "Natijalar taxminiy hisoblanadi.",
-        parse_mode="Markdown"
-    )
 
     update.message.reply_text(
         "*⏳ Listening tahlil qilinmoqda...*",
