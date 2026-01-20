@@ -230,6 +230,15 @@ def start_check(update: Update, context: CallbackContext):
 
     set_checker_mode(user.id, "reading")
 
+    update.message.reply_text(
+        "ℹ️ *Eslatma:*\n"
+        "Reading mantiqiy o‘ylashni talab qiladi.\n"
+        "AI ayrim savollarda *adashishi mumkin*.\n"
+        "To‘g‘rilik darajasi taxminan *80%*.\n"
+        "Natijalar rasmiy IELTS bahosi emas.",
+        parse_mode="Markdown"
+    )
+    
     context.user_data.clear()
     context.user_data.update({
         "texts": [],
