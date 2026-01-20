@@ -243,8 +243,6 @@ def start_check(update: Update, context: CallbackContext):
     context.user_data.update({
         "texts": [],
         "answers": [],
-        "passage_notified": False,
-        "answers_notified": False,
     })
 
     update.message.reply_text(
@@ -267,14 +265,11 @@ def collect_passage(update: Update, context: CallbackContext):
         if text.strip():
             context.user_data["texts"].append(text)
 
-    if not context.user_data["passage_notified"]:
-        msg.reply_text(
-            "📄 *Qabul qilindi.*\n"
-            "Agar yana bo‘lsa yuboring, tugatgach ➡️ *Davom etish* ni bosing.",
-            parse_mode="Markdown"
-        )
-        context.user_data["passage_notified"] = True
-
+    msg.reply_text(
+        "📄 *Qabul qilindi.*\n"
+        "Agar yana bo‘lsa yuboring, tugatgach ➡️ *Davom etish* ni bosing.",
+        parse_mode="Markdown"
+    )
     return WAITING_FOR_PASSAGE
 
 
@@ -288,13 +283,11 @@ def collect_answers(update: Update, context: CallbackContext):
         if text.strip():
             context.user_data["answers"].append(text)
 
-    if not context.user_data["answers_notified"]:
-        msg.reply_text(
-            "✍️ *Qabul qilindi.*\n"
-            "Agar yana bo‘lsa yuboring, tugatgach ➡️ *Davom etish* ni bosing.",
-            parse_mode="Markdown"
-        )
-        context.user_data["answers_notified"] = True
+    msg.reply_text(
+        "✍️ *Qabul qilindi.*\n"
+        "Agar yana bo‘lsa yuboring, tugatgach ➡️ *Davom etish* ni bosing.",
+        parse_mode="Markdown"
+    )
 
     return WAITING_FOR_ANSWERS
 
