@@ -426,13 +426,12 @@ def cancel(update: Update, context: CallbackContext):
 
     context.user_data.clear()
 
-    from features.ielts_checkup_ui import _ielts_skills_reply_keyboard
     update.message.reply_text(
         "❌ Tekshiruv bekor qilindi.",
         reply_markup=_ielts_skills_reply_keyboard()
     )
-    return ConversationHandler.END
 
+    return ConversationHandler.END
 
 # ---------- Registration ----------
 
