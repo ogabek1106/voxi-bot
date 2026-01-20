@@ -258,36 +258,41 @@ def start_check(update: Update, context: CallbackContext):
 def collect_passage(update: Update, context: CallbackContext):
     msg = update.message
 
-    if msg.text:
-        context.user_data["texts"].append(msg.text)
-    elif msg.photo:
-        text = _ocr_image_to_text(context.bot, msg.photo)
-        if text.strip():
-            context.user_data["texts"].append(text)
-
+    # ✅ ACKNOWLEDGE IMMEDIATELY
     msg.reply_text(
         "📄 *Qabul qilindi.*\n"
         "Agar yana bo‘lsa yuboring, tugatgach ➡️ *Davom etish* ni bosing.",
         parse_mode="Markdown"
     )
+
+    # ⏳ THEN process content
+    if msg.text:
+        context.user_data["texts"].append(msg.text)
+
+    elif msg.photo:
+        text = _ocr_image_to_text(context.bot, msg.photo)
+        if text.strip():
+            context.user_data["texts"].append(text)
+
     return WAITING_FOR_PASSAGE
 
 
 def collect_answers(update: Update, context: CallbackContext):
     msg = update.message
 
-    if msg.text:
-        context.user_data["answers"].append(msg.text)
-    elif msg.photo:
-        text = _ocr_image_to_text(context.bot, msg.photo)
-        if text.strip():
-            context.user_data["answers"].append(text)
-
     msg.reply_text(
         "✍️ *Qabul qilindi.*\n"
         "Agar yana bo‘lsa yuboring, tugatgach ➡️ *Davom etish* ni bosing.",
         parse_mode="Markdown"
     )
+
+    if msg.text:
+        context.user_data["answers"].append(msg.text)
+
+    elif msg.photo:
+        text = _ocr_image_to_text(context.bot, msg.photo)
+        if text.strip():
+            context.user_data["answers"].append(text)
 
     return WAITING_FOR_ANSWERS
 
