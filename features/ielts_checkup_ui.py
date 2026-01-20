@@ -166,11 +166,12 @@ def ielts_skill_text_handler(update: Update, context: CallbackContext):
         )
         return
 
-    # 📖 Reading (READY)
     if text == "📖 Reading":
-        from features.ai.check_reading import start_check
-        return start_check(update, context)
-
+        context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="/check_reading"
+        )
+        return
 
     # ⬅️ Back
     if text == "⬅️ Back":
@@ -238,6 +239,7 @@ def register(dispatcher):
 
 def setup(dispatcher):
     register(dispatcher)
+
 
 
 
