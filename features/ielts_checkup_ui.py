@@ -125,12 +125,13 @@ def ielts_skill_text_handler(update: Update, context: CallbackContext):
     #if user and get_checker_mode(user.id):
         # return
 
-    # ❌ Cancel (UI-level only, NOT checker-level)
+    # ❌ Cancel
     if text == "❌ Cancel":
-        # If a checker is active, let ConversationHandler handle it
+        # If checker is active → DO NOTHING (ConversationHandler owns it)
         if user and get_checker_mode(user.id):
             return
 
+        # UI-only cancel (no active checker)
         if user:
             clear_checker_mode(user.id)
 
@@ -139,7 +140,7 @@ def ielts_skill_text_handler(update: Update, context: CallbackContext):
             reply_markup=_ielts_skills_reply_keyboard()
         )
         return
-
+       
     # ✍️ Writing main button
     if text == "✍️ Writing":
         update.message.reply_text(
@@ -232,6 +233,7 @@ def register(dispatcher):
 
 def setup(dispatcher):
     register(dispatcher)
+
 
 
 
