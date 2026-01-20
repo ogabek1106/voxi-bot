@@ -98,6 +98,19 @@ MAX_TELEGRAM_LEN = 4000
 
 # ---------- Helpers ----------
 
+def _should_confirm_album(msg, context, key):
+    album_id = msg.media_group_id
+    if not album_id:
+        return True
+
+    confirmed = context.user_data.setdefault(key, set())
+    if album_id in confirmed:
+        return False
+
+    confirmed.add(album_id)
+    return True
+
+
 def _reading_keyboard():
     return ReplyKeyboardMarkup(
         [["➡️ Davom etish", "❌ Cancel"]],
@@ -258,14 +271,7 @@ def start_check(update: Update, context: CallbackContext):
 def collect_passage(update: Update, context: CallbackContext):
     msg = update.message
 
-    # ✅ ACKNOWLEDGE IMMEDIATELY
-    msg.reply_text(
-        "📄 *Qabul qilindi.*\n"
-        "Agar yana bo‘lsa yuboring, tugatgach ➡️ *Davom etish* ni bosing.",
-        parse_mode="Markdown"
-    )
-
-    # ⏳ THEN process content
+    # ---- STORE CONTENT ----
     if msg.text:
         context.user_data["texts"].append(msg.text)
 
@@ -274,8 +280,15 @@ def collect_passage(update: Update, context: CallbackContext):
         if text.strip():
             context.user_data["texts"].append(text)
 
-    return WAITING_FOR_PASSAGE
+    # ---- CONFIRM ONLY ONCE PER ALBUM ----
+    if _should_confirm_album(msg, context, "confirmed_passage_albums"):
+        msg.reply_text(
+            "📄 *Qabul qilindi.*\n"
+            "Agar yana bo‘lsa yuboring, tugatgach ➡️ *Davom etish* ni bosing.",
+            parse_mode="Markdown"
+        )
 
+    return WAITING_FOR_PASSAGE
 
 def collect_answers(update: Update, context: CallbackContext):
     msg = update.message
@@ -298,9 +311,27 @@ def collect_answers(update: Update, context: CallbackContext):
 
 
 def proceed_next(update: Update, context: CallbackContext):
-    if context.user_data.get("texts") and not context.user_data.get("passage"):
+
+    # ---------- STEP 1: PASSAGE + QUESTIONS ----------
+    if not context.user_data.get("passage"):
+        if not context.user_data.get("texts"):
+            update.message.reply_text(
+                "⚠️ *Reading matni yoki savollar yuborilmadi.*\n"
+                "Iltimos, avval matn yoki rasmlarni yuboring.",
+                parse_mode="Markdown"
+            )
+            return WAITING_FOR_PASSAGE
+
         full_text = "\n".join(context.user_data["texts"])
         passage, questions = _split_passage_and_questions(full_text)
+
+        if not questions.strip():
+            update.message.reply_text(
+                "⚠️ *Savollar aniqlanmadi.*\n"
+                "Iltimos, savollar aniq ko‘rinadigan rasm yoki matn yuboring.",
+                parse_mode="Markdown"
+            )
+            return WAITING_FOR_PASSAGE
 
         context.user_data["passage"] = passage
         context.user_data["questions"] = questions
@@ -312,7 +343,17 @@ def proceed_next(update: Update, context: CallbackContext):
         )
         return WAITING_FOR_ANSWERS
 
+    # ---------- STEP 2: ANSWERS ----------
+    if not context.user_data.get("answers"):
+        update.message.reply_text(
+            "⚠️ *Javoblar yuborilmadi.*\n"
+            "Iltimos, javoblaringizni yuboring.",
+            parse_mode="Markdown"
+        )
+        return WAITING_FOR_ANSWERS
+
     return finalize_reading(update, context)
+
 
 
 def finalize_reading(update: Update, context: CallbackContext):
