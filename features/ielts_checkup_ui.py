@@ -166,13 +166,6 @@ def ielts_skill_text_handler(update: Update, context: CallbackContext):
         )
         return
 
-    if text == "📖 Reading":
-        context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text="/check_reading"
-        )
-        return
-
     # ⬅️ Back
     if text == "⬅️ Back":
         update.message.reply_text(
@@ -239,6 +232,7 @@ def register(dispatcher):
 
 def setup(dispatcher):
     register(dispatcher)
+
 
 
 
