@@ -400,7 +400,7 @@ def register(dispatcher):
         per_message=False,
         entry_points=[
             CommandHandler("check_reading", start_check),
-            MessageHandler(Filters.regex("^📘 Reading$"), start_check),
+            MessageHandler(Filters.regex("^📖 Reading$"), start_check),
         ],
         states={
             WAITING_FOR_PASSAGE: [
