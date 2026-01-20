@@ -151,12 +151,12 @@ def ielts_skill_text_handler(update: Update, context: CallbackContext):
         return
 
     # 📝 Writing Task 1
-    if text == "📝 Writing Task 1":
-        return
+    # if text == "📝 Writing Task 1":
+        # return
 
     # 🧠 Writing Task 2
-    if text == "🧠 Writing Task 2":
-        return
+    # if text == "🧠 Writing Task 2":
+        # return
 
     # 🗣️ Speaking (READY)
     if text == "🗣️ Speaking":
@@ -233,6 +233,7 @@ def register(dispatcher):
 
 def setup(dispatcher):
     register(dispatcher)
+
 
 
 
