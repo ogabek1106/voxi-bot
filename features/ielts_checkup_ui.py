@@ -166,10 +166,11 @@ def ielts_skill_text_handler(update: Update, context: CallbackContext):
         )
         return
 
-    # 🚧 Coming soon
-    if text in {"📖 Reaing"}:
-        update.message.reply_text("🚧 This section is coming soon.")
-        return
+    # 📖 Reading (READY)
+    if text == "📖 Reading":
+        from features.ai.check_reading import start_check
+        return start_check(update, context)
+
 
     # ⬅️ Back
     if text == "⬅️ Back":
@@ -237,5 +238,6 @@ def register(dispatcher):
 
 def setup(dispatcher):
     register(dispatcher)
+
 
 
