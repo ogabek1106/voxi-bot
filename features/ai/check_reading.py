@@ -36,6 +36,7 @@ from features.ielts_checkup_ui import _ielts_skills_reply_keyboard
 from features.ai.check_limits import can_use_feature
 from features.admin_feedback import send_admin_card
 from database import (
+    get_checker_mode,
     log_ai_usage,
     set_checker_mode,
     clear_checker_mode,
@@ -269,6 +270,10 @@ def start_check(update: Update, context: CallbackContext):
 
 
 def collect_passage(update: Update, context: CallbackContext):
+    user = update.effective_user
+    if not user or get_checker_mode(user.id) != "reading":
+        return WAITING_FOR_PASSAGE
+    
     msg = update.message
 
     # ---- STORE CONTENT ----
@@ -291,6 +296,10 @@ def collect_passage(update: Update, context: CallbackContext):
     return WAITING_FOR_PASSAGE
 
 def collect_answers(update: Update, context: CallbackContext):
+    user = update.effective_user
+    if not user or get_checker_mode(user.id) != "reading":
+        return WAITING_FOR_ANSWERS
+    
     msg = update.message
 
     msg.reply_text(
