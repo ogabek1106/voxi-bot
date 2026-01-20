@@ -216,6 +216,18 @@ def _format_listening_feedback(data: dict) -> str:
 
 # ---------- Handlers ----------
 
+def _should_confirm_album(msg, context, key):
+    album_id = msg.media_group_id
+    if not album_id:
+        return True
+
+    confirmed = context.user_data.setdefault(key, set())
+    if album_id in confirmed:
+        return False
+
+    confirmed.add(album_id)
+    return True
+
 def start_check(update: Update, context: CallbackContext):
     from features.sub_check import require_subscription
     if not require_subscription(update, context):
@@ -250,9 +262,6 @@ def start_check(update: Update, context: CallbackContext):
         "audios": [],
         "questions": [],
         "answers": [],
-        "audio_notified": False,
-        "questions_notified": False,
-        "answers_notified": False,
     })
 
     update.message.reply_text(
@@ -267,42 +276,64 @@ def start_check(update: Update, context: CallbackContext):
 # ---------- AUDIO COLLECTION ----------
 
 def collect_audio(update: Update, context: CallbackContext):
-    if update.message.voice or update.message.audio or update.message.video or update.message.document:
-        context.user_data["audios"].append(update.message)
+    user = update.effective_user
+    if not user or get_checker_mode(user.id) != "listening":
+        return WAITING_FOR_AUDIO
 
-        if not context.user_data["audio_notified"]:
-            update.message.reply_text(
+    if context.user_data.get("audio_text"):
+        update.message.reply_text(
+            "⚠️ Audio qabul qilinmaydi.\n"
+            "Iltimos, savollar rasmlarini yuboring yoki ➡️ *Davom etish* ni bosing.",
+            parse_mode="Markdown"
+        )
+        return WAITING_FOR_AUDIO
+  
+    msg = update.message
+
+    if msg.voice or msg.audio or msg.video or msg.document:
+        context.user_data["audios"].append(msg)
+
+        if _should_confirm_album(msg, context, "confirmed_audio_albums"):
+            msg.reply_text(
                 "🎧 *Qabul qilindi.*\n"
                 "Agar yana bo‘lsa jo‘nating, tugatgach ➡️ *Davom etish* tugmasini bosing.",
                 parse_mode="Markdown"
             )
-            context.user_data["audio_notified"] = True
 
     return WAITING_FOR_AUDIO
+
 
 
 # ---------- QUESTIONS COLLECTION ----------
 
 def collect_questions(update: Update, context: CallbackContext):
-    if update.message.photo:
-        text = _ocr_image_to_text(context.bot, update.message.photo)
+    user = update.effective_user
+    if not user or get_checker_mode(user.id) != "listening":
+        return WAITING_FOR_QUESTIONS
+
+    msg = update.message
+
+    if msg.photo:
+        text = _ocr_image_to_text(context.bot, msg.photo)
         if text.strip():
             context.user_data["questions"].append(text)
 
-        if not context.user_data["questions_notified"]:
-            update.message.reply_text(
+        if _should_confirm_album(msg, context, "confirmed_question_albums"):
+            msg.reply_text(
                 "🖼️ *Qabul qilindi.*\n"
                 "Agar yana bo‘lsa jo‘nating, tugatgach ➡️ *Davom etish* tugmasini bosing.",
                 parse_mode="Markdown"
             )
-            context.user_data["questions_notified"] = True
 
     return WAITING_FOR_QUESTIONS
-
 
 # ---------- ANSWERS COLLECTION ----------
 
 def collect_answers(update: Update, context: CallbackContext):
+    user = update.effective_user
+    if not user or get_checker_mode(user.id) != "listening":
+        return WAITING_FOR_ANSWERS
+
     msg = update.message
 
     if msg.text:
@@ -312,21 +343,32 @@ def collect_answers(update: Update, context: CallbackContext):
         if text.strip():
             context.user_data["answers"].append(text)
 
-    if not context.user_data["answers_notified"]:
+    if _should_confirm_album(msg, context, "confirmed_answer_albums"):
         msg.reply_text(
             "✍️ *Qabul qilindi.*\n"
             "Agar yana bo‘lsa jo‘nating, tugatgach ➡️ *Davom etish* tugmasini bosing.",
             parse_mode="Markdown"
         )
-        context.user_data["answers_notified"] = True
 
     return WAITING_FOR_ANSWERS
-
 
 # ---------- FLOW CONTROL ----------
 
 def proceed_next(update: Update, context: CallbackContext):
-    if context.user_data.get("audios") is not None and not context.user_data.get("audio_text"):
+    user = update.effective_user
+    if not user or get_checker_mode(user.id) != "listening":
+        return ConversationHandler.END
+
+    # ---------- STEP 1: AUDIO ----------
+    if not context.user_data.get("audio_text"):
+        if not context.user_data.get("audios"):
+            update.message.reply_text(
+                "⚠️ *Listening audio yuborilmadi.*\n"
+                "Iltimos, avval audio fayllarni yuboring.",
+                parse_mode="Markdown"
+            )
+            return WAITING_FOR_AUDIO
+
         transcripts = []
         for msg in context.user_data["audios"]:
             try:
@@ -359,11 +401,21 @@ def proceed_next(update: Update, context: CallbackContext):
         )
         return WAITING_FOR_QUESTIONS
 
-    if context.user_data.get("questions") and not context.user_data.get("answers"):
+    # ---------- STEP 2: QUESTIONS ----------
+    if not context.user_data.get("questions"):
         update.message.reply_text(
-            "✍️ *Javoblaringizni yuboring.*",
-            parse_mode="Markdown",
-            reply_markup=_listening_keyboard()
+            "⚠️ *Listening savollari yuborilmadi.*\n"
+            "Iltimos, savollar rasmlarini yuboring.",
+            parse_mode="Markdown"
+        )
+        return WAITING_FOR_QUESTIONS
+
+    # ---------- STEP 3: ANSWERS ----------
+    if not context.user_data.get("answers"):
+        update.message.reply_text(
+            "⚠️ *Javoblar yuborilmadi.*\n"
+            "Iltimos, javoblaringizni yuboring.",
+            parse_mode="Markdown"
         )
         return WAITING_FOR_ANSWERS
 
