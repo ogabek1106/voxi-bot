@@ -167,7 +167,7 @@ def ielts_skill_text_handler(update: Update, context: CallbackContext):
         return
 
     # 🚧 Coming soon
-    if text in {"📖 Reading"}:
+    if text in {"📖 Reaing"}:
         update.message.reply_text("🚧 This section is coming soon.")
         return
 
@@ -237,4 +237,5 @@ def register(dispatcher):
 
 def setup(dispatcher):
     register(dispatcher)
+
 
