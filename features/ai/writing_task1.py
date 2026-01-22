@@ -273,14 +273,7 @@ def receive_report(update: Update, context: CallbackContext):
     else:
         message.reply_text("❗️Javobni matn yoki rasm sifatida yuboring.")
         return WAITING_FOR_REPORT
-
-    # 🔐 Store RAW essay for AI analysis (internal, user never sees this)
-    store_writing_essay(
-        context.bot,
-        report,
-        "#writing1"
-    )
-      
+    
     if len(report.split()) < 80:
         message.reply_text(
             "❗️Matn juda qisqa yoki rasm noto‘g‘ri o‘qildi.\n"
@@ -293,6 +286,13 @@ def receive_report(update: Update, context: CallbackContext):
         parse_mode="Markdown"
     )
 
+    # 🔐 Store RAW essay for AI analysis (internal, user never sees this)
+    store_writing_essay(
+        context.bot,
+        report,
+        "#writing1"
+    )
+    
     try:
         response = openai.ChatCompletion.create(
             model="gpt-4o-mini",
