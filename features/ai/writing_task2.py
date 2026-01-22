@@ -18,7 +18,7 @@ import base64
 from features.ai.check_limits import can_use_feature
 from database import log_ai_usage
 from telegram.ext import DispatcherHandlerStop
-from features.admin_feedback import send_admin_card
+from features.admin_feedback import send_admin_card, store_writing_essay
 
 from telegram import Update
 from telegram.ext import (
@@ -292,6 +292,13 @@ def receive_essay(update: Update, context: CallbackContext):
         parse_mode="Markdown"
     )
 
+    # 🔐 Store RAW essay for AI analysis (internal, user never sees this)
+    store_writing_essay(
+        context.bot,
+        essay,
+        "#writing2"
+    )
+    
     try:
         response = openai.ChatCompletion.create(
             model="gpt-4o-mini",
