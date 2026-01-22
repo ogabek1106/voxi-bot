@@ -33,22 +33,17 @@ def send_admin_card(bot, user_id: int, title: str, content: str):
 # ---------- WRITING ESSAY STORAGE (TASK 1 & 2 ONLY) ----------
 
 def store_writing_essay(bot, text: str, tag: str):
-    """
-    Stores RAW user writing text to WRITING_STORAGE.
+    try:
+        if not text or not text.strip():
+            return
 
-    The BOT sets the tag internally:
-      - #writing1
-      - #writing2
+        message = f"{text.strip()}\n\n{tag}"
 
-    The user never sees or provides hashtags.
-    """
+        bot.send_message(
+            chat_id=WRITING_STORAGE,
+            text=message,
+            timeout=5   # ⬅️ ABSOLUTELY REQUIRED
+        )
 
-    if not text or not text.strip():
-        return
-
-    message = f"{text.strip()}\n\n{tag}"
-
-    bot.send_message(
-        chat_id=WRITING_STORAGE,
-        text=message
-    )
+    except Exception:
+        logger.exception("Writing storage failed (ignored)")
