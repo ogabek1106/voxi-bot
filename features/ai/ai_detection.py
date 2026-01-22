@@ -105,6 +105,28 @@ RULES:
 
 # ---------- Helpers ----------
 
+def _ai_color_tone(ai_probability: int) -> str:
+    """
+    Maps AI likelihood to color emoji.
+    """
+    if ai_probability < 30:
+        return "🟢"
+    elif ai_probability < 50:
+        return "🟤"
+    elif ai_probability < 70:
+        return "🟠"
+    else:
+        return "🔴"
+
+def _safe_int(value, default=0):
+    try:
+        value = str(value).replace("%", "").strip()
+        num = int(float(value))
+        return max(0, min(100, num))
+    except Exception:
+        return default
+
+
 def _word_count(text: str) -> int:
     return len(re.findall(r"\b\w+\b", text))
 
@@ -125,14 +147,16 @@ def _next_actions_keyboard():
 
 
 def _format_result(data: dict) -> str:
-    ai_prob = data.get("ai_probability", "—")
+    raw_prob = data.get("ai_probability", 0)
+    ai_prob = _safe_int(raw_prob)
+    color = _ai_color_tone(ai_prob)
     confidence = data.get("confidence", "—")
     explanation = data.get("explanation", "—")
     segments = data.get("ai_segments", "—")
 
     return (
         f"<b>🤖 AI Detection Result</b>\n\n"
-        f"<b>AI likelihood:</b> {ai_prob}%\n"
+        f"<b>AI likelihood:</b> {ai_prob}% {color}\n"
         f"<b>Confidence:</b> {confidence}\n\n"
         f"<b>🧠 Explanation</b>\n"
         f"{explanation}\n\n"
