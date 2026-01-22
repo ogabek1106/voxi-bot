@@ -183,13 +183,14 @@ def _send_start_menu(update: Update, context: CallbackContext):
         return
 
     msg.reply_text(
-        f"*Assalomu alaykum*, {name}!\n"
+        f"*Assalomu alaykum*, {name}!\n\n"
+        "_⚠️ Voxi ishlash sifatini yaxshilash uchun yuborilgan ayrim matnlar anonim tarzda saqlanishi va tahlil qilinishi mumkin.\n"
+        "Hech qanday shaxsiy ma’lumot yig‘ilmaydi.\n"
+        "Botdan foydalanish orqali siz bunga rozilik berasiz._\n\n"
         "Menga *kitob kodini* yuboring yoki kerakli *bo'limni* tanlang 👇",
         reply_markup=_main_user_keyboard(),
         parse_mode="Markdown"
     )
-
-
 
 def start_handler(update: Update, context: CallbackContext):
     """Handles /start and deep links.
