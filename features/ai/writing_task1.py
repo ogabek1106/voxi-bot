@@ -25,7 +25,7 @@ from telegram.ext import (
     Filters,
 )
 from telegram.ext import DispatcherHandlerStop
-from features.admin_feedback import send_admin_card
+from features.admin_feedback import send_admin_card, store_writing_essay
 from features.ai.check_limits import can_use_feature
 from database import log_ai_usage
 
@@ -269,10 +269,18 @@ def receive_report(update: Update, context: CallbackContext):
     elif message.photo:
         message.reply_text("🖼️ Javob rasmdan o‘qilmoqda...", parse_mode="Markdown")
         report = _ocr_image_to_text(context.bot, message.photo)
+
     else:
         message.reply_text("❗️Javobni matn yoki rasm sifatida yuboring.")
         return WAITING_FOR_REPORT
 
+    # 🔐 Store RAW essay for AI analysis (internal, user never sees this)
+    store_writing_essay(
+        context.bot,
+        report,
+        "#writing1"
+    )
+      
     if len(report.split()) < 80:
         message.reply_text(
             "❗️Matn juda qisqa yoki rasm noto‘g‘ri o‘qildi.\n"
