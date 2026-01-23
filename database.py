@@ -1293,6 +1293,28 @@ def clear_user_mode(user_id: int) -> bool:
             conn.close()
 
 
+def clear_all_user_modes() -> int:
+    """
+    Remove ALL active user modes.
+    Used by /cancel_all (admin emergency reset).
+    Returns number of rows deleted.
+    """
+    ensure_user_modes_table()
+    conn = None
+    try:
+        conn = _connect()
+        with conn:
+            cur = conn.execute("DELETE FROM user_modes;")
+            # rowcount can be -1 in sqlite, normalize
+            return int(cur.rowcount or 0)
+    except Exception as e:
+        logger.exception("clear_all_user_modes failed: %s", e)
+        return 0
+    finally:
+        if conn:
+            conn.close()
+
+
 # ---------- COMMAND USAGE STATS ----------
 
 def ensure_command_usage_table():
