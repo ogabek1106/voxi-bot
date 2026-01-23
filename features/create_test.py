@@ -26,6 +26,12 @@ TESTS_DIR = "tests"
 
 ASK_NAME, ASK_LEVEL, ASK_COUNT, ASK_TIME = range(4)
 
+def _dbg(update: Update, context: CallbackContext, where: str):
+    text = update.message.text if update.message else None
+    uid = update.effective_user.id if update.effective_user else None
+    logger.error(
+        f"[CREATE_TEST DEBUG] {where} | uid={uid} | text={text!r} | user_data={dict(context.user_data)}"
+    )
 # ---------- helpers ----------
 
 def _is_admin(user_id: Optional[int]) -> bool:
@@ -42,6 +48,7 @@ def _gen_test_id():
 
 
 def _abort(update: Update, context: CallbackContext):
+    _dbg(update, context, "ABORT")
     # ⚠️ DO NOT clear user_data fully (ConversationHandler uses it)
     for k in list(context.user_data.keys()):
         if k.startswith("test_") or k in {
@@ -54,6 +61,7 @@ def _abort(update: Update, context: CallbackContext):
 
 
 def _unknown_command(update: Update, context: CallbackContext):
+    _dbg(update, context, "UNKNOWN_COMMAND_HANDLER")
     # 🔐 Intercept ONLY during test mode
     if context.user_data.get("test_mode"):
         update.message.reply_text("❓ Please answer the question or use /skip.")
@@ -64,6 +72,7 @@ def _unknown_command(update: Update, context: CallbackContext):
 # ---------- MANUAL END COMMAND ----------
 
 def end_test(update: Update, context: CallbackContext):
+    _dbg(update, context, "END_TEST")
     user = update.effective_user
     if not user or not _is_admin(user.id):
         update.message.reply_text("⛔ Admins only.")
@@ -86,6 +95,7 @@ def end_test(update: Update, context: CallbackContext):
 # ---------- START ----------
 
 def start(update: Update, context: CallbackContext):
+    _dbg(update, context, "START")
     user = update.effective_user
     if not user or not _is_admin(user.id):
         update.message.reply_text("⛔ Admins only.")
@@ -116,6 +126,7 @@ def start(update: Update, context: CallbackContext):
 # ---------- NAME ----------
 
 def name_text(update: Update, context: CallbackContext):
+    _dbg(update, context, "NAME_TEXT_HANDLER_HIT")
     context.user_data["name"] = update.message.text.strip()
     update.message.reply_text(
         "✅ Name saved.\nSend test level (A2 / B1 / B2 / C1) or /skip."
