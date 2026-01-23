@@ -27,6 +27,27 @@ TESTS_DIR = "tests"
 
 ASK_NAME, ASK_LEVEL, ASK_COUNT, ASK_TIME = range(4)
 
+def GLOBAL_DEBUG_ECHO(update: Update, context: CallbackContext):
+    if not update.message or not update.message.text:
+        return
+
+    user = update.effective_user
+    uid = user.id if user else None
+
+    try:
+        from database import get_user_mode
+        mode = get_user_mode(uid) if uid else None
+    except Exception as e:
+        mode = f"ERR:{e}"
+
+    update.message.reply_text(
+        "🧨 GLOBAL DEBUG\n"
+        f"Text: {update.message.text!r}\n"
+        f"User ID: {uid}\n"
+        f"DB mode: {mode}\n"
+        f"user_data: {dict(context.user_data)}"
+    )
+
 def _dbg(update: Update, context: CallbackContext, where: str):
     text = update.message.text if update.message else None
     uid = update.effective_user.id if update.effective_user else None
@@ -121,6 +142,7 @@ def start(update: Update, context: CallbackContext):
 # ---------- NAME ----------
 
 def name_text(update: Update, context: CallbackContext):
+    update.message.reply_text("✅ DEBUG: name_text() handler HIT")
     _dbg(update, context, "NAME_TEXT_HANDLER_HIT")
     context.user_data["name"] = update.message.text.strip()
     update.message.reply_text(
@@ -138,6 +160,7 @@ def name_skip(update: Update, context: CallbackContext):
 # ---------- LEVEL ----------
 
 def level_text(update: Update, context: CallbackContext):
+    update.message.reply_text("✅ DEBUG: level_text() handler HIT")
     context.user_data["level"] = update.message.text.strip()
     update.message.reply_text("✅ Level saved.\nSend number of questions or /skip.")
     return ASK_COUNT
@@ -228,7 +251,12 @@ def finish(update: Update, context: CallbackContext):
 
 # ---------- SETUP ----------
 
-def setup(dispatcher, bot=None): 
+def setup(dispatcher, bot=None):
+    # 🧨 GLOBAL DEBUG — MUST FIRE FOR EVERY TEXT
+    dispatcher.add_handler(
+        MessageHandler(Filters.text, GLOBAL_DEBUG_ECHO),
+        group=-9999
+    )
     conv = ConversationHandler(
         entry_points=[CommandHandler("create_test", start)],
         states={
