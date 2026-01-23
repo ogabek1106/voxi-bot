@@ -265,14 +265,14 @@ def setup(dispatcher, bot=None):
                 CommandHandler("abort", _abort),
                 CommandHandler("end_test", end_test),
                 MessageHandler(Filters.command, _unknown_command),
-                MessageHandler(Filters.text & ~Filters.command, name_text),
+                MessageHandler(Filters.text, name_text),
             ],
             ASK_LEVEL: [
                 CommandHandler("skip", level_skip),
                 CommandHandler("abort", _abort),
                 CommandHandler("end_test", end_test),
                 MessageHandler(Filters.command, _unknown_command),
-                MessageHandler(Filters.text & ~Filters.command, level_text),
+                MessageHandler(Filters.text, name_text),
             ],
             ASK_COUNT: [
                 CommandHandler("skip", count_skip),
