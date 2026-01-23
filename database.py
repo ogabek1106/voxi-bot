@@ -1191,6 +1191,107 @@ def clear_checker_mode(user_id: int) -> bool:
         if conn:
             conn.close()
 
+# ---------- USER MODES (ADMIN / MODAL STATES) ----------
+
+def ensure_user_modes_table():
+    """
+    Stores exclusive user modes (e.g. create_test).
+    One row = one user in a modal state.
+    """
+    conn = None
+    try:
+        conn = _connect()
+        with conn:
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS user_modes (
+                    user_id INTEGER PRIMARY KEY,
+                    mode TEXT NOT NULL,
+                    started_at INTEGER
+                );
+                """
+            )
+    except Exception as e:
+        logger.exception("ensure_user_modes_table failed: %s", e)
+    finally:
+        if conn:
+            conn.close()
+
+def set_user_mode(user_id: int, mode: str) -> bool:
+    """
+    Set a modal mode for a user (e.g. 'create_test').
+    Replaces any existing mode.
+    """
+    ensure_user_modes_table()
+    conn = None
+    try:
+        conn = _connect()
+        with conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO user_modes
+                (user_id, mode, started_at)
+                VALUES (?, ?, ?);
+                """,
+                (int(user_id), mode, int(time.time())),
+            )
+        return True
+    except Exception as e:
+        logger.exception("set_user_mode failed for %s: %s", user_id, e)
+        return False
+    finally:
+        if conn:
+            conn.close()
+
+
+def get_user_mode(user_id: int) -> Optional[str]:
+    """
+    Return current user mode or None.
+    """
+    ensure_user_modes_table()
+    conn = None
+    try:
+        conn = _connect()
+        cur = conn.execute(
+            """
+            SELECT mode
+            FROM user_modes
+            WHERE user_id = ?
+            LIMIT 1;
+            """,
+            (int(user_id),),
+        )
+        row = cur.fetchone()
+        return row[0] if row else None
+    except Exception as e:
+        logger.exception("get_user_mode failed for %s: %s", user_id, e)
+        return None
+    finally:
+        if conn:
+            conn.close()
+
+
+def clear_user_mode(user_id: int) -> bool:
+    """
+    Remove any active user mode.
+    """
+    ensure_user_modes_table()
+    conn = None
+    try:
+        conn = _connect()
+        with conn:
+            conn.execute(
+                "DELETE FROM user_modes WHERE user_id = ?;",
+                (int(user_id),),
+            )
+        return True
+    except Exception as e:
+        logger.exception("clear_user_mode failed for %s: %s", user_id, e)
+        return False
+    finally:
+        if conn:
+            conn.close()
+
 
 # ---------- COMMAND USAGE STATS ----------
 
@@ -1479,3 +1580,4 @@ ensure_checker_state_table()
 ensure_command_usage_table()
 ensure_book_usage_table()
 ensure_ai_usage_table()
+ensure_user_modes_table()
