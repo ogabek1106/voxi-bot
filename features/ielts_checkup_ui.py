@@ -113,7 +113,7 @@ def open_ielts_checkup(update: Update, context: CallbackContext):
 def ielts_skill_text_handler(update: Update, context: CallbackContext):
     # 🛑 If admin test creation is active, DO NOT intercept text
     if context.user_data.get("test_mode"):
-        return DispatcherHandlerStop
+        return 
 
     if not update.message or not update.message.text:
         return
@@ -238,6 +238,7 @@ def register(dispatcher):
 
 def setup(dispatcher):
     register(dispatcher)
+
 
 
 
