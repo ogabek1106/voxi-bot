@@ -42,7 +42,13 @@ def _gen_test_id():
 
 
 def _abort(update: Update, context: CallbackContext):
-    context.user_data.clear()
+    # ⚠️ DO NOT clear user_data fully (ConversationHandler uses it)
+    for k in list(context.user_data.keys()):
+        if k.startswith("test_") or k in {
+            "name", "level", "question_count", "time_limit"
+        }:
+            context.user_data.pop(k, None)
+
     update.message.reply_text("❌ Test creation aborted.")
     return ConversationHandler.END
 
@@ -64,7 +70,12 @@ def end_test(update: Update, context: CallbackContext):
         return
 
     if context.user_data.get("test_mode"):
-        context.user_data.clear()
+        for k in list(context.user_data.keys()):
+            if k.startswith("test_") or k in {
+                "name", "level", "question_count", "time_limit"
+            }:
+                context.user_data.pop(k, None)
+
         update.message.reply_text("🛑 Test mode ended.")
         return ConversationHandler.END
 
@@ -81,7 +92,13 @@ def start(update: Update, context: CallbackContext):
         return ConversationHandler.END
 
     _ensure_tests_dir()
-    context.user_data.clear()
+
+    # ❗ DO NOT clear user_data — just reset test keys
+    for k in list(context.user_data.keys()):
+        if k.startswith("test_") or k in {
+            "name", "level", "question_count", "time_limit"
+        }:
+            context.user_data.pop(k, None)
 
     context.user_data["test_id"] = _gen_test_id()
     context.user_data["test_mode"] = True
@@ -100,7 +117,9 @@ def start(update: Update, context: CallbackContext):
 
 def name_text(update: Update, context: CallbackContext):
     context.user_data["name"] = update.message.text.strip()
-    update.message.reply_text("✅ Name saved.\nSend test level (A2 / B1 / B2 / C1) or /skip.")
+    update.message.reply_text(
+        "✅ Name saved.\nSend test level (A2 / B1 / B2 / C1) or /skip."
+    )
     return ASK_LEVEL
 
 
@@ -133,7 +152,9 @@ def count_text(update: Update, context: CallbackContext):
         update.message.reply_text("❗ Please send a NUMBER or /skip.")
         return ASK_COUNT
 
-    update.message.reply_text("✅ Question count saved.\nSend time limit (minutes) or /skip.")
+    update.message.reply_text(
+        "✅ Question count saved.\nSend time limit (minutes) or /skip."
+    )
     return ASK_TIME
 
 
@@ -210,28 +231,28 @@ def setup(dispatcher, bot=None):
                 CommandHandler("abort", _abort),
                 CommandHandler("end_test", end_test),
                 MessageHandler(Filters.command, _unknown_command),
-                MessageHandler(Filters.text, name_text),
+                MessageHandler(Filters.text & ~Filters.command, name_text),
             ],
             ASK_LEVEL: [
                 CommandHandler("skip", level_skip),
                 CommandHandler("abort", _abort),
                 CommandHandler("end_test", end_test),
                 MessageHandler(Filters.command, _unknown_command),
-                MessageHandler(Filters.text, level_text),
+                MessageHandler(Filters.text & ~Filters.command, level_text),
             ],
             ASK_COUNT: [
                 CommandHandler("skip", count_skip),
                 CommandHandler("abort", _abort),
                 CommandHandler("end_test", end_test),
                 MessageHandler(Filters.command, _unknown_command),
-                MessageHandler(Filters.text, count_text),
+                MessageHandler(Filters.text & ~Filters.command, count_text),
             ],
             ASK_TIME: [
                 CommandHandler("skip", time_skip),
                 CommandHandler("abort", _abort),
                 CommandHandler("end_test", end_test),
                 MessageHandler(Filters.command, _unknown_command),
-                MessageHandler(Filters.text, time_text),
+                MessageHandler(Filters.text & ~Filters.command, time_text),
             ],
         },
         fallbacks=[
