@@ -32,6 +32,15 @@ def _dbg(update: Update, context: CallbackContext, where: str):
     logger.error(
         f"[CREATE_TEST DEBUG] {where} | uid={uid} | text={text!r} | user_data={dict(context.user_data)}"
     )
+
+def _test_mode_firewall(update: Update, context: CallbackContext):
+    if not update.message:
+        return
+
+    # If admin is creating a test → block everyone else
+    if context.user_data.get("test_mode"):
+        raise DispatcherHandlerStop
+
 # ---------- helpers ----------
 
 def _is_admin(user_id: Optional[int]) -> bool:
@@ -234,6 +243,11 @@ def finish(update: Update, context: CallbackContext):
 # ---------- SETUP ----------
 
 def setup(dispatcher, bot=None):
+    # 🔒 FIREWALL — runs before EVERYTHING
+    dispatcher.add_handler(
+        MessageHandler(Filters.text | Filters.command, _test_mode_firewall),
+        group=-1000
+    )    
     conv = ConversationHandler(
         entry_points=[CommandHandler("create_test", start)],
         states={
