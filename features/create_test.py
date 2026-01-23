@@ -6,7 +6,11 @@ import json
 import time
 import logging
 from typing import Optional
-
+from database import (
+    save_test_definition,
+    set_user_mode,
+    clear_user_mode,
+)
 from telegram import Update
 from telegram.ext import (
     CallbackContext,
@@ -15,9 +19,6 @@ from telegram.ext import (
     MessageHandler,
     Filters,
 )
-from telegram.ext.dispatcher import DispatcherHandlerStop
-
-from database import save_test_definition
 import admins
 
 logger = logging.getLogger(__name__)
@@ -32,14 +33,6 @@ def _dbg(update: Update, context: CallbackContext, where: str):
     logger.error(
         f"[CREATE_TEST DEBUG] {where} | uid={uid} | text={text!r} | user_data={dict(context.user_data)}"
     )
-
-def _test_mode_firewall(update: Update, context: CallbackContext):
-    if not update.message:
-        return
-
-    # If admin is creating a test → block everyone else
-    if context.user_data.get("test_mode"):
-        raise DispatcherHandlerStop
 
 # ---------- helpers ----------
 
@@ -64,20 +57,15 @@ def _abort(update: Update, context: CallbackContext):
             "name", "level", "question_count", "time_limit"
         }:
             context.user_data.pop(k, None)
-
+    clear_user_mode(update.effective_user.id)
     update.message.reply_text("❌ Test creation aborted.")
     return ConversationHandler.END
 
 
 def _unknown_command(update: Update, context: CallbackContext):
     _dbg(update, context, "UNKNOWN_COMMAND_HANDLER")
-    # 🔐 Intercept ONLY during test mode
-    if context.user_data.get("test_mode"):
-        update.message.reply_text("❓ Please answer the question or use /skip.")
-        raise DispatcherHandlerStop
-    # Otherwise — allow normal command flow
-
-
+    update.message.reply_text("❓ Please answer the question or use /skip.")
+    return
 # ---------- MANUAL END COMMAND ----------
 
 def end_test(update: Update, context: CallbackContext):
@@ -87,19 +75,16 @@ def end_test(update: Update, context: CallbackContext):
         update.message.reply_text("⛔ Admins only.")
         return
 
-    if context.user_data.get("test_mode"):
-        for k in list(context.user_data.keys()):
-            if k.startswith("test_") or k in {
-                "name", "level", "question_count", "time_limit"
-            }:
-                context.user_data.pop(k, None)
+    clear_user_mode(user.id)
 
-        update.message.reply_text("🛑 Test mode ended.")
-        return ConversationHandler.END
+    for k in list(context.user_data.keys()):
+        if k.startswith("test_") or k in {
+            "name", "level", "question_count", "time_limit"
+        }:
+            context.user_data.pop(k, None)
 
-    update.message.reply_text("ℹ️ You are not in test mode.")
+    update.message.reply_text("🛑 Test mode ended.")
     return ConversationHandler.END
-
 
 # ---------- START ----------
 
@@ -120,7 +105,8 @@ def start(update: Update, context: CallbackContext):
             context.user_data.pop(k, None)
 
     context.user_data["test_id"] = _gen_test_id()
-    context.user_data["test_mode"] = True
+    # 🔒 DB-backed modal lock
+    set_user_mode(user.id, "create_test")
 
     update.message.reply_text(
         "🧪 Creating a new test.\n\n"
@@ -236,18 +222,13 @@ def finish(update: Update, context: CallbackContext):
         f"Time limit: {data['time_limit']} min\n\n"
         "🛑 Use /end_test to exit test mode."
     )
-
+    clear_user_mode(update.effective_user.id)
     return ConversationHandler.END
 
 
 # ---------- SETUP ----------
 
-def setup(dispatcher, bot=None):
-    # 🔒 FIREWALL — runs before EVERYTHING
-    dispatcher.add_handler(
-        MessageHandler(Filters.text | Filters.command, _test_mode_firewall),
-        group=-1000
-    )    
+def setup(dispatcher, bot=None): 
     conv = ConversationHandler(
         entry_points=[CommandHandler("create_test", start)],
         states={
