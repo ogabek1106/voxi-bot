@@ -26,6 +26,7 @@ from telegram import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
 )
+from database import get_user_mode
 from telegram.ext import (
     CallbackContext,
     MessageHandler,
@@ -33,8 +34,6 @@ from telegram.ext import (
     CallbackQueryHandler,
     #DispatcherHandlerStop,
 )
-from telegram.ext.dispatcher import DispatcherHandlerStop
-
 logger = logging.getLogger(__name__)
 
 # ---------- UI builders ----------
@@ -100,6 +99,10 @@ def open_ielts_checkup(update: Update, context: CallbackContext):
     if not update.message:
         return
 
+    user = update.effective_user
+    if user and get_user_mode(user.id) == "create_test":
+        return
+
     #if not require_subscription(update, context):
         #raise DispatcherHandlerStop  # ⬅️ THIS IS THE KEY
 
@@ -111,9 +114,10 @@ def open_ielts_checkup(update: Update, context: CallbackContext):
 
 
 def ielts_skill_text_handler(update: Update, context: CallbackContext):
-    # 🛑 If admin test creation is active, DO NOT intercept text
-    if context.user_data.get("test_mode"):
-        return 
+    # 🛑 If admin is creating a test, UI must not intercept
+    user = update.effective_user
+    if user and get_user_mode(user.id) == "create_test":
+        return
 
     if not update.message or not update.message.text:
         return
@@ -238,6 +242,7 @@ def register(dispatcher):
 
 def setup(dispatcher):
     register(dispatcher)
+
 
 
 
