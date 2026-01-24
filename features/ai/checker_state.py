@@ -12,12 +12,20 @@ import logging
 from typing import Optional
 
 from telegram import Update
-from database import get_user_mode
-from telegram.ext import CallbackContext, MessageHandler, Filters
-from telegram.ext import DispatcherHandlerStop
-from features.ielts_checkup_ui import _main_user_keyboard
+from telegram.ext import (
+    CallbackContext,
+    MessageHandler,
+    Filters,
+    DispatcherHandlerStop,
+)
 
-from database import get_checker_mode, clear_checker_mode  # ✅ ADDED (DO NOT REMOVE get_checker_mode)
+from database import (
+    get_checker_mode,
+    clear_checker_mode,
+    get_user_mode,
+)
+
+from features.ielts_checkup_ui import _main_user_keyboard
 
 logger = logging.getLogger(__name__)
 
@@ -30,26 +38,7 @@ BLOCK_MESSAGE = (
     "Iltimos, to‘g‘ri formatdagi javobni yuboring yoki /cancel buyrug‘idan foydalaning."
 )
 
-def checker_gate(update: Update, context: CallbackContext):
-    message = update.effective_message
-    if not message:
-        return
-
-    user = update.effective_user
-    user_id = user.id if user else None
-
-    # 🔥 ABSOLUTE BYPASS FOR TEST CREATION
-    if user_id and get_user_mode(user_id) == "create_test":
-        return  # stay silent, DO NOT consume
-
-
 # ---------------- CORE ----------------
-
-def _is_checker_active(user_id: Optional[int]) -> Optional[str]:
-    if user_id is None:
-        return None
-    return get_checker_mode(user_id)
-
 
 def checker_gate(update: Update, context: CallbackContext):
     """
@@ -63,7 +52,11 @@ def checker_gate(update: Update, context: CallbackContext):
     user = update.effective_user
     user_id = user.id if user else None
 
-    mode = _is_checker_active(user_id)
+    # ✅ ABSOLUTE BYPASS FOR TEST CREATION
+    if user_id and get_user_mode(user_id) == "create_test":
+        return
+
+    mode = get_checker_mode(user_id)
 
     # Not in checker mode → allow everything
     if not mode:
@@ -71,7 +64,7 @@ def checker_gate(update: Update, context: CallbackContext):
 
     text = message.text.strip() if message.text else ""
 
-    # ✅ HANDLE /cancel AND ❌ Cancel HERE (ALWAYS ALLOWED)
+    # ✅ ALWAYS ALLOW CANCEL
     if text.startswith("/cancel") or text == "❌ Cancel":
         clear_checker_mode(user_id)
         message.reply_text(
@@ -88,10 +81,10 @@ def checker_gate(update: Update, context: CallbackContext):
     checker_step = context.user_data.get("checker_step")
 
     # ======================================================
-    # ✍️ WRITING MODES → TEXT / PHOTO ONLY (UNCHANGED LOGIC)
+    # ✍️ WRITING MODES → TEXT / PHOTO ONLY
     # ======================================================
     if mode in ("writing_task1", "writing_task2"):
-        # Block voice in writing
+
         if message.voice:
             message.reply_text(
                 "✋ Siz hozir Writing tekshiruvdasiz.\n\n"
@@ -101,12 +94,10 @@ def checker_gate(update: Update, context: CallbackContext):
             )
             raise DispatcherHandlerStop()
 
-        # Block unsupported message types (non-text, non-photo)
         if not message.text and not message.photo:
             message.reply_text(BLOCK_MESSAGE)
             raise DispatcherHandlerStop()
 
-        # Block short TEXT (images are allowed)
         if message.text and len(text) < MIN_TEXT_LEN:
             message.reply_text(
                 "❗️Matn juda qisqa.\n\n"
@@ -119,8 +110,6 @@ def checker_gate(update: Update, context: CallbackContext):
     # ======================================================
     if mode in ("speaking_part1", "speaking_part2", "speaking_part3"):
 
-        # 🔹 STEP 1: EXPECTING QUESTION / TOPIC
-        # Allowed: TEXT, PHOTO, VOICE
         if checker_step == "speaking_topic":
             if not (message.text or message.photo or message.voice):
                 message.reply_text(
@@ -129,8 +118,6 @@ def checker_gate(update: Update, context: CallbackContext):
                 )
                 raise DispatcherHandlerStop()
 
-        # 🔹 STEP 2: EXPECTING ANSWER
-        # Allowed: VOICE ONLY
         elif checker_step == "speaking_answer":
             if not message.voice:
                 message.reply_text(
