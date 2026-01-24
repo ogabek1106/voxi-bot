@@ -295,6 +295,7 @@ def setup(dispatcher, bot=None):
         ],
         per_user=True,
         per_chat=True,
+        allow_reentry=True,
         name="create_test_conv",
     )
 
