@@ -6,6 +6,9 @@ from handlers import global_text_gate
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
 import handlers
 from features.sub_check import check_subscription_callback
+from debug_dispatcher import enable_dispatcher_debug
+enable_dispatcher_debug()
+
 from features.track_commands import track_command   # ✅ ADD THIS
 
 # import our features autoloader (must exist: features/__init__.py with register_all_features)
