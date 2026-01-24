@@ -294,7 +294,7 @@ def setup(dispatcher, bot=None):
             CommandHandler("end_test", end_test),
         ],
         per_user=True,
-        per_chat=True,
+        #per_chat=True,
         allow_reentry=True,
         name="create_test_conv",
     )
