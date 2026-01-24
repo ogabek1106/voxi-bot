@@ -12,6 +12,7 @@ import logging
 from typing import Optional
 
 from telegram import Update
+from database import get_user_mode
 from telegram.ext import CallbackContext, MessageHandler, Filters
 from telegram.ext import DispatcherHandlerStop
 from features.ielts_checkup_ui import _main_user_keyboard
@@ -28,6 +29,19 @@ BLOCK_MESSAGE = (
     "✋ Siz hozir AI tekshiruv rejimidasiz.\n\n"
     "Iltimos, to‘g‘ri formatdagi javobni yuboring yoki /cancel buyrug‘idan foydalaning."
 )
+
+def checker_gate(update: Update, context: CallbackContext):
+    message = update.effective_message
+    if not message:
+        return
+
+    user = update.effective_user
+    user_id = user.id if user else None
+
+    # 🔥 ABSOLUTE BYPASS FOR TEST CREATION
+    if user_id and get_user_mode(user_id) == "create_test":
+        return  # stay silent, DO NOT consume
+
 
 # ---------------- CORE ----------------
 
