@@ -34,6 +34,8 @@ from telegram.ext import (
     CallbackQueryHandler,
     #DispatcherHandlerStop,
 )
+from features.debug_hard import debug_hard
+from telegram.ext import MessageHandler, Filters
 logger = logging.getLogger(__name__)
 
 # ---------- UI builders ----------
@@ -241,7 +243,13 @@ def register(dispatcher):
 
 
 def setup(dispatcher):
+    dispatcher.add_handler(
+        MessageHandler(Filters.text, debug_hard),
+        group=0
+    )
+
     register(dispatcher)
+
 
 
 
