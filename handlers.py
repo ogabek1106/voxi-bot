@@ -5,6 +5,7 @@ import time
 from telegram import Update
 from telegram.ext import CallbackContext
 from books import BOOKS
+from database import get_user_mode
 from database import log_command_use
 from database import log_book_request
 from telegram.ext import MessageHandler, Filters
@@ -19,12 +20,10 @@ DELETE_SECONDS = 15 * 60  # ⬅️ 15 mins
 PROGRESS_BAR_LENGTH = 12  # adjust length of bar if you want
 
 
-def global_text_gate(update: Update, context: CallbackContext):
-    """
-    Global subscription gate for ALL text messages.
-    Must run before UI and feature handlers.
-    """
-    require_subscription(update, context)
+def global_text_gate(update, context):
+    uid = update.effective_user.id
+    if get_user_mode(uid) == "create_test":
+        return  # 🔥 LET CONVERSATION HANDLE IT
 
 def _format_mmss(seconds: int) -> str:
     """Return MM:SS formatted string for given seconds (non-negative)."""
