@@ -253,10 +253,10 @@ def finish(update: Update, context: CallbackContext):
 
 def setup(dispatcher, bot=None):
     # 🧨 GLOBAL DEBUG — MUST FIRE FOR EVERY TEXT
-    # dispatcher.add_handler(
-        # MessageHandler(Filters.text, GLOBAL_DEBUG_ECHO),
-        # group=-9999
-    # )
+    dispatcher.add_handler(
+        MessageHandler(Filters.text, GLOBAL_DEBUG_ECHO),
+        group=-9999
+    )
     conv = ConversationHandler(
         entry_points=[CommandHandler("create_test", start)],
         states={
