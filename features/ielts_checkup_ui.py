@@ -243,12 +243,13 @@ def register(dispatcher):
 
 
 def setup(dispatcher):
-    dispatcher.add_handler(
-        MessageHandler(Filters.text, debug_hard),
-        group=0
-    )
+    # dispatcher.add_handler(
+        # MessageHandler(Filters.text, debug_hard),
+        # group=0
+    # )
 
     register(dispatcher)
+
 
 
 
