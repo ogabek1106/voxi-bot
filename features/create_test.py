@@ -299,7 +299,7 @@ def setup(dispatcher, bot=None):
         name="create_test_conv",
     )
 
-    dispatcher.add_handler(conv, group=-100)
-    dispatcher.add_handler(CommandHandler("end_test", end_test), group=-9999)
+    dispatcher.add_handler(conv, group=-9999)
+    dispatcher.add_handler(CommandHandler("end_test", end_test), group=-100)
 
     logger.info("Feature loaded: create_test (TEST DEFINITIONS ONLY)")
