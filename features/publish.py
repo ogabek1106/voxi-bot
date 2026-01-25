@@ -23,7 +23,8 @@ from database import (
     get_all_test_definitions,
     get_test_definition,
     has_active_test,        # 🔹 will be added
-    set_active_test,        # 🔹 will be added
+    set_active_test,
+    clear_test_program_state,
 )
 
 logger = logging.getLogger(__name__)
@@ -116,6 +117,7 @@ def publish(update: Update, context: CallbackContext):
     if not ok:
         update.message.reply_text("❌ Failed to publish test. See logs.")
         return
+    clear_test_program_state()
 
     update.message.reply_text(
         "✅ Test published successfully!\n\n"
