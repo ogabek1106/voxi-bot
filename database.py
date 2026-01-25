@@ -1093,6 +1093,100 @@ def get_active_test():
         if conn:
             conn.close()
 
+
+# ---------- TEST PROGRAM STATE (RESULT VISIBILITY) ----------
+
+def ensure_test_program_state_table():
+    """
+    Stores global test program state.
+    Controls whether detailed results are visible.
+    Exactly ONE row (id = 1).
+    """
+    conn = None
+    try:
+        conn = _connect()
+        with conn:
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS test_program_state (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    ended INTEGER NOT NULL DEFAULT 0,
+                    ended_at INTEGER
+                );
+                """
+            )
+    except Exception as e:
+        logger.exception("ensure_test_program_state_table failed: %s", e)
+    finally:
+        if conn:
+            conn.close()
+
+def is_test_program_ended() -> bool:
+    """
+    Return True if admin ended the test program.
+    Safe default: False.
+    """
+    ensure_test_program_state_table()
+    conn = None
+    try:
+        conn = _connect()
+        cur = conn.execute(
+            "SELECT ended FROM test_program_state WHERE id = 1 LIMIT 1;"
+        )
+        row = cur.fetchone()
+        return bool(row and row[0])
+    except Exception:
+        return False
+    finally:
+        if conn:
+            conn.close()
+
+def end_test_program() -> bool:
+    """
+    Mark test program as ended (unlock detailed results).
+    """
+    ensure_test_program_state_table()
+    conn = None
+    try:
+        conn = _connect()
+        with conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO test_program_state
+                (id, ended, ended_at)
+                VALUES (1, 1, ?);
+                """,
+                (int(time.time()),),
+            )
+        return True
+    except Exception as e:
+        logger.exception("end_test_program failed: %s", e)
+        return False
+    finally:
+        if conn:
+            conn.close()
+
+def clear_test_program_state() -> bool:
+    """
+    Reset test program state.
+    MUST be called on /unpublish.
+    """
+    ensure_test_program_state_table()
+    conn = None
+    try:
+        conn = _connect()
+        with conn:
+            conn.execute("DELETE FROM test_program_state;")
+        return True
+    except Exception as e:
+        logger.exception("clear_test_program_state failed: %s", e)
+        return False
+    finally:
+        if conn:
+            conn.close()
+
+
+
 # ---------- AI CHECKER STATE ----------
 
 def ensure_checker_state_table():
@@ -1603,3 +1697,4 @@ ensure_command_usage_table()
 ensure_book_usage_table()
 ensure_ai_usage_table()
 ensure_user_modes_table()
+ensure_test_program_state_table()
