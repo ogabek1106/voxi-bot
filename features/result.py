@@ -54,13 +54,22 @@ def _is_test_program_ended() -> bool:
     try:
         conn = _connect()
         cur = conn.execute(
-            "SELECT ended FROM test_program ORDER BY id DESC LIMIT 1;"
+            "SELECT ended FROM test_program_state WHERE id = 1 LIMIT 1;"
         )
         row = cur.fetchone()
         conn.close()
+
+        logger.warning(
+            "[RESULT DEBUG] test_program_state row=%s -> ended=%s",
+            row,
+            bool(row and row[0])
+        )
+
         return bool(row and row[0])
-    except Exception:
+    except Exception as e:
+        logger.warning("[RESULT DEBUG] test_program_state check failed: %s", e)
         return False
+
 
 
 def _get_latest_score_by_user(user_id: int):
