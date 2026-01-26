@@ -11,7 +11,7 @@ from typing import Optional
 
 from telegram import Update
 from telegram.ext import CommandHandler, CallbackContext
-
+from database import get_checker_mode
 import admins
 from database import (
     has_active_test,      # 🔹 will be added
@@ -36,6 +36,13 @@ def unpublish(update: Update, context: CallbackContext):
         update.message.reply_text("⛔ Admins only.")
         return
 
+    # 🚫 FREE STATE ONLY
+    if get_checker_mode(user.id) is not None:
+        update.message.reply_text(
+            "⚠️ Finish current operation before using /unpublish."
+        )
+        return
+      
     if not has_active_test():
         update.message.reply_text("ℹ️ No active test to unpublish.")
         return
