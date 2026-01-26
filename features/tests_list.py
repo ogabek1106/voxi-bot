@@ -11,7 +11,7 @@ from typing import Optional
 
 from telegram import Update
 from telegram.ext import CallbackContext, CommandHandler
-
+from database import get_checker_mode
 import admins
 from database import get_all_test_definitions
 
@@ -62,7 +62,14 @@ def _send_long_message(bot, chat_id, text: str):
 
 def tests_list(update: Update, context: CallbackContext):
     user = update.effective_user
-    if not user or not _is_admin(user.id):
+    if not user:
+        return
+
+    # 🚫 FREE STATE ONLY
+    if get_checker_mode(user.id) is not None:
+        return
+
+    if not _is_admin(user.id):
         update.message.reply_text("⛔ Admins only.")
         return
 
