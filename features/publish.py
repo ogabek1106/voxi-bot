@@ -14,6 +14,7 @@ Usage:
 
 import logging
 from typing import Optional
+from database import get_checker_mode
 
 from telegram import Update
 from telegram.ext import CommandHandler, CallbackContext
@@ -45,6 +46,13 @@ def publish(update: Update, context: CallbackContext):
         update.message.reply_text("⛔ Admins only.")
         return
 
+    # 🚫 Allow only in FREE state
+    if get_checker_mode(user.id) is not None:
+        update.message.reply_text(
+            "⚠️ Finish current operation before using /publish."
+        )
+        return
+  
     if not context.args:
         update.message.reply_text(
             "❗ Usage:\n"
