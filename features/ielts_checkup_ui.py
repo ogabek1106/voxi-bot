@@ -36,6 +36,8 @@ from telegram.ext import (
 )
 from features.debug_hard import debug_hard
 from telegram.ext import MessageHandler, Filters
+IELTS_MODE = "ielts_check_up"
+
 logger = logging.getLogger(__name__)
 
 # ---------- UI builders ----------
@@ -52,7 +54,7 @@ def _ielts_skills_reply_keyboard():
         [
             ["✍️ Writing", "🗣️ Speaking"],
             ["🎧 Listening", "📖 Reading"],
-            ["⬅️ Back"],
+            ["⬅️ Back to main menu"],
         ],
         resize_keyboard=True
     )
@@ -105,8 +107,8 @@ def open_ielts_checkup(update: Update, context: CallbackContext):
     if user and get_user_mode(user.id) == "create_test":
         return
 
-    #if not require_subscription(update, context):
-        #raise DispatcherHandlerStop  # ⬅️ THIS IS THE KEY
+    # ✅ SET MODE HERE
+    set_checker_mode(user.id, IELTS_MODE)
 
     update.message.reply_text(
         "🎓 *IELTS Check Up*\nChoose the skill you want to check.",
@@ -114,27 +116,25 @@ def open_ielts_checkup(update: Update, context: CallbackContext):
         parse_mode="Markdown"
     )
 
-
 def ielts_skill_text_handler(update: Update, context: CallbackContext):
-    # 🛑 If admin is creating a test, UI must not intercept
     user = update.effective_user
-    if user and get_user_mode(user.id) == "create_test":
+    if not user:
         return
 
-    if not update.message or not update.message.text:
+    # ✅ MODE GATE (FIRST)
+    if get_checker_mode(user.id) != IELTS_MODE:
         return
 
     text = update.message.text.strip()
-    user = update.effective_user
-    logger.error(
-        "🧱 UI HANDLER HIT | text=%r | checker_mode=%s",
-        update.message.text,
-        get_checker_mode(user.id) if user else None
-    )
 
-    # 🚫 If any checker is active, DO NOT intercept messages
-    #if user and get_checker_mode(user.id):
-        # return
+    # ✅ ADD STEP 5 RIGHT HERE
+    if text == "⬅️ Back to main menu":
+        clear_checker_mode(user.id)
+        update.message.reply_text(
+            "⬅️ Back to main menu.",
+            reply_markup=_main_user_keyboard()
+        )
+        return
 
     # ❌ Cancel
     if text == "❌ Cancel":
@@ -181,12 +181,11 @@ def ielts_skill_text_handler(update: Update, context: CallbackContext):
     # ⬅️ Back
     if text == "⬅️ Back":
         update.message.reply_text(
-            "⬅️ Back to main menu.",
-            reply_markup=_main_user_keyboard()
+            "🎓 *IELTS Check Up*\nChoose the skill you want to check.",
+            reply_markup=_ielts_skills_reply_keyboard(),
+            parse_mode="Markdown"
         )
         return
-
-
 
 def ielts_callbacks(update: Update, context: CallbackContext):
     query = update.callback_query
@@ -225,7 +224,7 @@ def register(dispatcher):
     dispatcher.add_handler(
         MessageHandler(
             Filters.regex(
-                "^(✍️ Writing|🗣️ Speaking|🎧 Listening|📖 Reading|⬅️ Back|❌ Cancel)$"
+                "^(✍️ Writing|🗣️ Speaking|🎧 Listening|📖 Reading|⬅️ Back|⬅️ Back to main menu|❌ Cancel)$"
             ),
             ielts_skill_text_handler
         ),
@@ -249,16 +248,3 @@ def setup(dispatcher):
     # )
 
     register(dispatcher)
-
-
-
-
-
-
-
-
-
-
-
-
-
