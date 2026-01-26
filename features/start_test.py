@@ -11,7 +11,7 @@ import string
 import sqlite3
 import os
 from datetime import datetime, timedelta, timezone
-
+from database import get_user_mode, set_user_mode, clear_user_mode
 from telegram import (
     Update,
     InlineKeyboardMarkup,
@@ -33,7 +33,7 @@ from database import (
 )
 
 logger = logging.getLogger(__name__)
-
+TEST_MODE = "in_test"
 DB_PATH = os.getenv("DB_PATH", os.getenv("SQLITE_PATH", "/data/data.db"))
 SQLITE_TIMEOUT = 5
 MOSCOW_TZ = timezone(timedelta(hours=3))
@@ -207,6 +207,13 @@ def start_test_entry(update: Update, context: CallbackContext):
 
     user_id = query.from_user.id
 
+    # ✅ MUST be FREE
+    if get_user_mode(user_id) is not None:
+        return
+
+    # ✅ CLAIM OWNERSHIP HERE
+    set_user_mode(user_id, TEST_MODE)
+
     if not get_user_name(user_id):
         context.user_data.clear()
         context.user_data["awaiting_test_name"] = True
@@ -224,6 +231,14 @@ def start_test_entry(update: Update, context: CallbackContext):
 # ---------- NAME CAPTURE (TEXT) ----------
 
 def capture_test_name(update: Update, context: CallbackContext):
+    user = update.effective_user
+    if not user:
+        return
+
+    # 🔒 must still own the test flow
+    if get_user_mode(user.id) != TEST_MODE:
+        return
+
     if not context.user_data.get("awaiting_test_name"):
         return
 
@@ -232,8 +247,7 @@ def capture_test_name(update: Update, context: CallbackContext):
         update.message.reply_text("❗ Please enter a valid full name.")
         return
 
-    user_id = update.effective_user.id
-    set_user_name(user_id, name)
+    set_user_name(user.id, name)
 
     context.user_data.pop("awaiting_test_name", None)
 
@@ -242,8 +256,7 @@ def capture_test_name(update: Update, context: CallbackContext):
         parse_mode="Markdown",
     )
 
-    _start_test_core(update, context, user_id)
-
+    _start_test_core(update, context, user.id)
 
 # ---------- TIMER JOB ----------
 
@@ -466,7 +479,7 @@ def _finish(update: Update, context: CallbackContext, manual: bool):
         "To see your result, send:\n"
         f"/result {token}"
     )
-
+    clear_user_mode(update.effective_user.id)
 
 # ---------- SETUP ----------
 
