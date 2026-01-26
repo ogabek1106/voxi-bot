@@ -16,7 +16,7 @@ import os
 import re
 import logging
 from typing import List, Tuple, Dict, Set
-
+from global_checker import allow
 from telegram import Update
 from telegram.ext import CallbackContext, CommandHandler
 
@@ -184,7 +184,14 @@ def _get_runtime_commands(dispatcher) -> Dict[str, Dict]:
 
 def asd_handler(update: Update, context: CallbackContext):
     user = update.effective_user
-    if not user or not _is_admin(user.id):
+    if not user:
+        return
+
+    # 🔐 FREE-STATE REQUIRED (ADMIN TOOL)
+    if not allow(user.id, mode=None):
+        return
+
+    if not _is_admin(user.id):
         logger.info("asd: unauthorized /asd by %r", getattr(user, "id", None))
         return
 
@@ -256,5 +263,5 @@ def asd_handler(update: Update, context: CallbackContext):
                 logger.exception("asd: failed to send report chunk")
 
 def setup(dispatcher, bot=None):
-    dispatcher.add_handler(CommandHandler("asd", asd_handler))
+    dispatcher.add_handler(CommandHandler("asd", ))
     logger.info("asd_command loaded. Admins=%r", sorted(list(ADMIN_IDS)))
