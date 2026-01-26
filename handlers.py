@@ -8,7 +8,6 @@ from books import BOOKS
 from database import get_user_mode
 from database import log_command_use
 from database import log_book_request
-from database import get_user_mode
 from telegram.ext import MessageHandler, Filters
 from features.sub_check import require_subscription
 from features.get_test import get_test
@@ -266,3 +265,17 @@ def numeric_message_handler(update: Update, context: CallbackContext):
     doc_id, countdown_id = send_book_by_code(chat_id, text, context)
     if not doc_id:
         update.message.reply_text("Kitobni yuborishda xatolik yuz berdi.")
+
+
+def global_fallback_handler(update: Update, context: CallbackContext):
+    if not update.message or not update.message.text:
+        return
+
+    uid = update.effective_user.id
+
+    # Only react if user is NOT free
+    if get_user_mode(uid) is not None:
+        update.message.reply_text("⏳ Avval hozirgi jarayonni tugating.")
+
+
+
