@@ -12,7 +12,7 @@ from typing import Optional
 
 from telegram import Update
 from telegram.ext import CallbackContext, CommandHandler
-
+from global_checker import allow
 import admins
 from database import (
     get_command_usage_stats,
@@ -35,6 +35,11 @@ def count_uses_handler(update: Update, context: CallbackContext):
     user = update.effective_user
     user_id = user.id if user else None
 
+    # --- GLOBAL MODE GATE (FREE ONLY) ---
+    if not allow(user_id, mode=None, allow_free=False):
+        return
+
+    # --- ADMIN CHECK ---
     if not _is_admin(user_id):
         update.message.reply_text("⛔ Bu buyruq faqat adminlar uchun.")
         return
