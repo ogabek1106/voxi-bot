@@ -22,7 +22,9 @@ import logging
 import time
 import threading
 from typing import Dict, Optional
-
+from global_checker import allow
+from global_cleaner import clean_user
+from database import set_user_mode
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import (
     CallbackContext,
@@ -78,6 +80,11 @@ def _auto_close_bridge(bot, admin_id: int):
     user_id = bridge["user_id"]
     active_bridges.pop(admin_id, None)
 
+    # 🔓 CLEAR BOTH SIDES
+    clean_user(admin_id, reason="contact_timeout_admin")
+    clean_user(user_id, reason="contact_timeout_user")
+
+
     try:
         bot.send_message(chat_id=admin_id, text="⏱ Contact auto-closed (timeout).")
         bot.send_message(chat_id=user_id, text="ℹ️ Admin bilan aloqa muddati tugadi.")
@@ -93,6 +100,13 @@ def cmd_contact(update: Update, context: CallbackContext):
     user = update.effective_user
     if not user or not _is_admin(user.id):
         return
+
+    # 🔐 ADMIN MUST BE FREE
+    if not allow(user.id, mode=None):
+        return
+
+    # 🔒 ENTER ADMIN CONTACT MODE
+    set_user_mode(user.id, "contact_admin")
 
     if user.id in active_bridges:
         update.message.reply_text("⚠️ Finish current contact first using /end_contact.")
@@ -130,6 +144,11 @@ def contact_decision(update: Update, context: CallbackContext):
     data = query.data
     admin_id = query.from_user.id
 
+    # 🔐 ADMIN MUST OWN CONTACT MODE
+    if not allow(admin_id, mode="contact_admin"):
+        query.edit_message_text("⚠️ Contact state expired.")
+        return
+
     if admin_id not in pending_contacts:
         query.edit_message_text("⚠️ This request expired.")
         return
@@ -138,6 +157,7 @@ def contact_decision(update: Update, context: CallbackContext):
     user_id = state["user_id"]
 
     if data.startswith("contact_no"):
+        clean_user(admin_id, reason="contact_aborted")
         query.edit_message_text("❌ Contact aborted.")
         return
 
@@ -174,6 +194,10 @@ def open_bridge(update: Update, context: CallbackContext):
         return
 
     admin_id = int(data.split(":")[1])
+    # 🔒 LOCK BOTH SIDES INTO CONTACT MODE
+    set_user_mode(admin_id, "contact_admin")
+    set_user_mode(user_id, "contact_user")
+
 
     if admin_id in active_bridges:
         query.edit_message_text("⚠️ Admin hozir boshqa suhbatda.")
@@ -217,6 +241,10 @@ def cmd_end_contact(update: Update, context: CallbackContext):
 
     user_id = bridge["user_id"]
 
+    # 🔓 CLEAR BOTH SIDES
+    clean_user(admin.id, reason="contact_end_admin")
+    clean_user(user_id, reason="contact_end_user")
+
     update.message.reply_text("✅ Contact closed.")
     try:
         context.bot.send_message(chat_id=user_id, text="ℹ️ Admin bilan aloqa yakunlandi. Rahmat.")
@@ -234,20 +262,28 @@ def relay_messages(update: Update, context: CallbackContext):
     if not user or not msg:
         return
 
-    # admin -> user
-    if _is_admin(user.id) and user.id in active_bridges:
-        target = active_bridges[user.id]["user_id"]
-        context.bot.forward_message(
-            chat_id=target,
-            from_chat_id=update.effective_chat.id,
-            message_id=msg.message_id,
-        )
-        logger.info("RELAY admin=%s -> user=%s msg_id=%s", user.id, target, msg.message_id)
-        return
+    if _is_admin(user.id):
+        # 🔐 ADMIN MUST BE IN CONTACT MODE
+        if not allow(user.id, mode="contact_admin"):
+            return
+
+        if user.id in active_bridges:
+            target = active_bridges[user.id]["user_id"]
+            context.bot.forward_message(
+                chat_id=target,
+                from_chat_id=update.effective_chat.id,
+                message_id=msg.message_id,
+            )
+            logger.info("RELAY admin=%s -> user=%s msg_id=%s", user.id, target, msg.message_id)
+            return
 
     # user -> admin
     for admin_id, bridge in active_bridges.items():
         if bridge["user_id"] == user.id:
+
+            # 🔐 USER MUST BE IN CONTACT MODE
+            if not allow(user.id, mode="contact_user"):
+                return
             context.bot.forward_message(
                 chat_id=admin_id,
                 from_chat_id=update.effective_chat.id,
