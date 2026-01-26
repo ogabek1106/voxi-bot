@@ -17,6 +17,8 @@ import os
 import base64
 import json
 import re
+from global_checker import allow
+from global_cleaner import clean_user
 
 from telegram import (
     Update,
@@ -232,6 +234,9 @@ def start_check(update: Update, context: CallbackContext):
     if not user:
         return ConversationHandler.END
 
+    if not allow(user.id, mode="ielts_check_up"):
+        raise DispatcherHandlerStop
+
     limit = can_use_feature(user.id, "reading")
     if not limit["allowed"]:
         from features.ielts_checkup_ui import _main_user_keyboard
@@ -320,6 +325,9 @@ def collect_answers(update: Update, context: CallbackContext):
 
 
 def proceed_next(update: Update, context: CallbackContext):
+    user = update.effective_user
+    if not user or get_checker_mode(user.id) != "reading":
+        return ConversationHandler.END
 
     # ---------- STEP 1: PASSAGE + QUESTIONS ----------
     if not context.user_data.get("passage"):
@@ -416,7 +424,7 @@ def finalize_reading(update: Update, context: CallbackContext):
     )
 
     log_ai_usage(update.effective_user.id, "reading")
-    clear_checker_mode(update.effective_user.id)
+    clean_user(update.effective_user.id, reason="reading finished")
     context.user_data.clear()
 
     from features.ielts_checkup_ui import _main_user_keyboard
@@ -431,7 +439,7 @@ def finalize_reading(update: Update, context: CallbackContext):
 def cancel(update: Update, context: CallbackContext):
     user = update.effective_user
     if user:
-        clear_checker_mode(user.id)
+        clean_user(user.id, reason="reading cancel")
 
     context.user_data.clear()
 
