@@ -21,7 +21,9 @@ from telegram.ext import (
     MessageHandler,
     Filters,
 )
-
+from global_checker import allow
+from global_cleaner import clean_user
+from database import set_user_mode
 import admins
 
 logger = logging.getLogger(__name__)
@@ -51,21 +53,22 @@ def _is_admin(uid: int) -> bool:
         return False
 
 
-# In-memory state: which admin is waiting for file
-awaiting_upload = {}  # admin_id -> True
-
-
 def cmd_book_upload(update: Update, context: CallbackContext):
     user = update.effective_user
     if not user:
         return
 
-    if not _is_admin(user.id):
-        update.message.reply_text("❌ You are not allowed to use this command.")
-        logger.info("Unauthorized /book_upload attempt by %s", getattr(user, "id", None))
+    # 🔐 FREE-STATE REQUIRED
+    if not allow(user.id, mode=None):
         return
 
-    awaiting_upload[user.id] = True
+    if not _is_admin(user.id):
+        update.message.reply_text("❌ You are not allowed to use this command.")
+        return
+
+    # 🔒 ENTER MODAL STATE
+    set_user_mode(user.id, "book_upload")
+
     update.message.reply_text(
         "📤 Send me the file you want to upload (document/photo/video/audio/voice/animation).\n\n"
         "I will forward it to the Storage channel and reply with the FILE_ID (use that in books.py).\n\n"
@@ -76,15 +79,11 @@ def cmd_book_upload(update: Update, context: CallbackContext):
 
 def cmd_cancel(update: Update, context: CallbackContext):
     user = update.effective_user
-    if not user:
-        return
-    if not _is_admin(user.id):
+    if not user or not _is_admin(user.id):
         return
 
-    awaiting_upload.pop(user.id, None)
+    clean_user(user.id, reason="book_upload_cancelled")
     update.message.reply_text("🛑 Upload cancelled.")
-    logger.info("Admin %s cancelled upload flow", user.id)
-
 
 def _has_media(msg: Message) -> bool:
     return any([
@@ -134,15 +133,13 @@ def upload_router(update: Update, context: CallbackContext):
     if not _is_admin(user.id):
         return
 
-    waiting = awaiting_upload.pop(user.id, None)
-    if not waiting:
-        # Not in upload flow — ignore
+    # 🔐 OWNERSHIP CHECK
+    if not allow(user.id, mode="book_upload"):
         return
 
     if not _has_media(msg):
         update.message.reply_text("⚠️ Please send a FILE (document/photo/video/audio/voice/animation). Send /cancel to abort.")
         # restore waiting state so admin can try again
-        awaiting_upload[user.id] = True
         return
 
     # Try to forward the original message to the storage channel
@@ -185,6 +182,8 @@ def upload_router(update: Update, context: CallbackContext):
         # Use plain text reply to avoid entity parsing errors
         update.message.reply_text("\n".join(reply_lines))
         logger.info("Admin %s uploaded file. file_id=%r storage_mid=%r", user.id, file_id, storage_mid)
+        # 🔓 EXIT MODAL STATE AFTER SUCCESS
+        clean_user(user.id, reason="book_upload_success")
     except Exception as e:
         logger.exception("Failed to reply to admin after upload: %s", e)
         try:
