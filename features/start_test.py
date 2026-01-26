@@ -20,12 +20,16 @@ from telegram import (
 from telegram.ext import (
     CallbackContext,
     CallbackQueryHandler,
+    MessageHandler,
+    Filters,
 )
 
 from database import (
     get_active_test,
     save_test_answer,
     save_test_score,
+    get_user_name,
+    set_user_name,
 )
 
 logger = logging.getLogger(__name__)
@@ -36,12 +40,22 @@ MOSCOW_TZ = timezone(timedelta(hours=3))
 
 EXTRA_GRACE_SECONDS = 3  # UI grace time
 
+
+# ---------- helpers ----------
+
+def _connect():
+    return sqlite3.connect(
+        DB_PATH,
+        timeout=SQLITE_TIMEOUT,
+        check_same_thread=False,
+    )
+
+
+def _gen_token(length=7):
+    return "".join(random.choices(string.ascii_uppercase + string.digits, k=length))
+
+
 def _get_existing_token(user_id: int, test_id: int):
-    """
-    Returns:
-    - (token, finished_bool) if attempt exists
-    - (None, None) if no attempt
-    """
     conn = _connect()
     cur = conn.execute(
         """
@@ -62,20 +76,6 @@ def _get_existing_token(user_id: int, test_id: int):
 
     token, finished_at = row
     return token, finished_at is not None
-
-
-# ---------- helpers ----------
-
-def _connect():
-    return sqlite3.connect(
-        DB_PATH,
-        timeout=SQLITE_TIMEOUT,
-        check_same_thread=False,
-    )
-
-
-def _gen_token(length=7):
-    return "".join(random.choices(string.ascii_uppercase + string.digits, k=length))
 
 
 def _save_attempt(token, user_id, active_test):
@@ -116,6 +116,133 @@ def _time_progress_bar(left: int, total: int, width: int = 15) -> str:
     filled = int(ratio * width)
     empty = width - filled
     return f"[{'▓' * filled}{'-' * empty}]"
+
+
+# ---------- CORE START LOGIC (USED BY BOTH ENTRY POINTS) ----------
+
+def _start_test_core(update: Update, context: CallbackContext, user_id: int):
+    active_test = get_active_test()
+    if not active_test:
+        update.effective_chat.send_message("❌ No active test.")
+        return
+
+    test_id = active_test[0]
+
+    existing_token, is_finished = _get_existing_token(user_id, test_id)
+
+    if existing_token and is_finished:
+        update.effective_chat.send_message(
+            "❌ You already passed this test.\n\n"
+            f"🔑 Your token: <code>{existing_token}</code>\n"
+            "📊 Send /result to see your result.",
+            parse_mode="HTML",
+        )
+        return
+
+    token = existing_token if existing_token else _gen_token()
+    start_ts, limit_min = _save_attempt(token, user_id, active_test)
+    total_seconds = limit_min * 60 + EXTRA_GRACE_SECONDS
+
+    questions = _load_questions(test_id)
+    if not questions:
+        update.effective_chat.send_message("❌ Test has no questions.")
+        return
+
+    chat_id = update.effective_chat.id
+
+    context.user_data.clear()
+    context.user_data.update({
+        "chat_id": chat_id,
+        "token": token,
+        "start_ts": start_ts,
+        "limit_min": limit_min,
+        "context_test_id": test_id,
+        "total_seconds": total_seconds,
+        "questions": questions,
+        "answers": {},
+        "skipped": set(),
+        "index": 0,
+        "finished": False,
+        "timer_msg_id": None,
+        "question_msg_id": None,
+        "time_left": None,
+        "auto_finished": False,
+    })
+
+    bot = context.bot
+
+    bot.send_message(chat_id, f"🔑 <b>Your token:</b> <code>{token}</code>", parse_mode="HTML")
+
+    timer_msg = bot.send_message(
+        chat_id,
+        f"⏱ <b>Time left:</b> {_format_timer(_time_left(start_ts, limit_min))}",
+        parse_mode="HTML",
+    )
+    context.user_data["timer_msg_id"] = timer_msg.message_id
+
+    _render_question(context)
+
+    context.job_queue.run_repeating(
+        _timer_job,
+        interval=15,
+        first=15,
+        context={
+            "chat_id": chat_id,
+            "token": token,
+            "start_ts": start_ts,
+            "limit_min": limit_min,
+            "total_seconds": total_seconds,
+            "timer_msg_id": context.user_data["timer_msg_id"],
+            "question_msg_id": context.user_data["question_msg_id"],
+            "finished": False,
+        },
+    )
+
+
+# ---------- ENTRY POINT (BUTTON) ----------
+
+def start_test_entry(update: Update, context: CallbackContext):
+    query = update.callback_query
+    query.answer()
+
+    user_id = query.from_user.id
+
+    if not get_user_name(user_id):
+        context.user_data.clear()
+        context.user_data["awaiting_test_name"] = True
+
+        query.edit_message_text(
+            "👤 Before starting the test, please enter your *full name*.\n\n"
+            "✍️ Just send your name as a message.",
+            parse_mode="Markdown",
+        )
+        return
+
+    _start_test_core(update, context, user_id)
+
+
+# ---------- NAME CAPTURE (TEXT) ----------
+
+def capture_test_name(update: Update, context: CallbackContext):
+    if not context.user_data.get("awaiting_test_name"):
+        return
+
+    name = update.message.text.strip()
+    if len(name) < 3:
+        update.message.reply_text("❗ Please enter a valid full name.")
+        return
+
+    user_id = update.effective_user.id
+    set_user_name(user_id, name)
+
+    context.user_data.pop("awaiting_test_name", None)
+
+    update.message.reply_text(
+        f"✅ Thank you, *{name}*.\n\nStarting your test now…",
+        parse_mode="Markdown",
+    )
+
+    _start_test_core(update, context, user_id)
 
 
 # ---------- TIMER JOB ----------
@@ -176,101 +303,7 @@ def _auto_finish_from_job(context: CallbackContext, data: dict):
     )
 
 
-# ---------- entry point ----------
-
-def start_test_entry(update: Update, context: CallbackContext):
-    query = update.callback_query
-    query.answer()
-
-    active_test = get_active_test()
-    if not active_test:
-        query.edit_message_text("❌ No active test.")
-        return
-
-
-    user_id = query.from_user.id
-    test_id = active_test[0]
-
-    existing_token, is_finished = _get_existing_token(user_id, test_id)
-
-    if existing_token and is_finished:
-        query.edit_message_text(
-            "❌ You already passed this test.\n\n"
-            f"🔑 Your token: <code>{existing_token}</code>\n"
-            "📊 Send /result to see your result.",
-            parse_mode="HTML",
-        )
-        return
-
-    if existing_token and not is_finished:
-        token = existing_token
-    else:
-        token = _gen_token()
-
-    start_ts, limit_min = _save_attempt(token, user_id, active_test)
-
-    
-    total_seconds = limit_min * 60 + EXTRA_GRACE_SECONDS
-
-    questions = _load_questions(active_test[0])
-    if not questions:
-        query.edit_message_text("❌ Test has no questions.")
-        return
-
-    chat_id = query.message.chat_id
-
-    context.user_data.clear()
-    context.user_data.update({
-        "chat_id": chat_id,
-        "token": token,
-        "start_ts": start_ts,
-        "limit_min": limit_min,
-        "context_test_id": test_id,
-        "total_seconds": total_seconds,
-        "questions": questions,
-        "answers": {},
-        "skipped": set(),
-        "skipped_msg_id": None,
-        "index": 0,
-        "finished": False,
-        "timer_msg_id": None,
-        "question_msg_id": None,
-        "timer_job": None,
-        "time_left": None,
-        "auto_finished": False,
-    })
-
-    bot = query.bot
-
-    bot.send_message(chat_id, f"🔑 <b>Your token:</b> <code>{token}</code>", parse_mode="HTML")
-
-    timer_msg = bot.send_message(
-        chat_id,
-        f"⏱ <b>Time left:</b> {_format_timer(_time_left(start_ts, limit_min))}",
-        parse_mode="HTML",
-    )
-    context.user_data["timer_msg_id"] = timer_msg.message_id
-
-    _render_question(context)
-
-    context.user_data["timer_job"] = context.job_queue.run_repeating(
-        _timer_job,
-        interval=15,
-        first=15,
-        context={
-            "chat_id": chat_id,
-            "token": token,
-            "start_ts": start_ts,
-            "limit_min": limit_min,
-            "total_seconds": total_seconds,
-            "timer_msg_id": context.user_data["timer_msg_id"],
-            "question_msg_id": context.user_data["question_msg_id"],
-            "finished": False,
-        },
-    )
-
-
-# ---------- rendering ----------
+# ---------- RENDERING & HANDLERS (UNCHANGED) ----------
 
 def _render_question(context: CallbackContext):
     if context.user_data.get("finished"):
@@ -291,7 +324,6 @@ def _render_question(context: CallbackContext):
 
     buttons = []
 
-    # ⛔ Answer buttons ONLY if question NOT answered yet
     if idx not in context.user_data["answers"]:
         buttons.extend([
             [InlineKeyboardButton(a, callback_data=f"ans|{idx}|a")],
@@ -300,18 +332,15 @@ def _render_question(context: CallbackContext):
             [InlineKeyboardButton(d, callback_data=f"ans|{idx}|d")],
         ])
 
-    # ✅ Navigation buttons ALWAYS
     buttons.append([
         InlineKeyboardButton("⬅️", callback_data="prev"),
         InlineKeyboardButton(f"{idx + 1}/{len(context.user_data['questions'])}", callback_data="noop"),
         InlineKeyboardButton("➡️", callback_data="next"),
     ])
 
-    # ✅ Finish ALWAYS
     buttons.append([InlineKeyboardButton("🏁 Finish", callback_data="finish")])
 
-
-    if context.user_data["question_msg_id"] is None:
+    if context.user_data.get("question_msg_id") is None:
         msg = bot.send_message(chat_id, text, reply_markup=InlineKeyboardMarkup(buttons), parse_mode="HTML")
         context.user_data["question_msg_id"] = msg.message_id
     else:
@@ -323,34 +352,6 @@ def _render_question(context: CallbackContext):
             parse_mode="HTML",
         )
 
-    _update_skipped_message(context)
-
-
-def _update_skipped_message(context: CallbackContext):
-    bot = context.bot
-    chat_id = context.user_data["chat_id"]
-    skipped = sorted(context.user_data["skipped"])
-    msg_id = context.user_data["skipped_msg_id"]
-
-    if not skipped:
-        if msg_id:
-            try:
-                bot.delete_message(chat_id, msg_id)
-            except Exception:
-                pass
-        context.user_data["skipped_msg_id"] = None
-        return
-
-    text = "⚠️ <b>Skipped questions:</b> " + ", ".join(str(i + 1) for i in skipped)
-
-    if msg_id:
-        bot.edit_message_text(text, chat_id, msg_id, parse_mode="HTML")
-    else:
-        msg = bot.send_message(chat_id, text, parse_mode="HTML")
-        context.user_data["skipped_msg_id"] = msg.message_id
-
-
-# ---------- handlers ----------
 
 def answer_handler(update: Update, context: CallbackContext):
     query = update.callback_query
@@ -360,15 +361,14 @@ def answer_handler(update: Update, context: CallbackContext):
     idx = int(idx)
 
     context.user_data["answers"][idx] = choice
-    context.user_data["skipped"].discard(idx)
 
     save_test_answer(
         context.user_data["token"],
         context.user_data["context_test_id"],
-        idx + 1,                # question_number
-        choice                  # selected_answer
+        idx + 1,
+        choice,
     )
-    
+
     if idx < len(context.user_data["questions"]) - 1:
         context.user_data["index"] = idx + 1
 
@@ -379,14 +379,9 @@ def nav_handler(update: Update, context: CallbackContext, direction: int):
     query = update.callback_query
     query.answer()
 
-    cur = context.user_data["index"]
-
-    if cur not in context.user_data["answers"]:
-        context.user_data["skipped"].add(cur)
-
     context.user_data["index"] = max(
         0,
-        min(cur + direction, len(context.user_data["questions"]) - 1)
+        min(context.user_data["index"] + direction, len(context.user_data["questions"]) - 1)
     )
 
     _render_question(context)
@@ -398,15 +393,6 @@ def noop_handler(update: Update, context: CallbackContext):
 
 def finish_handler(update: Update, context: CallbackContext):
     query = update.callback_query
-
-    if context.user_data["skipped"]:
-        query.answer(
-            "⚠️ Skipped questions: "
-            + ", ".join(str(i + 1) for i in sorted(context.user_data["skipped"])),
-            show_alert=True,
-        )
-        return
-
     query.answer()
 
     job = context.user_data.get("timer_job")
@@ -414,6 +400,7 @@ def finish_handler(update: Update, context: CallbackContext):
         job.schedule_removal()
 
     _finish(update, context, manual=True)
+
 
 def _load_correct_answers(test_id):
     conn = _connect()
@@ -427,9 +414,8 @@ def _load_correct_answers(test_id):
     )
     rows = cur.fetchall()
     conn.close()
-    return {qn - 1: ans for qn, ans in rows}  # index-based
+    return {qn - 1: ans for qn, ans in rows}
 
-# ---------- finish ----------
 
 def _finish(update: Update, context: CallbackContext, manual: bool):
     context.user_data["finished"] = True
@@ -444,10 +430,10 @@ def _finish(update: Update, context: CallbackContext, manual: bool):
     total = len(context.user_data["questions"])
     correct_map = _load_correct_answers(context.user_data["context_test_id"])
 
-    correct = 0
-    for idx, selected in context.user_data["answers"].items():
-        if correct_map.get(idx) == selected:
-            correct += 1
+    correct = sum(
+        1 for idx, selected in context.user_data["answers"].items()
+        if correct_map.get(idx) == selected
+    )
 
     score = round((correct / total) * 100, 2)
 
@@ -481,13 +467,16 @@ def _finish(update: Update, context: CallbackContext, manual: bool):
         f"/result {token}"
     )
 
-# ---------- setup ----------
+
+# ---------- SETUP ----------
 
 def setup(dispatcher, bot=None):
     dispatcher.add_handler(CallbackQueryHandler(start_test_entry, pattern="^start_test$"))
+    dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command, capture_test_name))
     dispatcher.add_handler(CallbackQueryHandler(answer_handler, pattern="^ans\\|"))
     dispatcher.add_handler(CallbackQueryHandler(lambda u, c: nav_handler(u, c, -1), pattern="^prev$"))
     dispatcher.add_handler(CallbackQueryHandler(lambda u, c: nav_handler(u, c, 1), pattern="^next$"))
     dispatcher.add_handler(CallbackQueryHandler(noop_handler, pattern="^noop$"))
     dispatcher.add_handler(CallbackQueryHandler(finish_handler, pattern="^finish$"))
     logger.info("Feature loaded: start_test")
+
