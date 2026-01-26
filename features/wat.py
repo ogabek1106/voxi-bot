@@ -14,6 +14,7 @@ import sqlite3
 import logging
 from telegram import Update
 from telegram.ext import CallbackContext, CommandHandler
+from database import get_checker_mode
 
 import admins
 
@@ -33,6 +34,13 @@ def wat(update: Update, context: CallbackContext):
     user = update.effective_user
     if not user or not _is_admin(user.id):
         update.message.reply_text("⛔ Admins only.")
+        return
+
+    # 🚫 FREE STATE ONLY (VERY IMPORTANT)
+    if get_checker_mode(user.id) is not None:
+        update.message.reply_text(
+            "⚠️ Finish current operation before using /wat."
+        )
         return
 
     if not os.path.exists(DB_PATH):
