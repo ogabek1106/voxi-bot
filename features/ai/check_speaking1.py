@@ -24,6 +24,9 @@ from telegram.ext import (
     MessageHandler,
     Filters,
 )
+from global_checker import allow
+from global_cleaner import clean_user
+
 from telegram.ext import DispatcherHandlerStop
 from features.admin_feedback import send_admin_card
 
@@ -33,7 +36,6 @@ from features.ai.check_limits import can_use_feature
 from database import log_ai_usage
 from database import (
     set_checker_mode,
-    clear_checker_mode,
     get_checker_mode,
 )
 
@@ -115,6 +117,9 @@ def start_check(update: Update, context: CallbackContext):
     if not user:
         return ConversationHandler.END
 
+    if not allow(user.id, mode="ielts_check_up"):
+        raise DispatcherHandlerStop
+
     limit_result = can_use_feature(user.id, "speaking")
     if not limit_result["allowed"]:
         from features.ielts_checkup_ui import _main_user_keyboard
@@ -154,7 +159,7 @@ def receive_question(update: Update, context: CallbackContext):
     if not message or not user:
         return WAITING_FOR_QUESTION
 
-    if get_checker_mode(user.id) != "speaking_part1":
+    if not allow(user.id, mode="speaking_part1"):
         return ConversationHandler.END
 
     if not message.text or len(message.text.strip()) < 5:
@@ -176,7 +181,8 @@ def receive_question(update: Update, context: CallbackContext):
 def receive_voice(update: Update, context: CallbackContext):
     message = update.message
     user = update.effective_user
-
+    if not allow(user.id, mode="speaking_part1"):
+        return ConversationHandler.END
     if not message or not user or not message.voice:
         message.reply_text("❗️Iltimos, ovozli xabar yuboring.")
         return WAITING_FOR_VOICE
@@ -255,7 +261,7 @@ def receive_voice(update: Update, context: CallbackContext):
         message.reply_text("❌ Xatolik yuz berdi. Keyinroq urinib ko‘ring.")
 
     finally:
-        clear_checker_mode(user.id)
+        clean_user(user.id, reason="speaking_part1 finished")
         context.user_data.pop("speaking_p1_question", None)
 
         from features.ielts_checkup_ui import _main_user_keyboard
@@ -270,7 +276,7 @@ def receive_voice(update: Update, context: CallbackContext):
 def cancel(update: Update, context: CallbackContext):
     user = update.effective_user
     if user:
-        clear_checker_mode(user.id)
+        clean_user(user.id, reason="speaking_part1 cancel")
 
     context.user_data.pop("speaking_p1_question", None)
 
