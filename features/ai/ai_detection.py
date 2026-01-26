@@ -21,6 +21,8 @@ from telegram import (
     InlineKeyboardMarkup,
     InlineKeyboardButton,
 )
+from global_checker import allow
+from global_cleaner import clean_user
 from telegram.ext import (
     CallbackContext,
     CommandHandler,
@@ -31,11 +33,6 @@ from telegram.ext import (
 from telegram.ext import DispatcherHandlerStop
 
 import openai
-from database import (
-    get_checker_mode,
-    set_checker_mode,
-    clear_checker_mode,
-)
 
 logger = logging.getLogger(__name__)
 openai.api_key = os.getenv("OPENAI_API_KEY")
@@ -172,12 +169,7 @@ def start_ai_detect(update: Update, context: CallbackContext):
     if not user:
         return ConversationHandler.END
 
-    # Prevent mode collision
-    if get_checker_mode(user.id):
-        update.message.reply_text(
-            "⚠️ Avvalgi tekshiruv yakunlanmagan.\n"
-            "Iltimos, uni tugating yoki /cancel bosing."
-        )
+    if not allow(user.id, mode="ai_detect", allow_free=True):
         raise DispatcherHandlerStop
 
     set_checker_mode(user.id, "ai_detect")
@@ -195,7 +187,7 @@ def start_ai_detect(update: Update, context: CallbackContext):
 
 def collect_text(update: Update, context: CallbackContext):
     user = update.effective_user
-    if not user or get_checker_mode(user.id) != "ai_detect":
+    if not user or not allow(user.id, mode="ai_detect"):
         return WAITING_FOR_TEXT
 
     text = update.message.text or ""
@@ -261,14 +253,14 @@ def analyze_text(update: Update, context: CallbackContext):
         parse_mode="HTML",
         reply_markup=_next_actions_keyboard()
     )
-
+    clean_user(update.effective_user.id, reason="ai_detect finished")
     return ConversationHandler.END
 
 
 def cancel(update: Update, context: CallbackContext):
     user = update.effective_user
     if user:
-        clear_checker_mode(user.id)
+        clean_user(user.id, reason="ai_detect cancel")
 
     context.user_data.clear()
 
