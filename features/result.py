@@ -12,6 +12,7 @@ import os
 
 from telegram import Update
 from telegram.ext import CallbackContext, CommandHandler
+from database import get_checker_mode
 
 import admins
 from database import (
@@ -210,6 +211,14 @@ def _build_detailed_review(token: str, test_id: int) -> str:
 def result_command(update: Update, context: CallbackContext):
     message = update.message
     user_id = message.from_user.id
+
+    # 🚫 FREE STATE ONLY
+    if get_checker_mode(user_id) is not None:
+        message.reply_text(
+            "⚠️ Finish current operation before using /result."
+        )
+        return   
+    
     args = context.args
 
     # ---------- FETCH RESULT ----------
