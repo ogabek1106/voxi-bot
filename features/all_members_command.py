@@ -15,7 +15,9 @@ import json
 import time
 import threading
 from typing import List, Optional
-
+from global_checker import allow
+from global_cleaner import clean_user
+from database import set_user_mode
 from telegram import Update, Message
 from telegram.ext import CallbackContext, CommandHandler, MessageHandler, Filters
 from telegram.error import TelegramError
@@ -102,9 +104,17 @@ def cmd_all_members(update: Update, context: CallbackContext):
     user = update.effective_user
     if not user:
         return
+
+    # 🔐 FREE-STATE REQUIRED
+    if not allow(user.id, mode=None):
+        return
+
     if not _is_admin(user.id):
         update.message.reply_text("❌ You are not authorized to use this command.")
         return
+
+    # 🔒 ENTER TEMP MODAL STATE
+    set_user_mode(user.id, "broadcast_setup")
 
     state = {
         "admin_id": int(user.id),
@@ -121,16 +131,16 @@ def cmd_all_members(update: Update, context: CallbackContext):
         "Send /cancel to abort."
     )
 
-
 def cmd_cancel(update: Update, context: CallbackContext):
     user = update.effective_user
     if not user or not _is_admin(user.id):
         return
 
+    clean_user(user.id, reason="broadcast_cancelled")
     awaiting_states.pop(user.id, None)
     _clear_persist(user.id)
-    update.message.reply_text("🛑 Broadcast cancelled.")
 
+    update.message.reply_text("🛑 Broadcast cancelled.")
 
 def cmd_cancel_broadcast(update: Update, context: CallbackContext):
     user = update.effective_user
@@ -233,7 +243,10 @@ def message_router(update: Update, context: CallbackContext):
 
     if not user or not _is_admin(user.id):
         return
-
+    # 🔐 OWNERSHIP CHECK
+    if not allow(user.id, mode="broadcast_setup"):
+        return
+    
     state = awaiting_states.get(user.id)
     if not state:
         return
@@ -271,6 +284,9 @@ def message_router(update: Update, context: CallbackContext):
 
         broadcast_stop_flags[user.id] = False
 
+        # 🔓 CLEAR MODE BEFORE BACKGROUND WORK
+        clean_user(user.id, reason="broadcast_started")
+      
         t = threading.Thread(
             target=_background_broadcast,
             args=(context.bot, user.id, chat.id, status_msg.message_id, msg, targets),
