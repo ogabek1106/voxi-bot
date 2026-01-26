@@ -80,10 +80,12 @@ def _auto_close_bridge(bot, admin_id: int):
     user_id = bridge["user_id"]
     active_bridges.pop(admin_id, None)
 
+    contact_invited_users.discard(user_id)
+    pre_bridge_warned.discard(user_id)
+
     # 🔓 CLEAR BOTH SIDES
     clean_user(admin_id, reason="contact_timeout_admin")
     clean_user(user_id, reason="contact_timeout_user")
-
 
     try:
         bot.send_message(chat_id=admin_id, text="⏱ Contact auto-closed (timeout).")
