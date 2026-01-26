@@ -5,12 +5,10 @@ import os
 import json
 import time
 import logging
+from database import save_test_definition, set_user_mode
 from typing import Optional
-from database import (
-    save_test_definition,
-    set_user_mode,
-    clear_user_mode,
-)
+from global_checker import allow
+from global_cleaner import clean_user
 from telegram import Update
 from telegram.ext import (
     CallbackContext,
@@ -72,31 +70,47 @@ def _gen_test_id():
 
 def _abort(update: Update, context: CallbackContext):
     _dbg(update, context, "ABORT")
-    # ⚠️ DO NOT clear user_data fully (ConversationHandler uses it)
+
+    user = update.effective_user
+    if not user or not allow(user.id, mode="create_test"):
+        return ConversationHandler.END
+
+    clean_user(user.id, reason="create_test abort")
+
     for k in list(context.user_data.keys()):
         if k.startswith("test_") or k in {
             "name", "level", "question_count", "time_limit"
         }:
             context.user_data.pop(k, None)
-    clear_user_mode(update.effective_user.id)
+
     update.message.reply_text("❌ Test creation aborted.")
     return ConversationHandler.END
 
 
 def _unknown_command(update: Update, context: CallbackContext):
     _dbg(update, context, "UNKNOWN_COMMAND_HANDLER")
+
+    user = update.effective_user
+    if not user or not allow(user.id, mode="create_test"):
+        return ConversationHandler.END
+
     update.message.reply_text("❓ Please answer the question or use /skip.")
     return
+
 # ---------- MANUAL END COMMAND ----------
 
 def end_test(update: Update, context: CallbackContext):
     _dbg(update, context, "END_TEST")
+
     user = update.effective_user
     if not user or not _is_admin(user.id):
         update.message.reply_text("⛔ Admins only.")
-        return
+        return ConversationHandler.END
 
-    clear_user_mode(user.id)
+    if not allow(user.id, mode="create_test"):
+        return ConversationHandler.END
+
+    clean_user(user.id, reason="create_test manual end")
 
     for k in list(context.user_data.keys()):
         if k.startswith("test_") or k in {
@@ -111,14 +125,18 @@ def end_test(update: Update, context: CallbackContext):
 
 def start(update: Update, context: CallbackContext):
     _dbg(update, context, "START")
+
     user = update.effective_user
     if not user or not _is_admin(user.id):
         update.message.reply_text("⛔ Admins only.")
         return ConversationHandler.END
 
+    # 🔒 MUST be FREE to start
+    if not allow(user.id, mode=None, allow_free=False):
+        return ConversationHandler.END
+
     _ensure_tests_dir()
 
-    # ❗ DO NOT clear user_data — just reset test keys
     for k in list(context.user_data.keys()):
         if k.startswith("test_") or k in {
             "name", "level", "question_count", "time_limit"
@@ -126,7 +144,7 @@ def start(update: Update, context: CallbackContext):
             context.user_data.pop(k, None)
 
     context.user_data["test_id"] = _gen_test_id()
-    # 🔒 DB-backed modal lock
+
     set_user_mode(user.id, "create_test")
 
     update.message.reply_text(
@@ -138,12 +156,15 @@ def start(update: Update, context: CallbackContext):
     )
     return ASK_NAME
 
-
 # ---------- NAME ----------
 
 def name_text(update: Update, context: CallbackContext):
-    update.message.reply_text("✅ DEBUG: name_text() handler HIT")
     _dbg(update, context, "NAME_TEXT_HANDLER_HIT")
+
+    user = update.effective_user
+    if not user or not allow(user.id, mode="create_test"):
+        return ConversationHandler.END
+
     context.user_data["name"] = update.message.text.strip()
     update.message.reply_text(
         "✅ Name saved.\nSend test level (A2 / B1 / B2 / C1) or /skip."
@@ -152,29 +173,44 @@ def name_text(update: Update, context: CallbackContext):
 
 
 def name_skip(update: Update, context: CallbackContext):
+    user = update.effective_user
+    if not user or not allow(user.id, mode="create_test"):
+        return ConversationHandler.END
+
     context.user_data["name"] = None
     update.message.reply_text("⏭ Name skipped.\nSend test level or /skip.")
     return ASK_LEVEL
 
-
 # ---------- LEVEL ----------
 
 def level_text(update: Update, context: CallbackContext):
-    update.message.reply_text("✅ DEBUG: level_text() handler HIT")
+    _dbg(update, context, "LEVEL_TEXT_HANDLER_HIT")
+
+    user = update.effective_user
+    if not user or not allow(user.id, mode="create_test"):
+        return ConversationHandler.END
+
     context.user_data["level"] = update.message.text.strip()
     update.message.reply_text("✅ Level saved.\nSend number of questions or /skip.")
     return ASK_COUNT
 
 
 def level_skip(update: Update, context: CallbackContext):
+    user = update.effective_user
+    if not user or not allow(user.id, mode="create_test"):
+        return ConversationHandler.END
+
     context.user_data["level"] = None
     update.message.reply_text("⏭ Level skipped.\nSend number of questions or /skip.")
     return ASK_COUNT
 
-
 # ---------- QUESTION COUNT ----------
 
 def count_text(update: Update, context: CallbackContext):
+    user = update.effective_user
+    if not user or not allow(user.id, mode="create_test"):
+        return ConversationHandler.END
+
     try:
         context.user_data["question_count"] = int(update.message.text.strip())
     except ValueError:
@@ -188,14 +224,21 @@ def count_text(update: Update, context: CallbackContext):
 
 
 def count_skip(update: Update, context: CallbackContext):
+    user = update.effective_user
+    if not user or not allow(user.id, mode="create_test"):
+        return ConversationHandler.END
+
     context.user_data["question_count"] = None
     update.message.reply_text("⏭ Question count skipped.\nSend time limit or /skip.")
     return ASK_TIME
 
-
 # ---------- TIME LIMIT ----------
 
 def time_text(update: Update, context: CallbackContext):
+    user = update.effective_user
+    if not user or not allow(user.id, mode="create_test"):
+        return ConversationHandler.END
+
     try:
         context.user_data["time_limit"] = int(update.message.text.strip())
     except ValueError:
@@ -206,14 +249,24 @@ def time_text(update: Update, context: CallbackContext):
 
 
 def time_skip(update: Update, context: CallbackContext):
+    user = update.effective_user
+    if not user or not allow(user.id, mode="create_test"):
+        return ConversationHandler.END
+
     context.user_data["time_limit"] = None
     return finish(update, context)
-
 
 # ---------- FINISH ----------
 
 def finish(update: Update, context: CallbackContext):
-    test_id = context.user_data["test_id"]
+    user = update.effective_user
+    if not user or not allow(user.id, mode="create_test"):
+        return ConversationHandler.END
+
+    test_id = context.user_data.get("test_id")
+    if not test_id:
+        clean_user(user.id, reason="create_test finish missing test_id")
+        return ConversationHandler.END
 
     data = {
         "test_id": test_id,
@@ -242,21 +295,16 @@ def finish(update: Update, context: CallbackContext):
         f"Name: {data['name']}\n"
         f"Level: {data['level']}\n"
         f"Questions: {data['question_count']}\n"
-        f"Time limit: {data['time_limit']} min\n\n"
-        "🛑 Use /end_test to exit test mode."
+        f"Time limit: {data['time_limit']} min\n"
     )
-    clear_user_mode(update.effective_user.id)
-    return ConversationHandler.END
 
+    clean_user(user.id, reason="create_test finished successfully")
+
+    return ConversationHandler.END
 
 # ---------- SETUP ----------
 
 def setup(dispatcher, bot=None):
-    # 🧨 GLOBAL DEBUG — MUST FIRE FOR EVERY TEXT
-    # dispatcher.add_handler(
-        # MessageHandler(Filters.text, GLOBAL_DEBUG_ECHO),
-        # group=-9999
-    # )
     conv = ConversationHandler(
         entry_points=[CommandHandler("create_test", start)],
         states={
@@ -294,7 +342,6 @@ def setup(dispatcher, bot=None):
             CommandHandler("end_test", end_test),
         ],
         per_user=True,
-        #per_chat=True,
         allow_reentry=True,
         name="create_test_conv",
     )
