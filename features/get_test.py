@@ -29,18 +29,11 @@ from features.sub_check import require_subscription
 # >>> ADDITIVE IMPORTS (DO NOT REMOVE ANYTHING)
 from global_checker import allow
 from global_cleaner import clean_user
-from database import set_user_mode
-# <<< ADDITIVE IMPORTS
 
 logger = logging.getLogger(__name__)
 
 DB_PATH = os.getenv("DB_PATH", os.getenv("SQLITE_PATH", "/data/data.db"))
 SQLITE_TIMEOUT = 5
-
-# >>> ADDITIVE CONSTANT
-MODE_NAME = "get_test"
-# <<< ADDITIVE CONSTANT
-
 
 # ---------- helpers ----------
 
@@ -95,10 +88,7 @@ def get_test(update: Update, context: CallbackContext):
 
     test_id, name, level, question_count, time_limit, published_at = active
 
-    # >>> ADDITIVE MODE SET
-    set_user_mode(user.id, MODE_NAME)
-    # <<< ADDITIVE MODE SET
-
+    
     keyboard = InlineKeyboardMarkup(
         [
             [
@@ -129,13 +119,9 @@ def cancel_test(update: Update, context: CallbackContext):
     user = query.from_user if query else None
 
     # >>> ADDITIVE MODE OWNERSHIP CHECK
-    if not user or not allow(user.id, mode=MODE_NAME):
+    if not user or not allow(user.id, mode=None):
         return
     # <<< ADDITIVE MODE OWNERSHIP CHECK
-
-    # >>> ADDITIVE CLEANUP
-    clean_user(user.id, reason="get_test cancelled")
-    # <<< ADDITIVE CLEANUP
 
     query.edit_message_text("❌ Test start cancelled.")
 
