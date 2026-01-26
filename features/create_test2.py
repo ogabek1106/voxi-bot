@@ -4,6 +4,9 @@
 import logging
 from typing import Optional
 
+from global_checker import allow
+from global_cleaner import clean_user
+
 from telegram import Update
 from telegram.ext import (
     CallbackContext,
@@ -21,6 +24,8 @@ logger = logging.getLogger(__name__)
 # ---- STATES ----
 ASK_QUESTION, ASK_ANSWERS, ASK_CORRECT = range(3)
 
+MODE_NAME = "create_test_questions"
+
 # ---------- helpers ----------
 
 def _is_admin(user_id: Optional[int]) -> bool:
@@ -29,6 +34,10 @@ def _is_admin(user_id: Optional[int]) -> bool:
 
 
 def _unknown_command(update: Update, context: CallbackContext):
+    user = update.effective_user
+    if not user or not allow(user.id, mode=MODE_NAME):
+        return ConversationHandler.END
+
     update.message.reply_text("❓ Please answer the question or use /skip.")
     return None
 
@@ -62,7 +71,7 @@ def _parse_answers(text: str):
     return answers
 
 
-# ---------- END COMMAND (FIXED) ----------
+# ---------- END COMMAND ----------
 
 def end_test(update: Update, context: CallbackContext):
     user = update.effective_user
@@ -70,12 +79,13 @@ def end_test(update: Update, context: CallbackContext):
         update.message.reply_text("⛔ Admins only.")
         return ConversationHandler.END
 
-    if context.user_data.get("question_mode"):
-        context.user_data.clear()
-        update.message.reply_text("🛑 Test creation mode ended.")
-        return ConversationHandler.END   # 🔴 IMPORTANT FIX
+    if not allow(user.id, mode=MODE_NAME):
+        return ConversationHandler.END
 
-    update.message.reply_text("ℹ️ You are not in test creation mode.")
+    clean_user(user.id, reason="create_test_questions manual end")
+    context.user_data.clear()
+
+    update.message.reply_text("🛑 Test creation mode ended.")
     return ConversationHandler.END
 
 
@@ -85,6 +95,10 @@ def start_questions(update: Update, context: CallbackContext):
     user = update.effective_user
     if not user or not _is_admin(user.id):
         update.message.reply_text("⛔ Admins only.")
+        return ConversationHandler.END
+
+    # 🔒 MUST be FREE to start
+    if not allow(user.id, mode=None, allow_free=False):
         return ConversationHandler.END
 
     test_id = context.user_data.get("test_id")
@@ -99,9 +113,13 @@ def start_questions(update: Update, context: CallbackContext):
 
     _, _, _, question_count, _, _ = test_def
 
-    context.user_data["question_mode"] = True
+    context.user_data.clear()
+    context.user_data["test_id"] = test_id
     context.user_data["question_count"] = int(question_count)
     context.user_data["current_q"] = 1
+
+    from database import set_user_mode
+    set_user_mode(user.id, MODE_NAME)
 
     update.message.reply_text(
         "✍️ Now send questions one by one.\n\n"
@@ -113,6 +131,10 @@ def start_questions(update: Update, context: CallbackContext):
 # ---------- QUESTION TEXT ----------
 
 def question_text(update: Update, context: CallbackContext):
+    user = update.effective_user
+    if not user or not allow(user.id, mode=MODE_NAME):
+        return ConversationHandler.END
+
     context.user_data["question_text"] = update.message.text.strip()
 
     update.message.reply_text(
@@ -128,6 +150,10 @@ def question_text(update: Update, context: CallbackContext):
 # ---------- ANSWERS ----------
 
 def answers_text(update: Update, context: CallbackContext):
+    user = update.effective_user
+    if not user or not allow(user.id, mode=MODE_NAME):
+        return ConversationHandler.END
+
     parsed = _parse_answers(update.message.text)
     if not parsed:
         update.message.reply_text(
@@ -147,6 +173,10 @@ def answers_text(update: Update, context: CallbackContext):
 # ---------- CORRECT ANSWER ----------
 
 def correct_text(update: Update, context: CallbackContext):
+    user = update.effective_user
+    if not user or not allow(user.id, mode=MODE_NAME):
+        return ConversationHandler.END
+
     correct = update.message.text.strip().lower()
     if correct not in ("a", "b", "c", "d"):
         update.message.reply_text("❗ Correct answer must be a / b / c / d.")
@@ -173,6 +203,8 @@ def correct_text(update: Update, context: CallbackContext):
             "Test is READY.\n"
             "Send /end_test to exit creation mode."
         )
+        clean_user(user.id, reason="create_test_questions finished")
+        context.user_data.clear()
         return ConversationHandler.END
 
     update.message.reply_text(f"✅ Saved.\n\nQuestion {q_num}:")
