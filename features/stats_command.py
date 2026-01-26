@@ -11,6 +11,7 @@ import os
 import sqlite3
 import logging
 from typing import Set
+from database import get_checker_mode
 
 from telegram import Update
 from telegram.ext import CallbackContext, CommandHandler
@@ -59,15 +60,18 @@ def _count_users() -> int:
 
 
 def stats_handler(update: Update, context: CallbackContext):
-    """Handle /stats — reply only to admins with the unique user count."""
     user = update.effective_user
     if not user:
+        return
+
+    # 🚫 FREE STATE ONLY
+    if get_checker_mode(user.id) is not None:
         return
 
     admin_ids = _get_admin_ids()
     if user.id not in admin_ids:
         logger.info("Non-admin %s tried /stats", user.id)
-        return  # silent for non-admins
+        return
 
     count = _count_users()
     text = f"👥 Unique users (total): {count}"
