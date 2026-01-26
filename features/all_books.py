@@ -9,7 +9,7 @@ Read-only, safe, paginated by message length.
 import logging
 from telegram import Update
 from telegram.ext import CallbackContext, CommandHandler
-
+from global_checker import allow
 from books import BOOKS
 
 logger = logging.getLogger(__name__)
@@ -32,6 +32,12 @@ def _chunk_text(text: str, limit: int = TG_MESSAGE_LIMIT):
 
 
 def cmd_all_books(update: Update, context: CallbackContext):
+    user_id = update.effective_user.id
+
+    # 🔐 FREE-STATE gate
+    if not allow(user_id, mode=None):
+        return
+    
     if not BOOKS:
         update.message.reply_text("📚 No books are available yet.")
         return
