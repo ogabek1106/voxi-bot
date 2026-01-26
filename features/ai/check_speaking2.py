@@ -16,7 +16,8 @@ import logging
 import os
 import io
 import base64
-
+from global_checker import allow
+from global_cleaner import clean_user
 from telegram import Update
 from telegram.ext import (
     CallbackContext,
@@ -33,7 +34,6 @@ from features.ai.check_limits import can_use_feature
 from database import (
     log_ai_usage,
     set_checker_mode,
-    clear_checker_mode,
     get_checker_mode,
 )
 
@@ -118,6 +118,9 @@ def start_check(update: Update, context: CallbackContext):
     if not user:
         return ConversationHandler.END
 
+    if not allow(user.id, mode="ielts_check_up"):
+        raise DispatcherHandlerStop
+
     limit_result = can_use_feature(user.id, "speaking")
     if not limit_result["allowed"]:
         from features.ielts_checkup_ui import _main_user_keyboard
@@ -147,6 +150,9 @@ def start_check(update: Update, context: CallbackContext):
 def receive_cue_card(update: Update, context: CallbackContext):
     message = update.message
     user = update.effective_user
+
+    if not allow(user.id, mode="speaking_part2"):
+        return ConversationHandler.END
 
     if not message or not user:
         return WAITING_FOR_CUE_CARD
@@ -226,6 +232,9 @@ def receive_voice(update: Update, context: CallbackContext):
     message = update.message
     user = update.effective_user
 
+    if not allow(user.id, mode="speaking_part2"):
+        return ConversationHandler.END
+    
     if not message or not user or not message.voice:
         message.reply_text("❗️Javob FAqat ovozli bo‘lishi kerak.")
         return WAITING_FOR_VOICE
@@ -293,7 +302,7 @@ def receive_voice(update: Update, context: CallbackContext):
         message.reply_text("❌ Xatolik yuz berdi. Keyinroq urinib ko‘ring.")
 
     finally:
-        clear_checker_mode(user.id)
+        clean_user(user.id, reason="speaking_part2 finished")
         context.user_data.pop("speaking_p2_cue_card", None)
 
         from features.ielts_checkup_ui import _main_user_keyboard
@@ -308,7 +317,7 @@ def receive_voice(update: Update, context: CallbackContext):
 def cancel(update: Update, context: CallbackContext):
     user = update.effective_user
     if user:
-        clear_checker_mode(user.id)
+        clean_user(user.id, reason="speaking_part2 cancel")
 
     context.user_data.pop("speaking_p2_cue_card", None)
 
