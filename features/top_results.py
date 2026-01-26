@@ -16,7 +16,7 @@ import logging
 import os
 import sqlite3
 from datetime import timedelta
-
+from database import get_checker_mode
 from telegram import Update
 from telegram.ext import CallbackContext, CommandHandler
 
@@ -56,9 +56,14 @@ def top_results_command(update: Update, context: CallbackContext):
     message = update.message
     user_id = message.from_user.id
 
+    # 🚫 FREE STATE ONLY
+    if get_checker_mode(user_id) is not None:
+        return
+
     if not _is_admin(user_id):
         message.reply_text("⛔ This command is for admins only.")
         return
+
 
     active = get_active_test()
     if not active:
