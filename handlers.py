@@ -8,6 +8,7 @@ from books import BOOKS
 from database import get_user_mode
 from database import log_command_use
 from database import log_book_request
+from database import get_user_mode
 from telegram.ext import MessageHandler, Filters
 from features.sub_check import require_subscription
 from features.get_test import get_test
@@ -240,11 +241,11 @@ def start_handler(update: Update, context: CallbackContext):
     return
 
 def numeric_message_handler(update: Update, context: CallbackContext):
-    # 🔒 subscription gate
-    #if not require_subscription(update, context):
-        #return
+    uid = update.effective_user.id
 
-    # 🔴 BLOCK numeric handler during admin conversations (e.g. /create_test)
+    # 🛑 SLEEP if user is NOT free
+    if get_user_mode(uid) is not None:
+        return
     if context.user_data.get("admin_mode"):
         return
         
