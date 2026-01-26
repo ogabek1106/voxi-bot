@@ -150,7 +150,7 @@ def _start_test_core(update: Update, context: CallbackContext, user_id: int):
 
     chat_id = update.effective_chat.id
 
-    context.user_data.clear()
+    context.user_data.pop("awaiting_test_name", None)
     context.user_data.update({
         "chat_id": chat_id,
         "token": token,
@@ -215,7 +215,7 @@ def start_test_entry(update: Update, context: CallbackContext):
     set_user_mode(user_id, TEST_MODE)
 
     if not get_user_name(user_id):
-        context.user_data.clear()
+        context.user_data.pop("awaiting_test_name", None)
         context.user_data["awaiting_test_name"] = True
 
         query.edit_message_text(
