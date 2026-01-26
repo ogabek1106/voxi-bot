@@ -13,7 +13,7 @@ Purpose:
 import logging
 from telegram import Update
 from telegram.ext import CallbackContext, CommandHandler
-
+from global_checker import allow
 from features.sub_check import require_subscription
 
 logger = logging.getLogger(__name__)
@@ -37,6 +37,12 @@ AD_TEXT = (
 # ================== HANDLER ==================
 
 def ad_rec_handler(update: Update, context: CallbackContext):
+    user_id = update.effective_user.id
+
+    # 🔐 FREE-STATE gate (VERY IMPORTANT)
+    if not allow(user_id, mode=None):
+        return
+
     # 🔒 Subscription gate
     if not require_subscription(update, context):
         return
@@ -46,7 +52,6 @@ def ad_rec_handler(update: Update, context: CallbackContext):
             AD_TEXT,
             parse_mode="Markdown"
         )
-
 
 # ================== ENTRYPOINT (IMPORTANT) ==================
 
