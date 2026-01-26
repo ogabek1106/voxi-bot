@@ -110,6 +110,7 @@ def ensure_db():
                     user_id INTEGER PRIMARY KEY,
                     first_name TEXT,
                     username TEXT,
+                     name TEXT,
                     added_at INTEGER
                 );
                 """
@@ -117,7 +118,7 @@ def ensure_db():
 
         # Inspect columns and add missing ones (best-effort)
         cols = _table_columns(conn, "users")
-        required = {"first_name": "TEXT", "username": "TEXT", "added_at": "INTEGER"}
+        required = {"first_name": "TEXT", "username": "TEXT", "name": "TEXT", "added_at": "INTEGER"}
         missing = [c for c in required.keys() if c not in cols]
         if missing:
             logger.info("ensure_db: users table missing columns %s; attempting ALTER TABLE (best-effort)", missing)
@@ -162,6 +163,53 @@ def add_user_if_new(user_id: int, first_name: Optional[str] = None, username: Op
                 conn.close()
             except Exception:
                 pass
+
+def get_user_name(user_id: int) -> Optional[str]:
+    """
+    Return stored user name or None.
+    """
+    if not os.path.exists(DB_PATH):
+        return None
+
+    conn = None
+    try:
+        conn = _connect()
+        cur = conn.execute(
+            "SELECT name FROM users WHERE user_id = ? LIMIT 1;",
+            (int(user_id),),
+        )
+        row = cur.fetchone()
+        return row[0] if row and row[0] else None
+    except Exception as e:
+        logger.exception("get_user_name failed for %s: %s", user_id, e)
+        return None
+    finally:
+        if conn:
+            conn.close()
+
+
+def set_user_name(user_id: int, name: str) -> bool:
+    """
+    Store user's real name (entered before test).
+    """
+    if not name:
+        return False
+
+    conn = None
+    try:
+        conn = _connect()
+        with conn:
+            conn.execute(
+                "UPDATE users SET name = ? WHERE user_id = ?;",
+                (name.strip(), int(user_id)),
+            )
+        return True
+    except Exception as e:
+        logger.exception("set_user_name failed for %s: %s", user_id, e)
+        return False
+    finally:
+        if conn:
+            conn.close()
 
 # ---------- TESTS TABLE ----------
 
