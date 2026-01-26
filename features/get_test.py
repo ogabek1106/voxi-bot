@@ -26,10 +26,20 @@ from telegram.ext import (
 
 from features.sub_check import require_subscription
 
+# >>> ADDITIVE IMPORTS (DO NOT REMOVE ANYTHING)
+from global_checker import allow
+from global_cleaner import clean_user
+from database import set_user_mode
+# <<< ADDITIVE IMPORTS
+
 logger = logging.getLogger(__name__)
 
 DB_PATH = os.getenv("DB_PATH", os.getenv("SQLITE_PATH", "/data/data.db"))
 SQLITE_TIMEOUT = 5
+
+# >>> ADDITIVE CONSTANT
+MODE_NAME = "get_test"
+# <<< ADDITIVE CONSTANT
 
 
 # ---------- helpers ----------
@@ -63,6 +73,13 @@ def _get_active_test():
 # ---------- command ----------
 
 def get_test(update: Update, context: CallbackContext):
+    user = update.effective_user
+
+    # >>> ADDITIVE FREE-STATE GUARD
+    if not user or not allow(user.id, mode=None, allow_free=False):
+        return
+    # <<< ADDITIVE FREE-STATE GUARD
+
     # 🔒 subscription gate
     if not require_subscription(update, context):
         return
@@ -77,6 +94,10 @@ def get_test(update: Update, context: CallbackContext):
         return
 
     test_id, name, level, question_count, time_limit, published_at = active
+
+    # >>> ADDITIVE MODE SET
+    set_user_mode(user.id, MODE_NAME)
+    # <<< ADDITIVE MODE SET
 
     keyboard = InlineKeyboardMarkup(
         [
@@ -104,6 +125,17 @@ def get_test(update: Update, context: CallbackContext):
 def cancel_test(update: Update, context: CallbackContext):
     query = update.callback_query
     query.answer()
+
+    user = query.from_user if query else None
+
+    # >>> ADDITIVE MODE OWNERSHIP CHECK
+    if not user or not allow(user.id, mode=MODE_NAME):
+        return
+    # <<< ADDITIVE MODE OWNERSHIP CHECK
+
+    # >>> ADDITIVE CLEANUP
+    clean_user(user.id, reason="get_test cancelled")
+    # <<< ADDITIVE CLEANUP
 
     query.edit_message_text("❌ Test start cancelled.")
 
