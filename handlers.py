@@ -12,7 +12,7 @@ from telegram.ext import MessageHandler, Filters
 from features.sub_check import require_subscription
 from features.get_test import get_test
 from features.ielts_checkup_ui import _main_user_keyboard
-
+from database import get_checker_mode
 
 logger = logging.getLogger(__name__)
 
@@ -243,7 +243,7 @@ def numeric_message_handler(update: Update, context: CallbackContext):
     uid = update.effective_user.id
 
     # 🛑 SLEEP if user is NOT free
-    if get_user_mode(uid) is not None:
+    if get_user_mode(uid) is not None or get_checker_mode(uid) is not None:
         return
     if context.user_data.get("admin_mode"):
         return
