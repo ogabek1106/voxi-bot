@@ -33,7 +33,8 @@ from telegram.ext import (
     Filters,
 )
 from telegram.ext import DispatcherHandlerStop
-
+from global_checker import allow
+from global_cleaner import clean_user
 import openai
 
 from features.ai.check_limits import can_use_feature
@@ -41,7 +42,6 @@ from features.admin_feedback import send_admin_card
 from database import (
     log_ai_usage,
     set_checker_mode,
-    clear_checker_mode,
     get_checker_mode,
 )
 
@@ -232,11 +232,12 @@ def start_check(update: Update, context: CallbackContext):
     from features.sub_check import require_subscription
     if not require_subscription(update, context):
         return ConversationHandler.END
-
+    
     user = update.effective_user
     if not user:
         return ConversationHandler.END
-
+    if not allow(user.id, mode="ielts_check_up"):
+        raise DispatcherHandlerStop
     limit = can_use_feature(user.id, "listening")
     if not limit["allowed"]:
         from features.ielts_checkup_ui import _main_user_keyboard
@@ -474,7 +475,7 @@ def finalize_listening(update: Update, context: CallbackContext):
     )
 
     log_ai_usage(update.effective_user.id, "listening")
-    clear_checker_mode(update.effective_user.id)
+    clean_user(update.effective_user.id, reason="listening finished")
     context.user_data.clear()
 
     from features.ielts_checkup_ui import _main_user_keyboard
@@ -489,7 +490,7 @@ def finalize_listening(update: Update, context: CallbackContext):
 def cancel(update: Update, context: CallbackContext):
     user = update.effective_user
     if user:
-        clear_checker_mode(user.id)
+        clean_user(user.id, reason="listening cancel")
     context.user_data.clear()
 
     from features.ielts_checkup_ui import _ielts_skills_reply_keyboard
