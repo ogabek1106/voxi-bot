@@ -8,6 +8,7 @@ import handlers
 from features.sub_check import check_subscription_callback
 from debug_dispatcher import enable_dispatcher_debug
 enable_dispatcher_debug()
+from handlers import numeric_message_handler, global_fallback_handler
 
 from features.track_commands import track_command   # ✅ ADD THIS
 
@@ -44,9 +45,18 @@ def main():
         group=-100
     )
     # core handlers (unchanged)
-    dp.add_handler(CommandHandler("start", handlers.start_handler, pass_args=True))
-    dp.add_handler(MessageHandler(Filters.text & ~Filters.command, handlers.numeric_message_handler))
+    # 2601dp.add_handler(CommandHandler("start", handlers.start_handler, pass_args=True))
+    # 2601dp.add_handler(MessageHandler(Filters.text & ~Filters.command, handlers.numeric_message_handler))
+    # /start
+    dp.add_handler(CommandHandler("start", handlers.start_handler, pass_args=True), group=0)
 
+    # FREE numeric input (books)
+    dp.add_handler(
+        MessageHandler(Filters.text & ~Filters.command, numeric_message_handler),
+        group=10
+    )
+
+    # GLOBAL FALLBACK — MUST BE LAST
     # subscription check callback (ONE-TIME global)
     dp.add_handler(
         CallbackQueryHandler(check_subscription_callback, pattern="^check_sub$")
@@ -62,6 +72,12 @@ def main():
     else:
         logger.warning("features.register_all_features not available. No feature modules loaded.")
 
+    # 🔚 GLOBAL FALLBACK — ABSOLUTELY LAST
+    dp.add_handler(
+        MessageHandler(Filters.text & ~Filters.command, global_fallback_handler),
+        group=99
+    )
+    
     logger.info("Bot starting polling...")
     updater.start_polling()
     updater.idle()
