@@ -15,7 +15,7 @@ Flow:
 import logging
 import os
 import base64
-
+from global_checker import allow
 from telegram import Update
 from telegram.ext import (
     CallbackContext,
@@ -24,6 +24,7 @@ from telegram.ext import (
     MessageHandler,
     Filters,
 )
+from global_cleaner import clean_user
 from telegram.ext import DispatcherHandlerStop
 from features.admin_feedback import send_admin_card, store_writing_essay
 from features.ai.check_limits import can_use_feature
@@ -34,7 +35,6 @@ import openai
 # checker mode helpers
 from database import (
     set_checker_mode,
-    clear_checker_mode,
     get_checker_mode,
 )
 
@@ -186,6 +186,9 @@ def start_check(update: Update, context: CallbackContext):
     if not user:
         return ConversationHandler.END
 
+    if not allow(user.id, mode="ielts_check_up"):
+        raise DispatcherHandlerStop
+    
     # 🔒 usage limits
     limit_result = can_use_feature(user.id, "writing")
     if not limit_result["allowed"]:
@@ -216,6 +219,9 @@ def receive_topic(update: Update, context: CallbackContext):
     message = update.message
     user = update.effective_user
 
+    if not allow(user.id, mode="writing_task1"):
+        return ConversationHandler.END
+    
     if not message or not user:
         return WAITING_FOR_TOPIC
 
@@ -253,6 +259,9 @@ def receive_report(update: Update, context: CallbackContext):
     message = update.message
     user = update.effective_user
 
+    if not allow(user.id, mode="writing_task1"):
+        return ConversationHandler.END
+    
     if not message or not user:
         return WAITING_FOR_REPORT
 
@@ -326,7 +335,7 @@ def receive_report(update: Update, context: CallbackContext):
         message.reply_text("❌ Xatolik yuz berdi. Keyinroq urinib ko‘ring.")
 
     finally:
-        clear_checker_mode(user.id)
+        clean_user(user.id, reason="writing_task1 finished")
         context.user_data.pop("writing_task1_topic", None)
 
         from features.ielts_checkup_ui import _main_user_keyboard
@@ -341,7 +350,7 @@ def receive_report(update: Update, context: CallbackContext):
 def cancel(update: Update, context: CallbackContext):
     user = update.effective_user
     if user:
-        clear_checker_mode(user.id)
+        clean_user(user.id, reason="writing_task1 cancel")
 
     context.user_data.pop("writing_task1_topic", None)
 
@@ -353,8 +362,7 @@ def cancel(update: Update, context: CallbackContext):
         reply_markup=_ielts_skills_reply_keyboard()
     )
 
-    raise DispatcherHandlerStop
-
+    return ConversationHandler.END
 
 # ---------- Registration ----------
 def register(dispatcher):
