@@ -3,6 +3,7 @@ from typing import Optional
 
 from telegram import Update
 from telegram.ext import CallbackContext, CommandHandler
+from global_cleaner import clean_user
 
 from database import (
     clear_user_mode,
@@ -36,7 +37,8 @@ def global_cancel(update: Update, context: CallbackContext):
         update.message.reply_text("⛔ Admins only.")
         return
 
-    cleared = clear_user_mode(user.id)
+    clean_user(user.id, reason="global_cancel")
+    cleared = True
 
     # Clear any leftover conversation/user data
     context.user_data.clear()
@@ -68,6 +70,7 @@ def global_cancel_all(update: Update, context: CallbackContext):
         update.message.reply_text("⛔ Admins only.")
         return
 
+    clean_user(user.id, reason="global_cancel_all")
     removed = clear_all_user_modes()
 
     # Clear local data as well
