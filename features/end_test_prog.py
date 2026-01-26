@@ -16,6 +16,8 @@ from typing import Optional
 from telegram import Update
 from telegram.ext import CommandHandler, CallbackContext
 
+from global_checker import allow
+
 import admins
 from database import end_test_program
 
@@ -37,6 +39,10 @@ def end_test_prog(update: Update, context: CallbackContext):
 
     if not user or not _is_admin(user.id):
         message.reply_text("⛔ Admins only.")
+        return
+
+    # 🔒 FREE STATE ONLY
+    if not allow(user.id, mode=None, allow_free=False):
         return
 
     ok = end_test_program()
