@@ -179,6 +179,11 @@ def ielts_skill_text_handler(update: Update, context: CallbackContext):
         from features.ai.check_listening import start_check
         start_check(update, context)
         return
+    # 📝 Writing Task 1 → START CHECKER
+    if text == "📝 Writing Task 1":
+        from features.ai.writing_task1 import start_check
+        start_check(update, context)
+        return
 
 
     # ⬅️ Back (SUBMENU BACK → clear INNER ONLY)
@@ -271,6 +276,7 @@ def setup(dispatcher):
     # )
 
     register(dispatcher)
+
 
 
 
