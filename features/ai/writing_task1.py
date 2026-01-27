@@ -187,7 +187,7 @@ def start_check(update: Update, context: CallbackContext):
         return ConversationHandler.END
 
     if not allow(user.id, mode="ielts_check_up"):
-        raise DispatcherHandlerStop
+        raise False
     
     # 🔒 usage limits
     limit_result = can_use_feature(user.id, "writing")
