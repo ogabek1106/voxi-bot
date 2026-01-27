@@ -22,6 +22,7 @@ from features.admin_feedback import send_admin_card, store_writing_essay
 from global_checker import allow
 from global_cleaner import clean_user
 from telegram import Update
+from database import clear_checker_mode
 from database import get_checker_mode
 from telegram.ext import (
     CallbackContext,
@@ -342,6 +343,7 @@ def receive_essay(update: Update, context: CallbackContext):
 
     finally:
         clean_user(user.id, reason="writing_task2 finished")
+        clear_checker_mode(user.id)
         context.user_data.pop("writing_task2_topic", None)
 
         from features.ielts_checkup_ui import _main_user_keyboard
@@ -357,6 +359,7 @@ def cancel(update: Update, context: CallbackContext):
     user = update.effective_user
     if user:
         clean_user(user.id, reason="writing_task2 cancel")
+        clear_checker_mode(user.id)
 
     context.user_data.pop("writing_task2_topic", None)
 
@@ -375,7 +378,7 @@ def register(dispatcher):
     conv = ConversationHandler(
         entry_points=[
             CommandHandler("check_writing2", start_check),
-            MessageHandler(Filters.regex("^🧠 Writing Task 2$"), start_check),            
+            #MessageHandler(Filters.regex("^🧠 Writing Task 2$"), start_check),            
         ],
 
         states={
