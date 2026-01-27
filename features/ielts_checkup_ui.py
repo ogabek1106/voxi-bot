@@ -234,7 +234,7 @@ def register(dispatcher):
     dispatcher.add_handler(
         MessageHandler(
             Filters.regex(
-                "^(✍️ Writing|🗣️ Speaking|🎧 Listening|📖 Reading|⬅️ Back|⬅️ Back to main menu|❌ Cancel)$"
+                "^(✍️ Writing|📝 Writing Task 1|🧠 Writing Task 2|🗣️ Speaking|🎧 Listening|📖 Reading|⬅️ Back|⬅️ Back to main menu|❌ Cancel)$"
             ),
             ielts_skill_text_handler
         ),
@@ -276,6 +276,7 @@ def setup(dispatcher):
     # )
 
     register(dispatcher)
+
 
 
 
