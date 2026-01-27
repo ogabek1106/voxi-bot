@@ -41,7 +41,6 @@ from database import (
     get_checker_mode,
     log_ai_usage,
     set_checker_mode,
-    clear_checker_mode,
 )
 
 logger = logging.getLogger(__name__)
@@ -235,7 +234,7 @@ def start_check(update: Update, context: CallbackContext):
         return ConversationHandler.END
 
     if not allow(user.id, mode="ielts_check_up"):
-        raise DispatcherHandlerStop
+        return False
 
     limit = can_use_feature(user.id, "reading")
     if not limit["allowed"]:
@@ -245,7 +244,7 @@ def start_check(update: Update, context: CallbackContext):
             parse_mode="Markdown",
             reply_markup=_main_user_keyboard()
         )
-        raise DispatcherHandlerStop
+        return ConversationHandler.END
 
     set_checker_mode(user.id, "reading")
 
@@ -276,8 +275,12 @@ def start_check(update: Update, context: CallbackContext):
 
 def collect_passage(update: Update, context: CallbackContext):
     user = update.effective_user
-    if not user or get_checker_mode(user.id) != "reading":
-        return WAITING_FOR_PASSAGE
+
+    if not allow(user.id, mode="ielts_check_up"):
+        return False
+
+    if get_checker_mode(user.id) != "reading":
+        return False
     
     msg = update.message
 
@@ -302,8 +305,12 @@ def collect_passage(update: Update, context: CallbackContext):
 
 def collect_answers(update: Update, context: CallbackContext):
     user = update.effective_user
-    if not user or get_checker_mode(user.id) != "reading":
-        return WAITING_FOR_ANSWERS
+    
+    if not allow(user.id, mode="ielts_check_up"):
+        return False
+
+    if get_checker_mode(user.id) != "reading":
+        return False
     
     msg = update.message
 
@@ -326,8 +333,12 @@ def collect_answers(update: Update, context: CallbackContext):
 
 def proceed_next(update: Update, context: CallbackContext):
     user = update.effective_user
-    if not user or get_checker_mode(user.id) != "reading":
-        return ConversationHandler.END
+
+    if not allow(user.id, mode="ielts_check_up"):
+        return False
+
+    if get_checker_mode(user.id) != "reading":
+        return False
 
     # ---------- STEP 1: PASSAGE + QUESTIONS ----------
     if not context.user_data.get("passage"):
@@ -374,6 +385,13 @@ def proceed_next(update: Update, context: CallbackContext):
 
 
 def finalize_reading(update: Update, context: CallbackContext):
+
+    if not allow(update.effective_user.id, mode="ielts_check_up"):
+        return False
+
+    if get_checker_mode(update.effective_user.id) != "reading":
+        return False
+    
     passage = context.user_data.get("passage", "")
     questions = context.user_data.get("questions", "")
     answers_raw = "\n".join(context.user_data.get("answers", ""))
