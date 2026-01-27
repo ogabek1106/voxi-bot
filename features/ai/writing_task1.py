@@ -219,8 +219,8 @@ def receive_topic(update: Update, context: CallbackContext):
     message = update.message
     user = update.effective_user
 
-    #if not allow(user.id, mode="writing_task1"):
-    #    return ConversationHandler.END
+    if not allow(user.id, mode="writing_task1"):
+        return ConversationHandler.END
     
     if not message or not user:
         return WAITING_FOR_TOPIC
@@ -259,8 +259,8 @@ def receive_report(update: Update, context: CallbackContext):
     message = update.message
     user = update.effective_user
 
-    #if not allow(user.id, mode="writing_task1"):
-    #    return ConversationHandler.END
+    if not allow(user.id, mode="writing_task1"):
+        return ConversationHandler.END
     
     if not message or not user:
         return WAITING_FOR_REPORT
