@@ -129,14 +129,17 @@ def ielts_skill_text_handler(update: Update, context: CallbackContext):
 
     text = update.message.text.strip()
 
-    # ✅ ADD STEP 5 RIGHT HERE
+    # ⬅️ Back to main menu (HARD RESET)
     if text == "⬅️ Back to main menu":
+        _exit_active_checker_if_any(user.id, context, reason="main menu back")
         clear_user_mode(user.id)
+
         update.message.reply_text(
             "⬅️ Back to main menu.",
             reply_markup=_main_user_keyboard()
         )
         return
+
 
     # ❌ Cancel
     if text == "❌ Cancel":
@@ -180,8 +183,10 @@ def ielts_skill_text_handler(update: Update, context: CallbackContext):
         )
         return
 
-    # ⬅️ Back
+    # ⬅️ Back (SUBMENU BACK → clear INNER ONLY)
     if text == "⬅️ Back":
+        _exit_active_checker_if_any(user.id, context, reason="submenu back")
+
         update.message.reply_text(
             "🎓 *IELTS Check Up*\nChoose the skill you want to check.",
             reply_markup=_ielts_skills_reply_keyboard(),
@@ -241,6 +246,24 @@ def register(dispatcher):
         group=1
     )
 
+def _exit_active_checker_if_any(user_id, context, reason: str):
+    """
+    UI-safe checker cleanup.
+    - Clears inner ConversationHandler state
+    - Clears checker_mode
+    - Does NOTHING if no checker is active
+    """
+    from global_cleaner import clean_user
+    from database import get_checker_mode, clear_checker_mode
+
+    if not get_checker_mode(user_id):
+        return  # ✅ No checker → do not interfere
+
+    clean_user(user_id, reason=reason)
+    clear_checker_mode(user_id)
+    context.user_data.clear()
+
+
 
 
 def setup(dispatcher):
@@ -250,4 +273,5 @@ def setup(dispatcher):
     # )
 
     register(dispatcher)
+
 
