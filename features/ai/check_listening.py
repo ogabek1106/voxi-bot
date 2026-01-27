@@ -237,7 +237,7 @@ def start_check(update: Update, context: CallbackContext):
     if not user:
         return ConversationHandler.END
     if not allow(user.id, mode="ielts_check_up"):
-        raise DispatcherHandlerStop
+        return False
     limit = can_use_feature(user.id, "listening")
     if not limit["allowed"]:
         from features.ielts_checkup_ui import _main_user_keyboard
@@ -246,7 +246,7 @@ def start_check(update: Update, context: CallbackContext):
             parse_mode="Markdown",
             reply_markup=_main_user_keyboard()
         )
-        raise DispatcherHandlerStop
+        return ConversationHandler.END
 
     set_checker_mode(user.id, "listening")
 
@@ -278,8 +278,11 @@ def start_check(update: Update, context: CallbackContext):
 
 def collect_audio(update: Update, context: CallbackContext):
     user = update.effective_user
-    if not user or get_checker_mode(user.id) != "listening":
-        return WAITING_FOR_AUDIO
+    if not allow(user.id, mode="ielts_check_up"):
+        return False
+
+    if get_checker_mode(user.id) != "listening":
+        return False
 
     if context.user_data.get("audio_text"):
         update.message.reply_text(
@@ -309,8 +312,11 @@ def collect_audio(update: Update, context: CallbackContext):
 
 def collect_questions(update: Update, context: CallbackContext):
     user = update.effective_user
-    if not user or get_checker_mode(user.id) != "listening":
-        return WAITING_FOR_QUESTIONS
+    if not allow(user.id, mode="ielts_check_up"):
+        return False
+
+    if get_checker_mode(user.id) != "listening":
+        return False
 
     msg = update.message
 
@@ -332,8 +338,11 @@ def collect_questions(update: Update, context: CallbackContext):
 
 def collect_answers(update: Update, context: CallbackContext):
     user = update.effective_user
-    if not user or get_checker_mode(user.id) != "listening":
-        return WAITING_FOR_ANSWERS
+    if not allow(user.id, mode="ielts_check_up"):
+        return False
+
+    if get_checker_mode(user.id) != "listening":
+        return False
 
     msg = update.message
 
@@ -357,8 +366,11 @@ def collect_answers(update: Update, context: CallbackContext):
 
 def proceed_next(update: Update, context: CallbackContext):
     user = update.effective_user
-    if not user or get_checker_mode(user.id) != "listening":
-        return ConversationHandler.END
+    if not allow(user.id, mode="ielts_check_up"):
+        return False
+
+    if get_checker_mode(user.id) != "listening":
+        return False
 
     # ---------- STEP 1: AUDIO ----------
     if not context.user_data.get("audio_text"):
@@ -424,6 +436,13 @@ def proceed_next(update: Update, context: CallbackContext):
 
 
 def finalize_listening(update: Update, context: CallbackContext):
+    
+    if not allow(update.effective_user.id, mode="ielts_check_up"):
+        return False
+
+    if get_checker_mode(update.effective_user.id) != "listening":
+        return False
+    
     audio_text = context.user_data.get("audio_text", "")
     questions = "\n".join(context.user_data["questions"])
     answers = "\n".join(context.user_data["answers"])
