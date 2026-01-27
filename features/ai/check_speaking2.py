@@ -19,6 +19,7 @@ import base64
 from global_checker import allow
 from global_cleaner import clean_user
 from telegram import Update
+from database import clear_checker_mode
 from telegram.ext import (
     CallbackContext,
     CommandHandler,
@@ -307,6 +308,7 @@ def receive_voice(update: Update, context: CallbackContext):
 
     finally:
         clean_user(user.id, reason="speaking_part2 finished")
+        clear_checker_mode(user.id)
         context.user_data.pop("speaking_p2_cue_card", None)
 
         from features.ielts_checkup_ui import _main_user_keyboard
@@ -322,6 +324,7 @@ def cancel(update: Update, context: CallbackContext):
     user = update.effective_user
     if user:
         clean_user(user.id, reason="speaking_part2 cancel")
+        clear_checker_mode(user.id)   # 🔥 REQUIRED
 
     context.user_data.pop("speaking_p2_cue_card", None)
 
@@ -331,7 +334,6 @@ def cancel(update: Update, context: CallbackContext):
         reply_markup=_ielts_skills_reply_keyboard()
     )
     return ConversationHandler.END
-
 
 # ---------- Registration ----------
 
