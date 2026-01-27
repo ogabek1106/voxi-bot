@@ -186,8 +186,8 @@ def start_check(update: Update, context: CallbackContext):
     if not user:
         return ConversationHandler.END
 
-    #if not allow(user.id, mode="ielts_check_up"):
-    #    raise DispatcherHandlerStop
+    if not allow(user.id, mode="ielts_check_up"):
+        raise DispatcherHandlerStop
     
     # 🔒 usage limits
     limit_result = can_use_feature(user.id, "writing")
@@ -219,14 +219,16 @@ def receive_topic(update: Update, context: CallbackContext):
     message = update.message
     user = update.effective_user
 
-    if not allow(user.id, mode="writing_task1"):
-        return ConversationHandler.END
+    # 1️⃣ global corridor guard
+    if not allow(user.id, mode="ielts_check_up"):
+        return False  # pass to others
+
+    # 2️⃣ inner checker guard
+    if get_checker_mode(user.id) != "writing_task1":
+        return False  # pass to others
     
     if not message or not user:
         return WAITING_FOR_TOPIC
-
-    if get_checker_mode(user.id) != "writing_task1":
-        return ConversationHandler.END
 
     if message.text:
         topic = message.text.strip()
@@ -259,14 +261,16 @@ def receive_report(update: Update, context: CallbackContext):
     message = update.message
     user = update.effective_user
 
-    if not allow(user.id, mode="writing_task1"):
-        return ConversationHandler.END
-    
+    # 1️⃣ global corridor guard
+    if not allow(user.id, mode="ielts_check_up"):
+        return False  # pass to others
+
+    # 2️⃣ inner checker guard
+    if get_checker_mode(user.id) != "writing_task1":
+        return False  # pass to others
+
     if not message or not user:
         return WAITING_FOR_REPORT
-
-    if get_checker_mode(user.id) != "writing_task1":
-        return ConversationHandler.END
 
     topic = context.user_data.get("writing_task1_topic")
     if not topic:
