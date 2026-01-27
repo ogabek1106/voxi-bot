@@ -530,7 +530,7 @@ def register(dispatcher):
         per_message=False,
         entry_points=[
             CommandHandler("check_listening", start_check),
-            MessageHandler(Filters.regex("^🎧 Listening$"), start_check),
+            #MessageHandler(Filters.regex("^🎧 Listening$"), start_check),
         ],
         states={
             WAITING_FOR_AUDIO: [
