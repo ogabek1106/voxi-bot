@@ -19,6 +19,7 @@ import json
 import re
 from global_checker import allow
 from global_cleaner import clean_user
+from database import clear_checker_mode
 
 from telegram import (
     Update,
@@ -443,6 +444,7 @@ def finalize_reading(update: Update, context: CallbackContext):
 
     log_ai_usage(update.effective_user.id, "reading")
     clean_user(update.effective_user.id, reason="reading finished")
+    clear_checker_mode(update.effective_user.id)
     context.user_data.clear()
 
     from features.ielts_checkup_ui import _main_user_keyboard
@@ -458,6 +460,7 @@ def cancel(update: Update, context: CallbackContext):
     user = update.effective_user
     if user:
         clean_user(user.id, reason="reading cancel")
+        clear_checker_mode(user.id)
 
     context.user_data.clear()
 
@@ -493,7 +496,10 @@ def register(dispatcher):
                 ),
             ],
         },
-        fallbacks=[CommandHandler("cancel", cancel)],
+        fallbacks=[
+            CommandHandler("cancel", cancel),
+            MessageHandler(Filters.regex("^❌ Cancel$"), cancel),
+        ],
         allow_reentry=False,
     )
 
