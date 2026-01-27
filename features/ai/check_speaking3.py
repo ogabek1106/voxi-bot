@@ -27,9 +27,9 @@ from telegram.ext import (
     MessageHandler,
     Filters,
 )
-from telegram.ext import DispatcherHandlerStop
 from features.admin_feedback import send_admin_card
 from features.ai.check_limits import can_use_feature
+from features.ielts_checkup_ui import _checker_cancel_keyboard
 
 from database import (
     log_ai_usage,
@@ -144,7 +144,6 @@ def start_check(update: Update, context: CallbackContext):
     set_checker_mode(user.id, "speaking_part3")
     context.user_data.pop("speaking_p3_question", None)
 
-    from features.ielts_checkup_ui import _checker__keyboard
     update.message.reply_text(
         "🧠 *IELTS Speaking Part 3 savolini yuboring.*\n\n"
         "Qabul qilinadi:\n"
@@ -364,7 +363,10 @@ def register(dispatcher):
                 MessageHandler(Filters.voice, receive_voice)
             ],
         },
-        fallbacks=[CommandHandler("cancel", cancel)],
+        fallbacks=[
+            CommandHandler("cancel", cancel),
+            MessageHandler(Filters.regex("^❌ Cancel$"), cancel),
+        ],
         allow_reentry=True,
     )
 
