@@ -22,6 +22,7 @@ from features.admin_feedback import send_admin_card, store_writing_essay
 from global_checker import allow
 from global_cleaner import clean_user
 from telegram import Update
+from database import get_checker_mode
 from telegram.ext import (
     CallbackContext,
     CommandHandler,
@@ -187,7 +188,7 @@ def start_check(update: Update, context: CallbackContext):
         return ConversationHandler.END
 
     if not allow(user.id, mode="ielts_check_up"):
-        raise DispatcherHandlerStop
+        return False
     
     # 🔒 LIMITER GATE (ADD THIS)
     limit_result = can_use_feature(user.id, "writing")
@@ -222,14 +223,15 @@ def receive_topic(update: Update, context: CallbackContext):
     message = update.message
     user = update.effective_user
 
-    if not allow(user.id, mode="writing_task2"):
-        return ConversationHandler.END
-    
+    # 1️⃣ global corridor
+    if not allow(user.id, mode="ielts_check_up"):
+        return False
+   
     if not message or not user:
         return WAITING_FOR_TOPIC
 
     if get_checker_mode(user.id) != "writing_task2":
-        return ConversationHandler.END
+        return False
 
     if message.text:
         topic = message.text.strip()
@@ -263,14 +265,15 @@ def receive_essay(update: Update, context: CallbackContext):
     message = update.message
     user = update.effective_user
 
-    if not allow(user.id, mode="writing_task2"):
-        return ConversationHandler.END
-    
+    # 1️⃣ global corridor
+    if not allow(user.id, mode="ielts_check_up"):
+        return False
+        
     if not message or not user:
         return WAITING_FOR_ESSAY
 
     if get_checker_mode(user.id) != "writing_task2":
-        return ConversationHandler.END
+        return False
 
     topic = context.user_data.get("writing_task2_topic")
     if not topic:
