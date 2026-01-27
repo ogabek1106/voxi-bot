@@ -166,15 +166,6 @@ def ielts_skill_text_handler(update: Update, context: CallbackContext):
         )
         return
 
-    # 📝 Writing Task 1
-    # if text == "📝 Writing Task 1":
-        # return
-
-    # 🧠 Writing Task 2
-    # if text == "🧠 Writing Task 2":
-        # return
-
-    # 🗣️ Speaking (READY)
     if text == "🗣️ Speaking":
         update.message.reply_text(
             "🗣️ Speaking bo‘limini tanlang:",
@@ -182,6 +173,13 @@ def ielts_skill_text_handler(update: Update, context: CallbackContext):
             parse_mode="Markdown"
         )
         return
+
+    # 🎧 Listening → START CHECKER
+    if text == "🎧 Listening":
+        from features.ai.check_listening import start_check
+        start_check(update, context)
+        return
+
 
     # ⬅️ Back (SUBMENU BACK → clear INNER ONLY)
     if text == "⬅️ Back":
@@ -273,5 +271,6 @@ def setup(dispatcher):
     # )
 
     register(dispatcher)
+
 
 
