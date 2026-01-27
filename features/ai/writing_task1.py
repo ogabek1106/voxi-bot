@@ -17,6 +17,7 @@ import os
 import base64
 from global_checker import allow
 from telegram import Update
+from database import clear_checker_mode
 from telegram.ext import (
     CallbackContext,
     CommandHandler,
@@ -340,6 +341,7 @@ def receive_report(update: Update, context: CallbackContext):
 
     finally:
         clean_user(user.id, reason="writing_task1 finished")
+        clear_checker_mode(user.id)
         context.user_data.pop("writing_task1_topic", None)
 
         from features.ielts_checkup_ui import _main_user_keyboard
@@ -355,17 +357,15 @@ def cancel(update: Update, context: CallbackContext):
     user = update.effective_user
     if user:
         clean_user(user.id, reason="writing_task1 cancel")
+        clear_checker_mode(user.id)   # ✅ ADD THIS
 
     context.user_data.pop("writing_task1_topic", None)
 
     from features.ielts_checkup_ui import _ielts_skills_reply_keyboard
-    from telegram.ext import DispatcherHandlerStop
-
     update.message.reply_text(
         "❌ Tekshiruv bekor qilindi.",
         reply_markup=_ielts_skills_reply_keyboard()
     )
-
     return ConversationHandler.END
 
 # ---------- Registration ----------
