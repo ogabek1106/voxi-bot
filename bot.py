@@ -73,10 +73,10 @@ def main():
         logger.warning("features.register_all_features not available. No feature modules loaded.")
 
     # 🔚 GLOBAL FALLBACK — ABSOLUTELY LAST
-    dp.add_handler(
-        MessageHandler(Filters.text & ~Filters.command, global_fallback_handler),
-        group=99
-    )
+    #dp.add_handler(
+    #    MessageHandler(Filters.text & ~Filters.command, global_fallback_handler),
+    #    group=99
+    #)
     
     logger.info("Bot starting polling...")
     updater.start_polling()
