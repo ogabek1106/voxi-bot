@@ -128,7 +128,7 @@ def start_check(update: Update, context: CallbackContext):
         return ConversationHandler.END
 
     if not allow(user.id, mode="ielts_check_up"):
-        raise DispatcherHandlerStop
+        return False
 
     limit_result = can_use_feature(user.id, "speaking")
     if not limit_result["allowed"]:
@@ -160,14 +160,16 @@ def receive_question(update: Update, context: CallbackContext):
     message = update.message
     user = update.effective_user
 
-    if not allow(user.id, mode="speaking_part3"):
-        return ConversationHandler.END
-    
+    # 1️⃣ global corridor
+    if not allow(user.id, mode="ielts_check_up"):
+        return False
+
+    # 2️⃣ inner checker
+    if get_checker_mode(user.id) != "speaking_part3":
+        return False
+
     if not message or not user:
         return WAITING_FOR_QUESTION
-
-    if get_checker_mode(user.id) != "speaking_part3":
-        return ConversationHandler.END
 
     question_text = None
 
@@ -241,12 +243,18 @@ def receive_voice(update: Update, context: CallbackContext):
     message = update.message
     user = update.effective_user
 
+    # 1️⃣ global corridor
+    if not allow(user.id, mode="ielts_check_up"):
+        return False
+
+    # 2️⃣ inner checker
+    if get_checker_mode(user.id) != "speaking_part3":
+        return False
+
+    
     if not message or not user or not message.voice:
         message.reply_text("❗️Javob FAqat ovozli bo‘lishi kerak.")
         return WAITING_FOR_VOICE
-
-    if get_checker_mode(user.id) != "speaking_part3":
-        return ConversationHandler.END
 
     duration = message.voice.duration
 
