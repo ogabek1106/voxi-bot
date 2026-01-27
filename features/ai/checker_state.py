@@ -47,20 +47,20 @@ def checker_gate(update: Update, context: CallbackContext):
     """
     message = update.effective_message
     if not message:
-        return False
+        return 
 
     user = update.effective_user
     user_id = user.id if user else None
 
     # ✅ ABSOLUTE BYPASS FOR TEST CREATION
     if user_id and get_user_mode(user_id) == "create_test":
-        return False
+        return 
 
     mode = get_checker_mode(user_id)
 
     # Not in checker mode → allow everything
     if not mode:
-        return False
+        return 
 
     text = message.text.strip() if message.text else ""
 
