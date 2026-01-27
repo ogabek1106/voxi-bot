@@ -26,6 +26,8 @@ from telegram import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
 )
+from database import clear_user_mode
+from database import set_user_mode
 from database import get_user_mode
 from telegram.ext import (
     CallbackContext,
@@ -108,7 +110,7 @@ def open_ielts_checkup(update: Update, context: CallbackContext):
         return
 
     # ✅ SET MODE HERE
-    set_checker_mode(user.id, IELTS_MODE)
+    set_user_mode(user.id, IELTS_MODE)
 
     update.message.reply_text(
         "🎓 *IELTS Check Up*\nChoose the skill you want to check.",
@@ -122,14 +124,14 @@ def ielts_skill_text_handler(update: Update, context: CallbackContext):
         return
 
     # ✅ MODE GATE (FIRST)
-    if get_checker_mode(user.id) != IELTS_MODE:
+    if get_user_mode(user.id) != IELTS_MODE:
         return
 
     text = update.message.text.strip()
 
     # ✅ ADD STEP 5 RIGHT HERE
     if text == "⬅️ Back to main menu":
-        clear_checker_mode(user.id)
+        clear_user_mode(user.id)
         update.message.reply_text(
             "⬅️ Back to main menu.",
             reply_markup=_main_user_keyboard()
@@ -248,3 +250,4 @@ def setup(dispatcher):
     # )
 
     register(dispatcher)
+
