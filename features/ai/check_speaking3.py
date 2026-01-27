@@ -19,6 +19,7 @@ import base64
 from global_checker import allow
 from global_cleaner import clean_user
 from telegram import Update
+from database import clear_checker_mode
 from telegram.ext import (
     CallbackContext,
     CommandHandler,
@@ -143,7 +144,7 @@ def start_check(update: Update, context: CallbackContext):
     set_checker_mode(user.id, "speaking_part3")
     context.user_data.pop("speaking_p3_question", None)
 
-    from features.ielts_checkup_ui import _checker_cancel_keyboard
+    from features.ielts_checkup_ui import _checker__keyboard
     update.message.reply_text(
         "🧠 *IELTS Speaking Part 3 savolini yuboring.*\n\n"
         "Qabul qilinadi:\n"
@@ -317,6 +318,7 @@ def receive_voice(update: Update, context: CallbackContext):
 
     finally:
         clean_user(user.id, reason="speaking_part3 finished")
+        clear_checker_mode(user.id)
         context.user_data.pop("speaking_p3_question", None)
 
         from features.ielts_checkup_ui import _main_user_keyboard
@@ -332,6 +334,7 @@ def cancel(update: Update, context: CallbackContext):
     user = update.effective_user
     if user:
         clean_user(user.id, reason="speaking_part3 cancel")
+        clear_checker_mode(user.id)   # 🔥 REQUIRED
 
     context.user_data.pop("speaking_p3_question", None)
 
@@ -341,7 +344,6 @@ def cancel(update: Update, context: CallbackContext):
         reply_markup=_ielts_skills_reply_keyboard()
     )
     return ConversationHandler.END
-
 
 # ---------- Registration ----------
 
