@@ -277,5 +277,7 @@ def global_fallback_handler(update: Update, context: CallbackContext):
     if get_user_mode(uid) is not None:
        update.message.reply_text("⏳ Avval hozirgi jarayonni tugating.")
 
+    return False  # 🔑 THIS IS THE KEY
+
 
 
