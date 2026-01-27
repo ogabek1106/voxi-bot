@@ -268,14 +268,14 @@ def numeric_message_handler(update: Update, context: CallbackContext):
 
 
 def global_fallback_handler(update: Update, context: CallbackContext):
-    #if not update.message or not update.message.text:
+    if not update.message or not update.message.text:
         return False
 
-    #uid = update.effective_user.id
+    uid = update.effective_user.id
 
     # Only react if user is NOT free
-    #if get_user_mode(uid) is not None:
-    #    update.message.reply_text("⏳ Avval hozirgi jarayonni tugating.")
+    if get_user_mode(uid) is not None:
+       update.message.reply_text("⏳ Avval hozirgi jarayonni tugating.")
 
 
 
