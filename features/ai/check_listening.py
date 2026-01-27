@@ -43,6 +43,7 @@ from database import (
     log_ai_usage,
     set_checker_mode,
     get_checker_mode,
+    clear_checker_mode,
 )
 
 logger = logging.getLogger(__name__)
@@ -247,7 +248,7 @@ def start_check(update: Update, context: CallbackContext):
             reply_markup=_main_user_keyboard()
         )
         return ConversationHandler.END
-
+    clear_checker_mode(user.id)
     set_checker_mode(user.id, "listening")
 
     update.message.reply_text(
@@ -495,6 +496,7 @@ def finalize_listening(update: Update, context: CallbackContext):
 
     log_ai_usage(update.effective_user.id, "listening")
     clean_user(update.effective_user.id, reason="listening finished")
+    clear_checker_mode(update.effective_user.id)
     context.user_data.clear()
 
     from features.ielts_checkup_ui import _main_user_keyboard
@@ -510,6 +512,7 @@ def cancel(update: Update, context: CallbackContext):
     user = update.effective_user
     if user:
         clean_user(user.id, reason="listening cancel")
+        clear_checker_mode(user.id)
     context.user_data.clear()
 
     from features.ielts_checkup_ui import _ielts_skills_reply_keyboard
@@ -531,6 +534,7 @@ def register(dispatcher):
         ],
         states={
             WAITING_FOR_AUDIO: [
+                MessageHandler(Filters.regex("^❌ Cancel$"), cancel),
                 MessageHandler(Filters.regex("^➡️ Davom etish$"), proceed_next),
                 MessageHandler(
                     Filters.voice | Filters.audio | Filters.video | Filters.document,
@@ -538,10 +542,12 @@ def register(dispatcher):
                 ),
             ],
             WAITING_FOR_QUESTIONS: [
+                MessageHandler(Filters.regex("^❌ Cancel$"), cancel),
                 MessageHandler(Filters.regex("^➡️ Davom etish$"), proceed_next),
                 MessageHandler(Filters.photo, collect_questions),
             ],
             WAITING_FOR_ANSWERS: [
+                MessageHandler(Filters.regex("^❌ Cancel$"), cancel),
                 MessageHandler(Filters.regex("^➡️ Davom etish$"), proceed_next),
                 MessageHandler(
                     (Filters.text & ~Filters.command) | Filters.photo,
