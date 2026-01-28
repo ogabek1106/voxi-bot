@@ -475,12 +475,18 @@ def nav_handler(update: Update, context: CallbackContext, direction: int):
     query = update.callback_query
     query.answer()
 
-    context.user_data["index"] = max(
-        0,
-        min(context.user_data["index"] + direction, len(context.user_data["questions"]) - 1)
-    )
-    context.user_data.setdefault("visited", set()).add(context.user_data["index"])
+    current = context.user_data["index"]
 
+    # 🔴 MARK SKIP BEFORE MOVING
+    if current not in context.user_data["answers"]:
+        context.user_data["skipped"].add(current)
+
+    # now move
+    new_index = max(
+        0,
+        min(current + direction, len(context.user_data["questions"]) - 1)
+    )
+    context.user_data["index"] = new_index
 
     _render_question(context)
     _update_skip_warning(context)
