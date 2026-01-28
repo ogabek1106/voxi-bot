@@ -354,9 +354,14 @@ def _timer_job(context: CallbackContext):
     # ⏰ AUTO-FINISH CHECK (EVERY SECOND)
     if left <= 0:
         data["finished"] = True
-        #context.user_data["auto_finished"] = True 
         context.job.schedule_removal()
-        _auto_finish_from_job(context, data)
+
+        chat_id = data["chat_id"]
+
+        context.job_queue.run_once(
+            lambda ctx: _auto_finish_via_dispatcher(ctx, chat_id),
+            when=0,
+        )
         return
 
     # 🖥 UI UPDATE THROTTLE (EVERY 15 SECONDS)
@@ -379,32 +384,6 @@ def _timer_job(context: CallbackContext):
         )
     except Exception:
         pass
-
-def _auto_finish_from_job(context: CallbackContext, data: dict):
-    context.user_data["finished"] = True
-    context.user_data["auto_finished"] = True
-
-    bot = context.bot
-    chat_id = data["chat_id"]
-    token = data["token"]
-
-    for key in ("question_msg_id", "timer_msg_id"):
-        try:
-            bot.delete_message(chat_id, data[key])
-        except Exception:
-            pass
-
-    bot.send_message(
-        chat_id,
-        (
-            "⏰ Time reached!\n"
-            "Your answers were auto-submitted.\n\n"
-            f"🔑 Your token: {token}\n"
-            "To see your result, send:\n"
-            f"/result {token}"
-        ),
-    )
-    clear_user_mode(chat_id)
 
 # ---------- RENDERING & HANDLERS ----------
 
@@ -457,6 +436,9 @@ def _render_question(context: CallbackContext):
 
 
 def answer_handler(update: Update, context: CallbackContext):
+    if context.user_data.get("finished"):
+        update.callback_query.answer("⏰ Test already finished", show_alert=True)
+        return
     query = update.callback_query
     query.answer("Noted ✅")
 
@@ -480,6 +462,9 @@ def answer_handler(update: Update, context: CallbackContext):
     _update_skip_warning(context)
 
 def nav_handler(update: Update, context: CallbackContext, direction: int):
+    if context.user_data.get("finished"):
+        update.callback_query.answer("⏰ Test already finished", show_alert=True)
+        return
     query = update.callback_query
     query.answer()
 
@@ -510,6 +495,9 @@ def noop_handler(update: Update, context: CallbackContext):
 
 
 def finish_handler(update: Update, context: CallbackContext):
+    if context.user_data.get("finished"):
+        update.callback_query.answer("⏰ Test already finished", show_alert=True)
+        return
     # ⏰ If test already auto-finished, ignore manual finish
     if context.user_data.get("auto_finished"):
         return
@@ -586,6 +574,29 @@ def _load_correct_answers(test_id):
     conn.close()
     return {qn - 1: ans for qn, ans in rows}
 
+def _auto_finish_via_dispatcher(context: CallbackContext, chat_id: int):
+    user_data = context.dispatcher.user_data.get(chat_id)
+    if not user_data:
+        return
+
+    # mark auto-finish flags
+    user_data["auto_finished"] = True
+    user_data["finished"] = True
+    user_data["time_left"] = 0
+
+    # stop timer if still running
+    job = user_data.get("timer_job")
+    if job:
+        job.schedule_removal()
+
+    # call normal finish WITHOUT warnings
+    fake_update = Update(update_id=0)
+    fake_update._effective_user = None
+    fake_update._effective_chat = None
+
+    _finish(fake_update, context, manual=False)
+
+
 
 def _finish(update: Update, context: CallbackContext, manual: bool):
     context.user_data["finished"] = True
@@ -615,7 +626,7 @@ def _finish(update: Update, context: CallbackContext, manual: bool):
         correct_answers=correct,
         score=score,
         max_score=100,
-        time_left=context.user_data["time_left"],
+        time_left=context.user_data.get("time_left", 0),
         auto_finished=context.user_data["auto_finished"],
     )
 
@@ -636,8 +647,7 @@ def _finish(update: Update, context: CallbackContext, manual: bool):
         "To see your result, send:\n"
         f"/result {token}"
     )
-    clear_user_mode(update.effective_user.id)
-
+    clear_user_mode(context.user_data["chat_id"])
 
 # ---------- SETUP ----------
 
