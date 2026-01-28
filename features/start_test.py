@@ -81,18 +81,30 @@ def _get_existing_token(user_id: int, test_id: int):
 def _clear_previous_attempt(user_id: int, test_id: int):
     conn = _connect()
     try:
-        conn.execute(
-            "DELETE FROM test_answers WHERE user_id = ? AND test_id = ?;",
+        cur = conn.execute(
+            """
+            SELECT token
+            FROM test_scores
+            WHERE user_id = ? AND test_id = ?
+            """,
             (user_id, test_id),
         )
-        conn.execute(
-            "DELETE FROM test_scores WHERE user_id = ? AND test_id = ?;",
-            (user_id, test_id),
-        )
+        row = cur.fetchone()
+
+        if row:
+            token = row[0]
+            conn.execute(
+                "DELETE FROM test_answers WHERE token = ? AND test_id = ?;",
+                (token, test_id),
+            )
+            conn.execute(
+                "DELETE FROM test_scores WHERE user_id = ? AND test_id = ?;",
+                (user_id, test_id),
+            )
+
         conn.commit()
     finally:
         conn.close()
-
 
 
 def _save_attempt(token, user_id, active_test):
