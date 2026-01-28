@@ -242,7 +242,6 @@ def _start_test_core(update: Update, context: CallbackContext, user_id: int):
         "question_msg_id": None,
         "time_left": None,
         "auto_finished": False,
-        "last_timer_ui_update": 0,
     })
 
     bot = context.bot
@@ -271,6 +270,7 @@ def _start_test_core(update: Update, context: CallbackContext, user_id: int):
             "timer_msg_id": context.user_data["timer_msg_id"],
             "question_msg_id": context.user_data["question_msg_id"],
             "finished": False,
+            "last_ui_update": 0,
         },
     )
     context.user_data["timer_job"] = job
@@ -354,23 +354,22 @@ def _timer_job(context: CallbackContext):
     # ⏰ AUTO-FINISH CHECK (EVERY SECOND)
     if left <= 0:
         data["finished"] = True
+        context.user_data["auto_finished"] = True 
         context.job.schedule_removal()
-        context.user_data["time_left"] = 0
-        context.user_data["auto_finished"] = True
         _auto_finish_from_job(context, data)
         return
 
     # 🖥 UI UPDATE THROTTLE (EVERY 15 SECONDS)
     now = int(time.time())
-    last_ui = context.user_data.get("last_timer_ui_update", 0)
-    
+    last_ui = data.get("last_ui_update", 0)
+
     if now - last_ui < 15:
         return
 
-    context.user_data["last_timer_ui_update"] = now
+    data["last_ui_update"] = now
 
     bar = _time_progress_bar(left, data["total_seconds"])
-    
+
     try:
         bot.edit_message_text(
             text=f"⏱ <b>Time left:</b> {_format_timer(left)}\n{bar}",
