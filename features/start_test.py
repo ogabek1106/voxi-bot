@@ -147,14 +147,9 @@ def _time_progress_bar(left: int, total: int, width: int = 15) -> str:
     return f"[{'▓' * filled}{'-' * empty}]"
 
 def _get_skipped_questions(context):
-    visited = context.user_data.get("visited", set())
+    skipped = context.user_data.get("skipped", set())
     answered = set(context.user_data["answers"].keys())
-    current = context.user_data.get("index")
-
-    return sorted(
-        i for i in visited
-        if i not in answered and i != current
-    )
+    return sorted(i for i in skipped if i not in answered)
 
 def _update_skip_warning(context):
     bot = context.bot
@@ -240,7 +235,7 @@ def _start_test_core(update: Update, context: CallbackContext, user_id: int):
         "total_seconds": total_seconds,
         "questions": questions,
         "answers": {},
-        "visited": {0},
+        "skipped": set(),
         "index": 0,
         "finished": False,
         "timer_msg_id": None,
@@ -457,6 +452,7 @@ def answer_handler(update: Update, context: CallbackContext):
     idx = int(idx)
 
     context.user_data["answers"][idx] = choice
+    context.user_data["skipped"].discard(idx)
 
     save_test_answer(
         context.user_data["token"],
@@ -476,16 +472,22 @@ def nav_handler(update: Update, context: CallbackContext, direction: int):
     query.answer()
 
     current = context.user_data["index"]
+    total = len(context.user_data["questions"])
 
-    # 🔴 MARK SKIP BEFORE MOVING
+    new_index = max(0, min(current + direction, total - 1))
+
+    # 🚫 If index does not change, do nothing
+    if new_index == current:
+        return
+
+    # ✅ Ensure skipped set exists
+    skipped = context.user_data.setdefault("skipped", set())
+
+    # 🔴 Mark skip ONLY when leaving an unanswered question
     if current not in context.user_data["answers"]:
-        context.user_data["skipped"].add(current)
+        skipped.add(current)
 
-    # now move
-    new_index = max(
-        0,
-        min(current + direction, len(context.user_data["questions"]) - 1)
-    )
+    # ✅ Now move
     context.user_data["index"] = new_index
 
     _render_question(context)
