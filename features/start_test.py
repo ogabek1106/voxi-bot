@@ -584,11 +584,6 @@ def _auto_finish_via_dispatcher(context: CallbackContext, chat_id: int):
     user_data["finished"] = True
     user_data["time_left"] = 0
 
-    # stop timer if still running
-    job = user_data.get("timer_job")
-    if job:
-        job.schedule_removal()
-
     # call normal finish WITHOUT warnings
     fake_update = Update(update_id=0)
     fake_update._effective_user = None
@@ -639,6 +634,15 @@ def _finish(update: Update, context: CallbackContext, manual: bool):
             bot.delete_message(chat_id, context.user_data[key])
         except Exception:
             pass
+
+    # delete skipped warning if exists
+    skip_msg_id = context.user_data.get("skip_warning_msg_id")
+    if skip_msg_id:
+        try:
+            bot.delete_message(chat_id, skip_msg_id)
+        except Exception:
+            pass
+        context.user_data.pop("skip_warning_msg_id", None)
 
     bot.send_message(
         chat_id,
