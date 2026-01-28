@@ -39,7 +39,7 @@ DB_PATH = os.getenv("DB_PATH", os.getenv("SQLITE_PATH", "/data/data.db"))
 SQLITE_TIMEOUT = 5
 MOSCOW_TZ = timezone(timedelta(hours=3))
 
-EXTRA_GRACE_SECONDS = 3  # UI grace time
+EXTRA_GRACE_SECONDS = 0  # UI grace time
 
 
 # ---------- helpers ----------
@@ -242,6 +242,7 @@ def _start_test_core(update: Update, context: CallbackContext, user_id: int):
         "question_msg_id": None,
         "time_left": None,
         "auto_finished": False,
+        "last_timer_ui_update": 0,
     })
 
     bot = context.bot
@@ -259,8 +260,8 @@ def _start_test_core(update: Update, context: CallbackContext, user_id: int):
 
     job = context.job_queue.run_repeating(
         _timer_job,
-        interval=15,
-        first=15,
+        interval=1,
+        first=1,
         context={
             "chat_id": chat_id,
             "token": token,
@@ -350,6 +351,7 @@ def _timer_job(context: CallbackContext):
 
     left = _time_left(data["start_ts"], data["limit_min"])
 
+    # ⏰ AUTO-FINISH CHECK (EVERY SECOND)
     if left <= 0:
         data["finished"] = True
         context.job.schedule_removal()
@@ -358,8 +360,17 @@ def _timer_job(context: CallbackContext):
         _auto_finish_from_job(context, data)
         return
 
-    bar = _time_progress_bar(left, data["total_seconds"])
+    # 🖥 UI UPDATE THROTTLE (EVERY 15 SECONDS)
+    now = int(time.time())
+    last_ui = context.user_data.get("last_timer_ui_update", 0)
+    
+    if now - last_ui < 15:
+        return
 
+    context.user_data["last_timer_ui_update"] = now
+
+    bar = _time_progress_bar(left, data["total_seconds"])
+    
     try:
         bot.edit_message_text(
             text=f"⏱ <b>Time left:</b> {_format_timer(left)}\n{bar}",
@@ -369,7 +380,6 @@ def _timer_job(context: CallbackContext):
         )
     except Exception:
         pass
-
 
 def _auto_finish_from_job(context: CallbackContext, data: dict):
     bot = context.bot
