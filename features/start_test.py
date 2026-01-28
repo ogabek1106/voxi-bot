@@ -117,6 +117,43 @@ def _time_progress_bar(left: int, total: int, width: int = 15) -> str:
     empty = width - filled
     return f"[{'▓' * filled}{'-' * empty}]"
 
+def _get_skipped_questions(context):
+    total = len(context.user_data["questions"])
+    answered = set(context.user_data["answers"].keys())
+    return [i for i in range(total) if i not in answered]
+
+def _update_skip_warning(context):
+    bot = context.bot
+    chat_id = context.user_data["chat_id"]
+
+    skipped = _get_skipped_questions(context)
+    msg_id = context.user_data.get("skip_warning_msg_id")
+
+    if not skipped:
+        if msg_id:
+            try:
+                bot.delete_message(chat_id, msg_id)
+            except Exception:
+                pass
+            context.user_data.pop("skip_warning_msg_id", None)
+        return
+
+    numbers = ", ".join(str(i + 1) for i in skipped)
+    text = f"⚠️ You skipped questions: {numbers}"
+
+    if msg_id:
+        try:
+            bot.edit_message_text(
+                text=text,
+                chat_id=chat_id,
+                message_id=msg_id,
+            )
+        except Exception:
+            pass
+    else:
+        msg = bot.send_message(chat_id, text)
+        context.user_data["skip_warning_msg_id"] = msg.message_id
+
 
 # ---------- CORE START LOGIC (USED BY BOTH ENTRY POINTS) ----------
 
@@ -198,7 +235,7 @@ def _start_test_core(update: Update, context: CallbackContext, user_id: int):
         },
     )
     context.user_data["timer_job"] = job
-
+    _update_skip_warning(context)
 
 # ---------- ENTRY POINT (BUTTON) ----------
 
@@ -389,7 +426,7 @@ def answer_handler(update: Update, context: CallbackContext):
         context.user_data["index"] = idx + 1
 
     _render_question(context)
-
+    _update_skip_warning(context)
 
 def nav_handler(update: Update, context: CallbackContext, direction: int):
     query = update.callback_query
@@ -401,7 +438,7 @@ def nav_handler(update: Update, context: CallbackContext, direction: int):
     )
 
     _render_question(context)
-
+    _update_skip_warning(context)
 
 def noop_handler(update: Update, context: CallbackContext):
     update.callback_query.answer()
@@ -411,11 +448,43 @@ def finish_handler(update: Update, context: CallbackContext):
     query = update.callback_query
     query.answer()
 
+    skipped = _get_skipped_questions(context)
+
+    if skipped:
+        numbers = ", ".join(str(i + 1) for i in skipped)
+        query.edit_message_text(
+            text=f"⚠️ You skipped questions: {numbers}\n\nDo you really want to finish?",
+            reply_markup=InlineKeyboardMarkup([
+                [
+                    InlineKeyboardButton("⚠️ Finish anyway", callback_data="finish_anyway"),
+                    InlineKeyboardButton("❌ Continue test", callback_data="continue_test"),
+                ]
+            ]),
+        )
+        return
+
     job = context.user_data.get("timer_job")
     if job:
         job.schedule_removal()
 
     _finish(update, context, manual=True)
+
+def finish_anyway_handler(update: Update, context: CallbackContext):
+    query = update.callback_query
+    query.answer()
+
+    job = context.user_data.get("timer_job")
+    if job:
+        job.schedule_removal()
+
+    _finish(update, context, manual=True)
+
+
+def continue_test_handler(update: Update, context: CallbackContext):
+    query = update.callback_query
+    query.answer("Continue answering ✍️")
+
+    _render_question(context)
 
 
 def _load_correct_answers(test_id):
@@ -496,6 +565,8 @@ def setup(dispatcher, bot=None):
     dispatcher.add_handler(CallbackQueryHandler(answer_handler, pattern="^ans\\|"))
     dispatcher.add_handler(CallbackQueryHandler(lambda u, c: nav_handler(u, c, -1), pattern="^prev$"))
     dispatcher.add_handler(CallbackQueryHandler(lambda u, c: nav_handler(u, c, 1), pattern="^next$"))
+    dispatcher.add_handler(CallbackQueryHandler(finish_anyway_handler, pattern="^finish_anyway$"))
+    dispatcher.add_handler(CallbackQueryHandler(continue_test_handler, pattern="^continue_test$"))
     dispatcher.add_handler(CallbackQueryHandler(noop_handler, pattern="^noop$"))
     dispatcher.add_handler(CallbackQueryHandler(finish_handler, pattern="^finish$"))
     logger.info("Feature loaded: start_test")
