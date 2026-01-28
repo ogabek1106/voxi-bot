@@ -21,7 +21,7 @@ from telegram import Update
 from telegram.ext import CallbackContext, CommandHandler
 
 import admins
-from database import get_active_test
+from database import get_active_test, get_user_name
 
 logger = logging.getLogger(__name__)
 
@@ -150,11 +150,12 @@ def top_results_command(update: Update, context: CallbackContext):
     medals = ["🥇", "🥈", "🥉"]
 
     for i, (uid, score, time_left) in enumerate(top_rows, start=1):
+        name = get_user_name(uid) or "—"
         medal = medals[i - 1] if i <= 3 else f"#{i}"
         time_spent = total_seconds - (time_left or 0)
         lines.append(
-            f"{medal} <code>{uid}</code>\n"
-            f"Score: <b>{score}</b> | Time: <b>{_format_seconds(time_spent)}</b>"
+            f"{medal} <code>{uid}</code> — <b>{name}</b>\n"
+            f"Score: <b>{score}</b> | Time: <b>{_format_seconds(time_spent)}</b>\n"
         )
 
     message.reply_text(
