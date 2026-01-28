@@ -402,7 +402,7 @@ def _auto_finish_from_job(context: CallbackContext, data: dict):
             f"/result {token}"
         ),
     )
-
+    clear_user_mode(chat_id)
 
 # ---------- RENDERING & HANDLERS ----------
 
