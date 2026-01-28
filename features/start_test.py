@@ -149,7 +149,12 @@ def _time_progress_bar(left: int, total: int, width: int = 15) -> str:
 def _get_skipped_questions(context):
     visited = context.user_data.get("visited", set())
     answered = set(context.user_data["answers"].keys())
-    return sorted(i for i in visited if i not in answered)
+    current = context.user_data.get("index")
+
+    return sorted(
+        i for i in visited
+        if i not in answered and i != current
+    )
 
 def _update_skip_warning(context):
     bot = context.bot
