@@ -498,6 +498,9 @@ def noop_handler(update: Update, context: CallbackContext):
 
 
 def finish_handler(update: Update, context: CallbackContext):
+    # ⏰ If test already auto-finished, ignore manual finish
+    if context.user_data.get("auto_finished"):
+        return
     query = update.callback_query
     query.answer()
 
