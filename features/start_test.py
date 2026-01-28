@@ -540,8 +540,8 @@ def finish_handler(update: Update, context: CallbackContext):
     if job:
         job.schedule_removal()
 
-    _finish(update, context, manual=True)
-
+    _finish(context, context.user_data, manual=True)
+    
 def finish_anyway_handler(update: Update, context: CallbackContext):
     query = update.callback_query
     query.answer()
@@ -550,7 +550,7 @@ def finish_anyway_handler(update: Update, context: CallbackContext):
     if job:
         job.schedule_removal()
 
-    _finish(update, context, manual=True)
+    _finish(context, context.user_data, manual=True)
 
 
 def continue_test_handler(update: Update, context: CallbackContext):
@@ -589,60 +589,59 @@ def _auto_finish_via_dispatcher(context: CallbackContext, chat_id: int):
     fake_update._effective_user = None
     fake_update._effective_chat = None
 
-    _finish(fake_update, context, manual=False)
+    _finish(context, user_data, manual=False)
 
 
-
-def _finish(update: Update, context: CallbackContext, manual: bool):
-    context.user_data["finished"] = True
+def _finish(context: CallbackContext, user_data: dict, manual: bool):
+    user_data["finished"] = True
 
     if manual:
-        context.user_data["time_left"] = _time_left(
-            context.user_data["start_ts"],
-            context.user_data["limit_min"],
+        user_data["time_left"] = _time_left(
+            user_data["start_ts"],
+            user_data["limit_min"],
         )
-        context.user_data["auto_finished"] = False
+        user_data["auto_finished"] = False
 
-    total = len(context.user_data["questions"])
-    correct_map = _load_correct_answers(context.user_data["context_test_id"])
+    total = len(user_data["questions"])
+    correct_map = _load_correct_answers(user_data["context_test_id"])
 
     correct = sum(
-        1 for idx, selected in context.user_data["answers"].items()
+        1 for idx, selected in user_data["answers"].items()
         if correct_map.get(idx) == selected
     )
 
     score = round((correct / total) * 100, 2)
 
     save_test_score(
-        token=context.user_data["token"],
-        test_id=context.user_data["context_test_id"],
-        user_id=context.user_data["chat_id"],
+        token=user_data["token"],
+        test_id=user_data["context_test_id"],
+        user_id=user_data["chat_id"],
         total_questions=total,
         correct_answers=correct,
         score=score,
         max_score=100,
-        time_left=context.user_data.get("time_left", 0),
-        auto_finished=context.user_data["auto_finished"],
+        time_left=user_data.get("time_left", 0),
+        auto_finished=user_data["auto_finished"],
     )
 
     bot = context.bot
-    chat_id = context.user_data["chat_id"]
-    token = context.user_data["token"]
+    chat_id = user_data["chat_id"]
+    token = user_data["token"]
 
     for key in ("timer_msg_id", "question_msg_id"):
         try:
-            bot.delete_message(chat_id, context.user_data[key])
+            bot.delete_message(chat_id, user_data[key])
         except Exception:
             pass
 
     # delete skipped warning if exists
-    skip_msg_id = context.user_data.get("skip_warning_msg_id")
+    skip_msg_id = user_data.get("skip_warning_msg_id")
     if skip_msg_id:
         try:
             bot.delete_message(chat_id, skip_msg_id)
         except Exception:
             pass
-        context.user_data.pop("skip_warning_msg_id", None)
+        user_data.pop("skip_warning_msg_id", None)
 
     bot.send_message(
         chat_id,
@@ -651,7 +650,7 @@ def _finish(update: Update, context: CallbackContext, manual: bool):
         "To see your result, send:\n"
         f"/result {token}"
     )
-    clear_user_mode(context.user_data["chat_id"])
+    clear_user_mode(user_data["chat_id"])
 
 # ---------- SETUP ----------
 
