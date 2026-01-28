@@ -354,7 +354,7 @@ def _timer_job(context: CallbackContext):
     # ⏰ AUTO-FINISH CHECK (EVERY SECOND)
     if left <= 0:
         data["finished"] = True
-        context.user_data["auto_finished"] = True 
+        #context.user_data["auto_finished"] = True 
         context.job.schedule_removal()
         _auto_finish_from_job(context, data)
         return
@@ -381,6 +381,9 @@ def _timer_job(context: CallbackContext):
         pass
 
 def _auto_finish_from_job(context: CallbackContext, data: dict):
+    context.user_data["finished"] = True
+    context.user_data["auto_finished"] = True
+
     bot = context.bot
     chat_id = data["chat_id"]
     token = data["token"]
