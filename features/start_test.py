@@ -147,9 +147,9 @@ def _time_progress_bar(left: int, total: int, width: int = 15) -> str:
     return f"[{'▓' * filled}{'-' * empty}]"
 
 def _get_skipped_questions(context):
-    total = len(context.user_data["questions"])
+    visited = context.user_data.get("visited", set())
     answered = set(context.user_data["answers"].keys())
-    return [i for i in range(total) if i not in answered]
+    return sorted(i for i in visited if i not in answered)
 
 def _update_skip_warning(context):
     bot = context.bot
@@ -235,6 +235,7 @@ def _start_test_core(update: Update, context: CallbackContext, user_id: int):
         "total_seconds": total_seconds,
         "questions": questions,
         "answers": {},
+        "visited": {0},
         "index": 0,
         "finished": False,
         "timer_msg_id": None,
@@ -272,7 +273,6 @@ def _start_test_core(update: Update, context: CallbackContext, user_id: int):
         },
     )
     context.user_data["timer_job"] = job
-    _update_skip_warning(context)
 
 # ---------- ENTRY POINT (BUTTON) ----------
 
@@ -474,6 +474,8 @@ def nav_handler(update: Update, context: CallbackContext, direction: int):
         0,
         min(context.user_data["index"] + direction, len(context.user_data["questions"]) - 1)
     )
+    context.user_data.setdefault("visited", set()).add(context.user_data["index"])
+
 
     _render_question(context)
     _update_skip_warning(context)
