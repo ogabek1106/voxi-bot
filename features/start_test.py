@@ -513,12 +513,28 @@ def finish_handler(update: Update, context: CallbackContext):
     query = update.callback_query
     query.answer()
 
-    skipped = _get_skipped_questions(context)
+    total = len(context.user_data["questions"])
+    answered = len(context.user_data["answers"])
 
-    if skipped:
-        numbers = ", ".join(str(i + 1) for i in skipped)
+    # ❌ NOT ALL ANSWERED → WARN
+    if answered < total:
+        skipped = _get_skipped_questions(context)
+
+        if skipped:
+            numbers = ", ".join(str(i + 1) for i in skipped)
+            text = (
+                f"⚠️ You have unanswered questions.\n\n"
+                f"Skipped questions: {numbers}\n\n"
+                "Do you really want to finish?"
+            )
+        else:
+            text = (
+                "⚠️ You have unanswered questions.\n\n"
+                "Do you really want to finish?"
+            )    
+
         query.edit_message_text(
-            text=f"⚠️ You skipped questions: {numbers}\n\nDo you really want to finish?",
+            text=text,
             reply_markup=InlineKeyboardMarkup([
                 [
                     InlineKeyboardButton("⚠️ Finish anyway", callback_data="finish_anyway"),
@@ -527,6 +543,7 @@ def finish_handler(update: Update, context: CallbackContext):
             ]),
         )
         return
+
 
     job = context.user_data.get("timer_job")
     if job:
