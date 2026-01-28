@@ -184,11 +184,14 @@ def _start_test_core(update: Update, context: CallbackContext, user_id: int):
 
     test_id = active_test[0]
 
+    existing_token, is_finished = _get_existing_token(user_id, test_id)
+    
     # 🔓 Admins: reset previous attempt completely
     if user_id in ADMIN_IDS:
         _clear_previous_attempt(user_id, test_id)
+        existing_token = None
+        is_finished = False
 
-    existing_token, is_finished = _get_existing_token(user_id, test_id)
 
     if existing_token and is_finished and user_id not in ADMIN_IDS:
         update.effective_chat.send_message(
