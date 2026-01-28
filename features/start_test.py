@@ -10,6 +10,7 @@ import random
 import string
 import sqlite3
 import os
+from admins import ADMIN_IDS
 from datetime import datetime, timedelta, timezone
 from database import get_user_mode, set_user_mode, clear_user_mode
 from telegram import (
@@ -76,6 +77,22 @@ def _get_existing_token(user_id: int, test_id: int):
 
     token, finished_at = row
     return token, finished_at is not None
+
+def _clear_previous_attempt(user_id: int, test_id: int):
+    conn = _connect()
+    try:
+        conn.execute(
+            "DELETE FROM test_answers WHERE user_id = ? AND test_id = ?;",
+            (user_id, test_id),
+        )
+        conn.execute(
+            "DELETE FROM test_scores WHERE user_id = ? AND test_id = ?;",
+            (user_id, test_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
 
 
 def _save_attempt(token, user_id, active_test):
@@ -155,6 +172,8 @@ def _update_skip_warning(context):
         context.user_data["skip_warning_msg_id"] = msg.message_id
 
 
+
+
 # ---------- CORE START LOGIC (USED BY BOTH ENTRY POINTS) ----------
 
 def _start_test_core(update: Update, context: CallbackContext, user_id: int):
@@ -165,9 +184,13 @@ def _start_test_core(update: Update, context: CallbackContext, user_id: int):
 
     test_id = active_test[0]
 
+    # 🔓 Admins: reset previous attempt completely
+    if user_id in ADMIN_IDS:
+        _clear_previous_attempt(user_id, test_id)
+
     existing_token, is_finished = _get_existing_token(user_id, test_id)
 
-    if existing_token and is_finished:
+    if existing_token and is_finished and user_id not in ADMIN_IDS:
         update.effective_chat.send_message(
             "❌ You already passed this test.\n\n"
             f"🔑 Your token: <code>{existing_token}</code>\n"
@@ -197,7 +220,6 @@ def _start_test_core(update: Update, context: CallbackContext, user_id: int):
         "total_seconds": total_seconds,
         "questions": questions,
         "answers": {},
-        "skipped": set(),
         "index": 0,
         "finished": False,
         "timer_msg_id": None,
@@ -250,7 +272,8 @@ def start_test_entry(update: Update, context: CallbackContext):
 
     set_user_mode(user_id, TEST_MODE)
 
-    if not get_user_name(user_id):
+    if user_id in ADMIN_IDS or not get_user_name(user_id):
+
         context.user_data.pop("awaiting_test_name", None)
         context.user_data["awaiting_test_name"] = True
 
