@@ -101,8 +101,8 @@ def _speaking_submenu_keyboard():
         resize_keyboard=True
     )
 
-def ui_can_see(update: Update) -> bool:
-    user = update.effective_user
+def ui_can_see(message) -> bool:
+    user = message.from_user
     if not user:
         return False
 
@@ -302,5 +302,6 @@ def setup(dispatcher):
     # )
 
     register(dispatcher)
+
 
 
