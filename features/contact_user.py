@@ -164,8 +164,8 @@ def contact_decision(update: Update, context: CallbackContext):
         return
 
     winner_text = (
-        "Siz MMT testda eng yuqori ballni qo'lga kiritdingiz va g'olib bo'ldingiz.\n\n"
-        "Yutuqni qo'lga kiritish uchun Admin bilan bog'lanish tugmasini bosing."
+        "Salom, admin siz bilan bog'lanmoqchi.\n\n"
+        "Qabul qilish uchun Admin bilan bog'lanish tugmasini bosing."
     )
 
     kb = InlineKeyboardMarkup([
