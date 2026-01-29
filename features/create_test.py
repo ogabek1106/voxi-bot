@@ -32,6 +32,12 @@ def GLOBAL_DEBUG_ECHO(update: Update, context: CallbackContext):
     user = update.effective_user
     uid = user.id if user else None
 
+    if not _is_admin(uid):
+        return
+   
+    if not allow(uid, mode="create_test"):
+        return
+    
     try:
         from database import get_user_mode
         mode = get_user_mode(uid) if uid else None
