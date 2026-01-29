@@ -188,7 +188,7 @@ def start_check(update: Update, context: CallbackContext):
         return ConversationHandler.END
 
     if not allow(user.id, mode="ielts_check_up"):
-        raise False
+        return ConversationHandler.END
     
     # 🔒 usage limits
     limit_result = can_use_feature(user.id, "writing")
@@ -220,13 +220,9 @@ def receive_topic(update: Update, context: CallbackContext):
     message = update.message
     user = update.effective_user
 
-    # 1️⃣ global corridor guard
-    if not allow(user.id, mode="ielts_check_up"):
-        return False  # pass to others
-
     # 2️⃣ inner checker guard
     if get_checker_mode(user.id) != "writing_task1":
-        return False  # pass to others
+        return ConversationHandler.END
     
     if not message or not user:
         return WAITING_FOR_TOPIC
@@ -262,13 +258,9 @@ def receive_report(update: Update, context: CallbackContext):
     message = update.message
     user = update.effective_user
 
-    # 1️⃣ global corridor guard
-    if not allow(user.id, mode="ielts_check_up"):
-        return False  # pass to others
-
     # 2️⃣ inner checker guard
     if get_checker_mode(user.id) != "writing_task1":
-        return False  # pass to others
+        return ConversationHandler.END
 
     if not message or not user:
         return WAITING_FOR_REPORT
@@ -341,7 +333,6 @@ def receive_report(update: Update, context: CallbackContext):
 
     finally:
         clean_user(user.id, reason="writing_task1 finished")
-        clear_checker_mode(user.id)
         context.user_data.pop("writing_task1_topic", None)
 
         from features.ielts_checkup_ui import _main_user_keyboard
@@ -355,9 +346,8 @@ def receive_report(update: Update, context: CallbackContext):
 
 def cancel(update: Update, context: CallbackContext):
     user = update.effective_user
-    if user:
+    if user and get_checker_mode(user.id) == "writing_task1":
         clean_user(user.id, reason="writing_task1 cancel")
-        clear_checker_mode(user.id)   # ✅ ADD THIS
 
     context.user_data.pop("writing_task1_topic", None)
 
