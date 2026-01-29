@@ -219,6 +219,9 @@ def start_handler(update: Update, context: CallbackContext):
 
         # Normal numeric deep-link -> book code (keep existing behaviour)
         if payload.isdigit():
+            # 🔒 SUBSCRIPTION GATE
+            if not require_subscription(update, context):
+                return
             code = payload
             doc_id, countdown_id = send_book_by_code(chat_id, code, context)
             if doc_id:
@@ -239,19 +242,23 @@ def start_handler(update: Update, context: CallbackContext):
 def numeric_message_handler(update: Update, context: CallbackContext):
     uid = update.effective_user.id
 
-    # 🛑 SLEEP if user is NOT free
+    # 🛑 mode lock
     if not allow(uid, mode=None):
         return
     if context.user_data.get("admin_mode"):
         return
-        
+
     if not update.message or not update.message.text:
         return
 
     text = update.message.text.strip()
 
     if not text.isdigit():
-        return  # ignore non-numeric messages
+        return
+
+    # 🔒 SUBSCRIPTION GATE (CRITICAL)
+    if not require_subscription(update, context):
+        return
 
     chat_id = update.effective_chat.id
 
