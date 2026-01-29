@@ -5,25 +5,19 @@ import time
 from telegram import Update
 from telegram.ext import CallbackContext
 from books import BOOKS
-from database import get_user_mode
 from database import log_command_use
 from database import log_book_request
+from global_checker import allow
 from telegram.ext import MessageHandler, Filters
 from features.sub_check import require_subscription
 from features.get_test import get_test
 from features.ielts_checkup_ui import _main_user_keyboard
-from database import get_checker_mode
 
 logger = logging.getLogger(__name__)
 
 DELETE_SECONDS = 15 * 60  # ⬅️ 15 mins
 PROGRESS_BAR_LENGTH = 12  # adjust length of bar if you want
 
-
-def global_text_gate(update, context):
-    uid = update.effective_user.id
-    if get_user_mode(uid) == "create_test":
-        return  # 🔥 LET CONVERSATION HANDLE IT
 
 def _format_mmss(seconds: int) -> str:
     """Return MM:SS formatted string for given seconds (non-negative)."""
@@ -199,7 +193,10 @@ def start_handler(update: Update, context: CallbackContext):
     - If payload is numeric -> treat as book code (unchanged).
     - If payload is non-numeric and not '' -> ignore.
     """
- 
+    uid = update.effective_user.id
+
+    if not allow(uid, mode=None):
+        return
     # 🔒 subscription gate
     #if not require_subscription(update, context):
         #return
@@ -243,7 +240,7 @@ def numeric_message_handler(update: Update, context: CallbackContext):
     uid = update.effective_user.id
 
     # 🛑 SLEEP if user is NOT free
-    if get_user_mode(uid) is not None or get_checker_mode(uid) is not None:
+    if not allow(uid, mode=None):
         return
     if context.user_data.get("admin_mode"):
         return
@@ -274,7 +271,7 @@ def global_fallback_handler(update: Update, context: CallbackContext):
     uid = update.effective_user.id
 
     # Only react if user is NOT free
-    if get_user_mode(uid) is not None:
+    if not allow(uid, mode=None):
        update.message.reply_text("⏳ Avval hozirgi jarayonni tugating.")
 
     return False  # 🔑 THIS IS THE KEY
