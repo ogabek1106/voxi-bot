@@ -82,6 +82,10 @@ def cmd_cancel(update: Update, context: CallbackContext):
     if not user or not _is_admin(user.id):
         return
 
+    # 🔐 allow only book_upload owner OR free
+    if not allow(user.id, mode="book_upload", allow_free=True):
+        return
+   
     clean_user(user.id, reason="book_upload_cancelled")
     update.message.reply_text("🛑 Upload cancelled.")
 
