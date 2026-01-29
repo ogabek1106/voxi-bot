@@ -22,7 +22,7 @@ from database import save_test_question, get_test_definition
 logger = logging.getLogger(__name__)
 
 # ---- STATES ----
-ASK_QUESTION, ASK_ANSWERS, ASK_CORRECT = range(3)
+ASK_TEST_ID, ASK_QUESTION, ASK_ANSWERS, ASK_CORRECT = range(4)
 
 MODE_NAME = "create_test_questions"
 
@@ -101,15 +101,26 @@ def start_questions(update: Update, context: CallbackContext):
     if not allow(user.id, mode=None, allow_free=False):
         return ConversationHandler.END
 
-    test_id = context.user_data.get("test_id")
-    if not test_id:
-        update.message.reply_text("❌ No active test found. Create a test first.")
+    from database import set_user_mode
+    set_user_mode(user.id, MODE_NAME)
+
+    context.user_data.clear()
+
+    update.message.reply_text("🆔 Send test_id for which you want to add questions:")
+    return ASK_TEST_ID
+
+# ---------- QUESTION TEXT ----------
+
+def test_id_text(update: Update, context: CallbackContext):
+    user = update.effective_user
+    if not user or not allow(user.id, mode=MODE_NAME):
         return ConversationHandler.END
 
+    test_id = update.message.text.strip()
     test_def = get_test_definition(test_id)
     if not test_def:
-        update.message.reply_text("❌ Test definition not found in DB.")
-        return ConversationHandler.END
+        update.message.reply_text("❌ Test not found. Send valid test_id.")
+        return ASK_TEST_ID
 
     _, _, _, question_count, _, _ = test_def
 
@@ -118,17 +129,9 @@ def start_questions(update: Update, context: CallbackContext):
     context.user_data["question_count"] = int(question_count)
     context.user_data["current_q"] = 1
 
-    from database import set_user_mode
-    set_user_mode(user.id, MODE_NAME)
-
-    update.message.reply_text(
-        "✍️ Now send questions one by one.\n\n"
-        "Question 1:"
-    )
+    update.message.reply_text("✍️ Question 1:")
     return ASK_QUESTION
 
-
-# ---------- QUESTION TEXT ----------
 
 def question_text(update: Update, context: CallbackContext):
     user = update.effective_user
@@ -211,29 +214,49 @@ def correct_text(update: Update, context: CallbackContext):
     return ASK_QUESTION
 
 
+def cancel(update: Update, context: CallbackContext):
+    user = update.effective_user
+    if not user or not allow(user.id, mode=MODE_NAME):
+        return ConversationHandler.END
+
+    clean_user(user.id, reason="create_test_questions cancelled")
+    context.user_data.clear()
+    update.message.reply_text("🛑 Question creation cancelled.")
+    return ConversationHandler.END
+
+
 # ---------- SETUP ----------
 
 def setup(dispatcher, bot=None):
     conv = ConversationHandler(
         entry_points=[CommandHandler("add_questions", start_questions)],
         states={
+            ASK_TEST_ID: [
+                CommandHandler("end_test", end_test),
+                CommandHandler("cancel", cancel),
+                MessageHandler(Filters.command, _unknown_command),
+                MessageHandler(Filters.text, test_id_text),
+            ],
             ASK_QUESTION: [
                 CommandHandler("end_test", end_test),
+                CommandHandler("cancel", cancel),
                 MessageHandler(Filters.command, _unknown_command),
                 MessageHandler(Filters.text, question_text),
             ],
             ASK_ANSWERS: [
                 CommandHandler("end_test", end_test),
+                CommandHandler("cancel", cancel),
                 MessageHandler(Filters.command, _unknown_command),
                 MessageHandler(Filters.text, answers_text),
             ],
             ASK_CORRECT: [
                 CommandHandler("end_test", end_test),
+                CommandHandler("cancel", cancel),
                 MessageHandler(Filters.command, _unknown_command),
                 MessageHandler(Filters.text, correct_text),
             ],
         },
-        fallbacks=[CommandHandler("end_test", end_test)],
+        fallbacks=[CommandHandler("end_test", end_test), CommandHandler("cancel", cancel),],
         per_user=True,
         per_chat=True,
         name="create_test_questions_conv",
