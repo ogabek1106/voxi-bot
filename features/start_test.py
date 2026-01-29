@@ -13,6 +13,8 @@ import os
 from admins import ADMIN_IDS
 from datetime import datetime, timedelta, timezone
 from database import get_user_mode, set_user_mode, clear_user_mode
+from telegram.ext.dispatcher import DispatcherHandlerStop
+
 from telegram import (
     Update,
     InlineKeyboardMarkup,
@@ -300,12 +302,12 @@ def capture_test_name(update: Update, context: CallbackContext):
             "⚠️ Test session is not ready.\nPlease start again with /get_test."
         )
         clear_user_mode(user.id)
-        return
+        raise DispatcherHandlerStop  # ⛔ STOP HERE
 
     name = update.message.text.strip()
     if len(name) < 3:
         update.message.reply_text("❗ Please enter a valid full name.")
-        return
+        raise DispatcherHandlerStop  # ⛔ STOP HERE
 
     set_user_name(user.id, name)
     context.user_data.pop("awaiting_test_name", None)
@@ -316,6 +318,8 @@ def capture_test_name(update: Update, context: CallbackContext):
     )
 
     _start_test_core(update, context, user.id)
+
+    raise DispatcherHandlerStop  # ⛔ THIS IS THE KEY
 
 # ---------- TIMER JOB ----------
 
