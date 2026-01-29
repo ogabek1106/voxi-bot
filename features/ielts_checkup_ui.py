@@ -107,7 +107,7 @@ def ui_can_see(update: Update) -> bool:
         return False
 
     mode = get_user_mode(user.id)
-    return mode in (None, IELTS_MODE)
+    return mode in (None, "FREE", IELTS_MODE)
 
 # ---------- Handlers ----------
 
@@ -302,4 +302,5 @@ def setup(dispatcher):
     # )
 
     register(dispatcher)
+
 
