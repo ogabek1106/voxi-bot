@@ -68,10 +68,11 @@ def _get_active_test():
 def get_test(update: Update, context: CallbackContext):
     user = update.effective_user
 
-    # >>> ADDITIVE FREE-STATE GUARD
-    if not user or not allow(user.id, mode=None, allow_free=False):
+    if not user:
         return
-    # <<< ADDITIVE FREE-STATE GUARD
+
+    # 🔓 HARD ENTRY: reset any previous state
+    clean_user(user.id, reason="get_test_entry")
 
     # 🔒 subscription gate
     if not require_subscription(update, context):
@@ -117,14 +118,13 @@ def cancel_test(update: Update, context: CallbackContext):
     query.answer()
 
     user = query.from_user if query else None
-
-    # >>> ADDITIVE MODE OWNERSHIP CHECK
-    if not user or not allow(user.id, mode=None):
+    if not user:
         return
-    # <<< ADDITIVE MODE OWNERSHIP CHECK
+
+    # 🔓 Cancel get_test → clear state
+    clean_user(user.id, reason="get_test_cancelled")
 
     query.edit_message_text("❌ Test start cancelled.")
-
 
 # ---------- setup ----------
 
