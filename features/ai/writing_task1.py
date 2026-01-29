@@ -213,7 +213,7 @@ def start_check(update: Update, context: CallbackContext):
         parse_mode="Markdown",
         reply_markup=_checker_cancel_keyboard()
     )
-    return WAITING_FOR_TOPIC
+    raise DispatcherHandlerStop
 
 
 def receive_topic(update: Update, context: CallbackContext):
@@ -363,7 +363,7 @@ def register(dispatcher):
     conv = ConversationHandler(
         entry_points=[
             CommandHandler("check_writing1", start_check),
-            #MessageHandler(Filters.regex("^📝 Writing Task 1$"), start_check),
+            MessageHandler(Filters.regex("^📝 Writing Task 1$"), start_check),
         ],
         states={
             WAITING_FOR_TOPIC: [
