@@ -228,12 +228,14 @@ def _start_test_core(update: Update, context: CallbackContext, user_id: int):
     context.user_data.pop("awaiting_test_name", None)
     context.user_data.update({
         "chat_id": chat_id,
+        "context_user_id": user_id,   # ✅ ADD
         "token": token,
         "start_ts": start_ts,
         "limit_min": limit_min,
         "context_test_id": test_id,
         "total_seconds": total_seconds,
         "questions": questions,
+        "context_user_id": user_id,
         "answers": {},
         "skipped": set(),
         "index": 0,
@@ -263,6 +265,7 @@ def _start_test_core(update: Update, context: CallbackContext, user_id: int):
         first=1,
         context={
             "chat_id": chat_id,
+            "context_user_id": user_id,  # 🔥 REQUIRED
             "token": token,
             "start_ts": start_ts,
             "limit_min": limit_min,
@@ -284,6 +287,7 @@ def start_test_entry(update: Update, context: CallbackContext):
     user_id = query.from_user.id
 
     if get_user_mode(user_id) is not None:
+        query.answer("⏳ You already have an active session.", show_alert=True)
         return
 
     set_user_mode(user_id, TEST_MODE)
@@ -575,7 +579,8 @@ def _load_correct_answers(test_id):
     return {qn - 1: ans for qn, ans in rows}
 
 def _auto_finish_via_dispatcher(context: CallbackContext, chat_id: int):
-    user_data = context.dispatcher.user_data.get(chat_id)
+    context_user_id = context.job.context["context_user_id"]
+    user_data = context.dispatcher.user_data.get(context_user_id)
     if not user_data:
         return
 
@@ -615,7 +620,7 @@ def _finish(context: CallbackContext, user_data: dict, manual: bool):
     save_test_score(
         token=user_data["token"],
         test_id=user_data["context_test_id"],
-        user_id=user_data["chat_id"],
+        user_id=user_data["context_user_id"],
         total_questions=total,
         correct_answers=correct,
         score=score,
@@ -650,7 +655,7 @@ def _finish(context: CallbackContext, user_data: dict, manual: bool):
         "To see your result, send:\n"
         f"/result {token}"
     )
-    clear_user_mode(user_data["chat_id"])
+    clear_user_mode(user_data["context_user_id"])
 
 # ---------- SETUP ----------
 
