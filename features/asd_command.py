@@ -263,5 +263,6 @@ def asd_handler(update: Update, context: CallbackContext):
                 logger.exception("asd: failed to send report chunk")
 
 def setup(dispatcher, bot=None):
-    dispatcher.add_handler(CommandHandler("asd", ))
+    dispatcher.add_handler(CommandHandler("asd", asd_handler))
     logger.info("asd_command loaded. Admins=%r", sorted(list(ADMIN_IDS)))
+
