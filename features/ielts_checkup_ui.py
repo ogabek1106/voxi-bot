@@ -118,7 +118,7 @@ def open_ielts_checkup(update: Update, context: CallbackContext):
     uid = update.effective_user.id
 
     # 🔒 ONLY FREE USERS MAY ENTER
-    if not allow(uid, mode=None, allow_free=True):
+    if not allow(uid, mode=None):
         return
 
     # ✅ SET MODE (OWNERSHIP STARTS HERE)
@@ -302,6 +302,7 @@ def setup(dispatcher):
     # )
 
     register(dispatcher)
+
 
 
 
