@@ -136,6 +136,10 @@ def cmd_cancel(update: Update, context: CallbackContext):
     if not user or not _is_admin(user.id):
         return
 
+    # 🔐 ALLOW free OR broadcast owner
+    if not allow(user.id, mode="broadcast_setup", allow_free=True):
+        return
+
     clean_user(user.id, reason="broadcast_cancelled")
     awaiting_states.pop(user.id, None)
     _clear_persist(user.id)
@@ -147,6 +151,10 @@ def cmd_cancel_broadcast(update: Update, context: CallbackContext):
     if not user or not _is_admin(user.id):
         return
 
+    # 🔐 ALLOW from any state (admin-only)
+    if not allow(user.id, allow_free=True):
+        return
+  
     broadcast_stop_flags[user.id] = True
     update.message.reply_text("🛑 Broadcast stopping...")
 
