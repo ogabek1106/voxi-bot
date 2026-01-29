@@ -2,7 +2,6 @@
 import os
 import logging
 from telegram.ext import CallbackQueryHandler
-from handlers import global_text_gate
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
 import handlers
 from features.sub_check import check_subscription_callback
@@ -40,10 +39,6 @@ def main():
     #    group=0
     #)
     # 🔒 GLOBAL SUBSCRIPTION GATE (MUST BE FIRST)
-    dp.add_handler(
-        MessageHandler(Filters.text & ~Filters.command, global_text_gate),
-        group=-100
-    )
     # core handlers (unchanged)
     # 2601dp.add_handler(CommandHandler("start", handlers.start_handler, pass_args=True))
     # 2601dp.add_handler(MessageHandler(Filters.text & ~Filters.command, handlers.numeric_message_handler))
@@ -73,10 +68,10 @@ def main():
         logger.warning("features.register_all_features not available. No feature modules loaded.")
 
     # 🔚 GLOBAL FALLBACK — ABSOLUTELY LAST
-    #dp.add_handler(
-    #    MessageHandler(Filters.text & ~Filters.command, global_fallback_handler),
-    #    group=99
-    #)
+    dp.add_handler(
+        MessageHandler(Filters.text & ~Filters.command, global_fallback_handler),
+        group=99
+    )
     
     logger.info("Bot starting polling...")
     updater.start_polling()
