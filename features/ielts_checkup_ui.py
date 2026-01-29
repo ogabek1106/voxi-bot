@@ -26,9 +26,10 @@ from telegram import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
 )
-from database import clear_user_mode
+from global_cleaner import clean_user
+from global_checker import allow
+from telegram.ext import DispatcherHandlerStop
 from database import set_user_mode
-from database import get_user_mode
 from telegram.ext import (
     CallbackContext,
     MessageHandler,
@@ -105,12 +106,14 @@ def open_ielts_checkup(update: Update, context: CallbackContext):
     if not update.message:
         return
 
-    user = update.effective_user
-    if user and get_user_mode(user.id) == "create_test":
+    uid = update.effective_user.id
+
+    # 🔒 ONLY FREE USERS MAY ENTER
+    if not allow(uid, mode=None):
         return
 
-    # ✅ SET MODE HERE
-    set_user_mode(user.id, IELTS_MODE)
+    # ✅ SET MODE (OWNERSHIP STARTS HERE)
+    set_user_mode(uid, IELTS_MODE)
 
     update.message.reply_text(
         "🎓 *IELTS Check Up*\nChoose the skill you want to check.",
@@ -118,28 +121,29 @@ def open_ielts_checkup(update: Update, context: CallbackContext):
         parse_mode="Markdown"
     )
 
+    # 🛑 STOP PROPAGATION (CRITICAL)
+    raise DispatcherHandlerStop
+
 def ielts_skill_text_handler(update: Update, context: CallbackContext):
     user = update.effective_user
     if not user:
         return
 
-    # ✅ MODE GATE (FIRST)
-    if get_user_mode(user.id) != IELTS_MODE:
+    # 🔒 ONLY HANDLE INPUT IF THIS FEATURE OWNS THE USER
+    if not allow(user.id, mode=IELTS_MODE):
         return
 
     text = update.message.text.strip()
 
     # ⬅️ Back to main menu (HARD RESET)
     if text == "⬅️ Back to main menu":
-        _exit_active_checker_if_any(user.id, context, reason="main menu back")
-        clear_user_mode(user.id)
-
+        clean_user(user.id, reason="ielts back to main menu")
+        
         update.message.reply_text(
             "⬅️ Back to main menu.",
             reply_markup=_main_user_keyboard()
         )
-        return
-
+        raise DispatcherHandlerStop
 
     # ❌ Cancel
     if text == "❌ Cancel":
@@ -155,7 +159,7 @@ def ielts_skill_text_handler(update: Update, context: CallbackContext):
             "❌ Tekshiruv bekor qilindi.",
             reply_markup=_ielts_skills_reply_keyboard()
         )
-        return
+        raise DispatcherHandlerStop
        
     # ✍️ Writing main button
     if text == "✍️ Writing":
@@ -164,7 +168,7 @@ def ielts_skill_text_handler(update: Update, context: CallbackContext):
             reply_markup=_writing_submenu_keyboard(),
             parse_mode="Markdown"
         )
-        return
+        raise DispatcherHandlerStop
 
     if text == "🗣️ Speaking":
         update.message.reply_text(
@@ -172,7 +176,7 @@ def ielts_skill_text_handler(update: Update, context: CallbackContext):
             reply_markup=_speaking_submenu_keyboard(),
             parse_mode="Markdown"
         )
-        return
+        raise DispatcherHandlerStop
 
     # 🎧 Listening → START CHECKER
     if text == "🎧 Listening":
@@ -205,7 +209,7 @@ def ielts_skill_text_handler(update: Update, context: CallbackContext):
             reply_markup=_ielts_skills_reply_keyboard(),
             parse_mode="Markdown"
         )
-        return
+        raise DispatcherHandlerStop
 
 def ielts_callbacks(update: Update, context: CallbackContext):
     query = update.callback_query
@@ -221,16 +225,17 @@ def ielts_callbacks(update: Update, context: CallbackContext):
             "✍️ Writing bo‘limini tanlang:",
             reply_markup=_writing_submenu_keyboard()
         )
-
+        raise DispatcherHandlerStop
     elif data in {"ielts_speaking", "ielts_listening", "ielts_reading"}:
         query.message.reply_text("🚧 This section is coming soon.")
-
+        raise DispatcherHandlerStop
+   
     elif data == "ielts_back":
         query.message.reply_text(
             "⬅️ Back to main menu.",
             reply_markup=_main_user_keyboard()
         )
-
+        raise DispatcherHandlerStop
 
 def register(dispatcher):
     dispatcher.add_handler(
@@ -286,10 +291,3 @@ def setup(dispatcher):
     # )
 
     register(dispatcher)
-
-
-
-
-
-
-
