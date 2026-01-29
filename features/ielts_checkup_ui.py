@@ -30,6 +30,7 @@ from global_cleaner import clean_user
 from global_checker import allow
 from telegram.ext import DispatcherHandlerStop
 from database import set_user_mode
+from database import get_user_mode
 from telegram.ext import (
     CallbackContext,
     MessageHandler,
@@ -99,6 +100,14 @@ def _speaking_submenu_keyboard():
         ],
         resize_keyboard=True
     )
+
+def ui_can_see(update: Update) -> bool:
+    user = update.effective_user
+    if not user:
+        return False
+
+    mode = get_user_mode(user.id)
+    return mode in (None, IELTS_MODE)
 
 # ---------- Handlers ----------
 
@@ -240,7 +249,8 @@ def ielts_callbacks(update: Update, context: CallbackContext):
 def register(dispatcher):
     dispatcher.add_handler(
         MessageHandler(
-            Filters.text & Filters.regex("^🧠 IELTS Check Up$"),
+            Filters.text & Filters.regex("^🧠 IELTS Check Up$") &
+            Filters.create(ui_can_see),
             open_ielts_checkup
         ),
         group=1
@@ -250,7 +260,8 @@ def register(dispatcher):
         MessageHandler(
             Filters.regex(
                 "^(✍️ Writing|📝 Writing Task 1|🧠 Writing Task 2|🗣️ Speaking|🎧 Listening|📖 Reading|⬅️ Back|⬅️ Back to main menu|❌ Cancel)$"
-            ),
+            ) &
+            Filters.create(ui_can_see),
             ielts_skill_text_handler
         ),
         group=1
@@ -291,3 +302,4 @@ def setup(dispatcher):
     # )
 
     register(dispatcher)
+
