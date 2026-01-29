@@ -183,7 +183,7 @@ def contact_decision(update: Update, context: CallbackContext):
     except Exception as e:
         query.edit_message_text("❌ Failed to send message to user.")
         logger.warning("Failed to send winner msg admin=%s user=%s err=%s", admin_id, user_id, e)
-
+        clean_user(admin_id, reason="contact_send_failed")
 
 def open_bridge(update: Update, context: CallbackContext):
     query = update.callback_query
@@ -197,9 +197,11 @@ def open_bridge(update: Update, context: CallbackContext):
 
     admin_id = int(data.split(":")[1])
     # 🔒 LOCK BOTH SIDES INTO CONTACT MODE
-    set_user_mode(admin_id, "contact_admin")
+    clean_user(user_id, reason="contact_bridge_open_user")
     set_user_mode(user_id, "contact_user")
 
+    clean_user(admin_id, reason="contact_bridge_open_admin")
+    set_user_mode(admin_id, "contact_admin")
 
     if admin_id in active_bridges:
         query.edit_message_text("⚠️ Admin hozir boshqa suhbatda.")
@@ -234,6 +236,8 @@ def open_bridge(update: Update, context: CallbackContext):
 def cmd_end_contact(update: Update, context: CallbackContext):
     admin = update.effective_user
     if not admin or not _is_admin(admin.id):
+        return
+    if not allow(admin.id, mode="contact_admin"):
         return
 
     bridge = active_bridges.pop(admin.id, None)
