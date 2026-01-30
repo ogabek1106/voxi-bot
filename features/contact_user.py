@@ -25,6 +25,7 @@ from typing import Dict, Optional
 from global_checker import allow
 from global_cleaner import clean_user
 from database import set_user_mode
+from telegram.ext import DispatcherHandlerStop
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import (
     CallbackContext,
@@ -268,37 +269,58 @@ def relay_messages(update: Update, context: CallbackContext):
     if not user or not msg:
         return
 
+    # ================= ADMIN -> USER =================
     if _is_admin(user.id):
-        # 🔐 ADMIN MUST BE IN CONTACT MODE
+        # 🔐 admin must own contact mode
         if not allow(user.id, mode="contact_admin"):
             return
 
-        if user.id in active_bridges:
-            target = active_bridges[user.id]["user_id"]
+        bridge = active_bridges.get(user.id)
+        if bridge:
+            target = bridge["user_id"]
+
             context.bot.forward_message(
                 chat_id=target,
                 from_chat_id=update.effective_chat.id,
                 message_id=msg.message_id,
             )
-            logger.info("RELAY admin=%s -> user=%s msg_id=%s", user.id, target, msg.message_id)
-            return
 
-    # user -> admin
+            logger.info(
+                "RELAY admin=%s -> user=%s msg_id=%s",
+                user.id,
+                target,
+                msg.message_id,
+            )
+
+            # 🛑 message fully handled, stop dispatcher
+            raise DispatcherHandlerStop
+
+        return
+
+    # ================= USER -> ADMIN =================
     for admin_id, bridge in active_bridges.items():
         if bridge["user_id"] == user.id:
-
-            # 🔐 USER MUST BE IN CONTACT MODE
+            # 🔐 user must own contact mode
             if not allow(user.id, mode="contact_user"):
                 return
+
             context.bot.forward_message(
                 chat_id=admin_id,
                 from_chat_id=update.effective_chat.id,
                 message_id=msg.message_id,
             )
-            logger.info("RELAY user=%s -> admin=%s msg_id=%s", user.id, admin_id, msg.message_id)
-            return
 
-    # ⚠️ warn ONLY if user was ACTUALLY invited
+            logger.info(
+                "RELAY user=%s -> admin=%s msg_id=%s",
+                user.id,
+                admin_id,
+                msg.message_id,
+            )
+
+            # 🛑 message fully handled, stop dispatcher
+            raise DispatcherHandlerStop
+
+    # ================= PRE-BRIDGE WARNING =================
     if (
         not _is_admin(user.id)
         and user.id in contact_invited_users
@@ -306,7 +328,6 @@ def relay_messages(update: Update, context: CallbackContext):
     ):
         update.message.reply_text("❗ Admin hali bog‘lanmadi. Tugmani bosing.")
         pre_bridge_warned.add(user.id)
-
 
 # ---------- setup ----------
 
