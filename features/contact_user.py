@@ -275,34 +275,30 @@ def relay_messages(update: Update, context: CallbackContext):
 
     # ================= ADMIN -> USER =================
     if _is_admin(user.id):
-        # 🔐 admin must own contact mode
-        if not allow(user.id, mode="contact_admin"):
-            return
-
         bridge = active_bridges.get(user.id)
-        if bridge:
-            target = bridge["user_id"]
-
-            context.bot.forward_message(
-                chat_id=target,
-                from_chat_id=update.effective_chat.id,
-                message_id=msg.message_id,
-            )
-
-            logger.info(
-                "RELAY admin=%s -> user=%s msg_id=%s",
-                user.id,
-                target,
-                msg.message_id,
-            )
+        if not bridge:
             return
+
+        target = bridge["user_id"]
+
+        context.bot.forward_message(
+            chat_id=target,
+            from_chat_id=update.effective_chat.id,
+            message_id=msg.message_id,
+        )
+
+        logger.info(
+            "RELAY admin=%s -> user=%s msg_id=%s",
+            user.id,
+            target,
+            msg.message_id,
+        )
+        return
+
 
     # ================= USER -> ADMIN =================
     for admin_id, bridge in active_bridges.items():
         if bridge["user_id"] == user.id:
-            # 🔐 user must own contact mode
-            if not allow(user.id, mode="contact_user"):
-                return
 
             context.bot.forward_message(
                 chat_id=admin_id,
