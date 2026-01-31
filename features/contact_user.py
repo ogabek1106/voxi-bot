@@ -297,8 +297,6 @@ def relay_messages(update: Update, context: CallbackContext):
             )
             return
 
-        return
-
     # ================= USER -> ADMIN =================
     for admin_id, bridge in active_bridges.items():
         if bridge["user_id"] == user.id:
