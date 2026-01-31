@@ -2,8 +2,9 @@
 """
 Admin-only direct contact feature (STATE-ONLY).
 
-Invitation is validated via runtime registry.
-Bridge is validated via STATES only.
+Invitation validated via runtime registry.
+Bridge validated via STATES only.
+Accept is IDEMPOTENT (safe on multiple presses).
 """
 
 import logging
@@ -115,7 +116,7 @@ def contact_confirm(update: Update, context: CallbackContext):
 
 
 # =========================
-# USER ACCEPTS
+# USER ACCEPTS (IDEMPOTENT)
 # =========================
 def contact_accept(update: Update, context: CallbackContext):
     query = update.callback_query
@@ -124,11 +125,21 @@ def contact_accept(update: Update, context: CallbackContext):
     user_id = query.from_user.id
     admin_id = int(query.data.split(":")[1])
 
+    # ✅ If already connected — allow repeated clicks safely
+    if (
+        admin_id in active_contacts
+        and active_contacts.get(admin_id) == user_id
+        and get_user_mode(user_id) == "contact_user"
+    ):
+        query.edit_message_text("✅ You are already connected.")
+        return
+
     expected_user = pending_invitations.get(admin_id)
     if expected_user != user_id:
         query.edit_message_text("❌ Invitation expired.")
         return
 
+    # REMOVE pending ONLY HERE
     pending_invitations.pop(admin_id, None)
 
     clear_user_mode(user_id)
