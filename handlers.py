@@ -5,10 +5,8 @@ import time
 from telegram import Update
 from telegram.ext import CallbackContext
 from books import BOOKS
-from database import log_command_use
 from database import log_book_request
 from global_checker import allow
-from telegram.ext import MessageHandler, Filters
 from features.sub_check import require_subscription
 from features.get_test import get_test
 from features.ielts_checkup_ui import _main_user_keyboard
@@ -26,13 +24,6 @@ def _format_mmss(seconds: int) -> str:
     m = seconds // 60
     s = seconds % 60
     return f"{m:02d}:{s:02d}"
-
-
-def _wallclock_end_time_str(total_seconds: int) -> str:
-    """Return wall-clock end time as HH:MM (localtime) for total_seconds from now."""
-    end_ts = time.time() + total_seconds
-    t = time.localtime(end_ts)
-    return f"{t.tm_hour:02d}:{t.tm_min:02d}"
 
 
 def _build_progress_bar(remaining: int, total: int, length: int = PROGRESS_BAR_LENGTH) -> str:
@@ -269,19 +260,5 @@ def numeric_message_handler(update: Update, context: CallbackContext):
     doc_id, countdown_id = send_book_by_code(chat_id, text, context)
     if not doc_id:
         update.message.reply_text("Kitobni yuborishda xatolik yuz berdi.")
-
-
-def global_fallback_handler(update: Update, context: CallbackContext):
-    if not update.message or not update.message.text:
-        return False
-
-    uid = update.effective_user.id
-
-    # Only react if user is NOT free
-    if not allow(uid, mode=None):
-       update.message.reply_text("⏳ Avval hozirgi jarayonni tugating.")
-
-    return False  # 🔑 THIS IS THE KEY
-
 
 
