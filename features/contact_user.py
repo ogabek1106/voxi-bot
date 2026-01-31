@@ -58,6 +58,7 @@ reverse_contacts = {}
 # /contact <user_id | token>
 # =========================
 def cmd_contact(update: Update, context: CallbackContext):
+    update.message.reply_text("DEBUG: /contact handler reached")
     admin_id = update.effective_user.id
 
     if admin_id not in ADMIN_IDS:
