@@ -9,7 +9,7 @@ from database import log_book_request
 from global_checker import allow
 from features.sub_check import require_subscription
 #from features.get_test import get_test
-from features.ielts_checkup_ui import _main_user_keyboard
+#from features.ielts_checkup_ui import _main_user_keyboard
 
 logger = logging.getLogger(__name__)
 
