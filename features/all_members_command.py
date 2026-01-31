@@ -307,8 +307,7 @@ def message_router(update: Update, context: CallbackContext):
 
 
 def setup(dispatcher):
-    dispatcher.add_handler(CommandHandler("all_members", cmd_all_members), group=-10)
-    dispatcher.add_handler(CommandHandler("cancel", cmd_cancel), group=-10)
-    dispatcher.add_handler(CommandHandler("cancel_broadcast", cmd_cancel_broadcast), group=-10)
-    dispatcher.add_handler(MessageHandler(Filters.all & ~Filters.command, message_router), group=-10)
-    logger.info("all_members_command loaded. Admins=%r", sorted(list(_get_admin_ids())))
+    dispatcher.add_handler(CommandHandler("all_members", cmd_all_members))
+    dispatcher.add_handler(CommandHandler("cancel", cmd_cancel))
+    dispatcher.add_handler(CommandHandler("cancel_broadcast", cmd_cancel_broadcast))
+    dispatcher.add_handler(MessageHandler(Filters.all & ~Filters.command, message_router))
