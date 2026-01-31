@@ -252,6 +252,9 @@ def cmd_end_contact(update: Update, context: CallbackContext):
     clean_user(admin.id, reason="contact_end_admin")
     clean_user(user_id, reason="contact_end_user")
 
+    contact_invited_users.discard(user_id)
+    pre_bridge_warned.discard(user_id)
+    
     update.message.reply_text("✅ Contact closed.")
     try:
         context.bot.send_message(chat_id=user_id, text="ℹ️ Admin bilan aloqa yakunlandi. Rahmat.")
