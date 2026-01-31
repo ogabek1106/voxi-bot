@@ -66,7 +66,7 @@ def cmd_contact(update: Update, context: CallbackContext):
     admin_mode = get_user_mode(admin_id)
 
     # Admin MUST be free
-    if admin_mode not in (None, "free"):
+    if admin_mode not in (None, "free", "none"):
         if admin_mode == "contact_admin_pending":
             update.message.reply_text("⏳ Waiting for user response.")
         else:
