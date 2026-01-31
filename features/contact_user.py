@@ -11,7 +11,7 @@ Rules:
 - Admin ends manually with /end_contact
 
 States used:
-- None / free
+- None / free / none
 - contact_admin_pending
 - contact_admin
 - contact_user
@@ -38,27 +38,19 @@ from database import (
     clear_user_mode,
 )
 
-# 🔧 MUST exist somewhere in your project
-# This function MUST return int user_id or None
-from features.token_resolver import resolve_user_id_by_token
-
-
 logger = logging.getLogger(__name__)
 
 # =========================
 # RUNTIME BRIDGE REGISTRY
 # =========================
-# admin_id -> user_id
-active_contacts = {}
-# user_id -> admin_id
-reverse_contacts = {}
+active_contacts = {}   # admin_id -> user_id
+reverse_contacts = {}  # user_id -> admin_id
 
 
 # =========================
 # /contact <user_id | token>
 # =========================
 def cmd_contact(update: Update, context: CallbackContext):
-    update.message.reply_text("DEBUG: /contact handler reached")
     admin_id = update.effective_user.id
 
     if admin_id not in ADMIN_IDS:
@@ -75,21 +67,17 @@ def cmd_contact(update: Update, context: CallbackContext):
         return
 
     if not context.args:
-        update.message.reply_text("Usage: /contact <user_id | token>")
+        update.message.reply_text("Usage: /contact <user_id>")
         return
 
     raw = context.args[0]
 
-    # 1️⃣ Numeric user_id
-    if raw.isdigit():
-        user_id = int(raw)
+    # ✅ ONLY numeric user_id (SAFE)
+    if not raw.isdigit():
+        update.message.reply_text("❌ Token support not enabled. Use numeric user_id.")
+        return
 
-    # 2️⃣ Token
-    else:
-        user_id = resolve_user_id_by_token(raw)
-        if not user_id:
-            update.message.reply_text("❌ Invalid or expired token.")
-            return
+    user_id = int(raw)
 
     keyboard = InlineKeyboardMarkup([
         [
@@ -109,11 +97,11 @@ def cmd_contact(update: Update, context: CallbackContext):
             ),
             reply_markup=keyboard,
         )
-    except Exception:
+    except Exception as e:
+        logger.exception("Failed to send contact invite")
         update.message.reply_text("❌ Failed to send invitation.")
         return
 
-    # Lock admin in pending state
     set_user_mode(admin_id, "contact_admin_pending", {"user_id": user_id})
     update.message.reply_text("📨 Invitation sent.")
 
@@ -133,19 +121,15 @@ def contact_accept(update: Update, context: CallbackContext):
 
     admin_id = int(data.split(":")[1])
 
-    # Validate admin state
     if get_user_mode(admin_id) != "contact_admin_pending":
         query.edit_message_text("❌ Invitation expired.")
         return
 
-    # CLEAR USER STATE COMPLETELY
     clear_user_mode(user_id)
 
-    # SET FINAL STATES
     set_user_mode(user_id, "contact_user", {"admin_id": admin_id})
     set_user_mode(admin_id, "contact_admin", {"user_id": user_id})
 
-    # Register bridge
     active_contacts[admin_id] = user_id
     reverse_contacts[user_id] = admin_id
 
@@ -158,7 +142,7 @@ def contact_accept(update: Update, context: CallbackContext):
 
 
 # =========================
-# MESSAGE RELAY (BOTH WAYS)
+# MESSAGE RELAY
 # =========================
 def relay_messages(update: Update, context: CallbackContext):
     sender_id = update.effective_user.id
@@ -168,15 +152,10 @@ def relay_messages(update: Update, context: CallbackContext):
 
     sender_mode = get_user_mode(sender_id)
 
-    # -------- ADMIN → USER --------
+    # ADMIN → USER
     if sender_mode == "contact_admin":
         user_id = active_contacts.get(sender_id)
-        if not user_id:
-            clear_user_mode(sender_id)
-            return
-
-        # REVALIDATE USER
-        if get_user_mode(user_id) != "contact_user":
+        if not user_id or get_user_mode(user_id) != "contact_user":
             _force_close(sender_id, user_id)
             return
 
@@ -187,15 +166,10 @@ def relay_messages(update: Update, context: CallbackContext):
         )
         return
 
-    # -------- USER → ADMIN --------
+    # USER → ADMIN
     if sender_mode == "contact_user":
         admin_id = reverse_contacts.get(sender_id)
-        if not admin_id:
-            clear_user_mode(sender_id)
-            return
-
-        # REVALIDATE ADMIN
-        if get_user_mode(admin_id) != "contact_admin":
+        if not admin_id or get_user_mode(admin_id) != "contact_admin":
             _force_close(admin_id, sender_id)
             return
 
@@ -208,7 +182,7 @@ def relay_messages(update: Update, context: CallbackContext):
 
 
 # =========================
-# /end_contact (ADMIN)
+# /end_contact
 # =========================
 def cmd_end_contact(update: Update, context: CallbackContext):
     admin_id = update.effective_user.id
@@ -222,14 +196,13 @@ def cmd_end_contact(update: Update, context: CallbackContext):
 
     user_id = active_contacts.get(admin_id)
     _force_close(admin_id, user_id)
-
     update.message.reply_text("✅ Contact closed.")
 
 
 # =========================
-# HARD CLOSE (INTERNAL)
+# INTERNAL CLOSE
 # =========================
-def _force_close(admin_id: int, user_id: int):
+def _force_close(admin_id, user_id):
     clear_user_mode(admin_id)
     if user_id:
         clear_user_mode(user_id)
