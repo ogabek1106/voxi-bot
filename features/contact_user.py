@@ -25,7 +25,6 @@ from typing import Dict, Optional
 from global_checker import allow
 from global_cleaner import clean_user
 from database import set_user_mode
-from telegram.ext import DispatcherHandlerStop
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import (
     CallbackContext,
@@ -252,6 +251,11 @@ def cmd_end_contact(update: Update, context: CallbackContext):
     clean_user(admin.id, reason="contact_end_admin")
     clean_user(user_id, reason="contact_end_user")
 
+    # 🔥 CLEAR CONTACT FLAGS (CRITICAL)
+    contact_invited_users.discard(user_id)
+    pre_bridge_warned.discard(user_id)
+
+
     update.message.reply_text("✅ Contact closed.")
     try:
         context.bot.send_message(chat_id=user_id, text="ℹ️ Admin bilan aloqa yakunlandi. Rahmat.")
@@ -291,9 +295,7 @@ def relay_messages(update: Update, context: CallbackContext):
                 target,
                 msg.message_id,
             )
-
-            # 🛑 message fully handled, stop dispatcher
-            raise DispatcherHandlerStop
+            return
 
         return
 
@@ -317,8 +319,7 @@ def relay_messages(update: Update, context: CallbackContext):
                 msg.message_id,
             )
 
-            # 🛑 message fully handled, stop dispatcher
-            raise DispatcherHandlerStop
+            return
 
     # ================= PRE-BRIDGE WARNING =================
     if (
@@ -337,8 +338,7 @@ def setup(dispatcher):
     dispatcher.add_handler(CallbackQueryHandler(contact_decision, pattern=r"^contact_"))
     dispatcher.add_handler(CallbackQueryHandler(open_bridge, pattern=r"^bridge_open:"))
     dispatcher.add_handler(
-        MessageHandler(Filters.all & ~Filters.command, relay_messages),
-        group=-250  # 🔥 highest priority to avoid shadowing
+        MessageHandler(Filters.all & ~Filters.command, relay_messages)
     )
 
     logger.info("contact_user feature loaded")
