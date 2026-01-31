@@ -2,19 +2,8 @@
 """
 Admin-only direct contact feature (STATE-ONLY).
 
-Rules:
-- Admin MUST be free/none to start
-- User can be in ANY state (will be cleared)
-- ONLY states control everything
-- NO order, NO groups, NO timers
-- Every forward re-validates states
-- Admin ends manually with /end_contact
-
-States used:
-- None / free / none
-- contact_admin_pending
-- contact_admin
-- contact_user
+Invitation is validated via runtime registry.
+Bridge is validated via STATES only.
 """
 
 import logging
@@ -41,14 +30,15 @@ from database import (
 logger = logging.getLogger(__name__)
 
 # =========================
-# RUNTIME BRIDGE REGISTRY
+# RUNTIME REGISTRIES
 # =========================
-active_contacts = {}   # admin_id -> user_id
-reverse_contacts = {}  # user_id -> admin_id
+pending_invitations = {}   # admin_id -> user_id
+active_contacts = {}       # admin_id -> user_id
+reverse_contacts = {}      # user_id -> admin_id
 
 
 # =========================
-# /contact <user_id | token>
+# /contact <user_id>
 # =========================
 def cmd_contact(update: Update, context: CallbackContext):
     admin_id = update.effective_user.id
@@ -56,30 +46,50 @@ def cmd_contact(update: Update, context: CallbackContext):
     if admin_id not in ADMIN_IDS:
         return
 
-    admin_mode = get_user_mode(admin_id)
-
-    # Admin MUST be free
-    if admin_mode not in (None, "free", "none"):
-        if admin_mode == "contact_admin_pending":
-            update.message.reply_text("⏳ Waiting for user response.")
-        else:
-            update.message.reply_text("❌ Finish your current action first.")
-        return
-
-    if not context.args:
+    if not context.args or not context.args[0].isdigit():
         update.message.reply_text("Usage: /contact <user_id>")
         return
 
-    raw = context.args[0]
+    user_id = int(context.args[0])
 
-    # ✅ ONLY numeric user_id (SAFE)
-    if not raw.isdigit():
-        update.message.reply_text("❌ Token support not enabled. Use numeric user_id.")
+    kb = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("✅ Yes", callback_data=f"contact_confirm:{user_id}"),
+            InlineKeyboardButton("❌ No", callback_data="contact_cancel"),
+        ]
+    ])
+
+    update.message.reply_text(
+        f"👤 User found: {user_id}\n\nSend contact invitation?",
+        reply_markup=kb,
+    )
+
+
+# =========================
+# ADMIN CONFIRM / CANCEL
+# =========================
+def contact_confirm(update: Update, context: CallbackContext):
+    query = update.callback_query
+    query.answer()
+
+    admin_id = query.from_user.id
+    data = query.data
+
+    if admin_id not in ADMIN_IDS:
         return
 
-    user_id = int(raw)
+    if data == "contact_cancel":
+        query.edit_message_text("❌ Contact cancelled.")
+        return
 
-    keyboard = InlineKeyboardMarkup([
+    if not data.startswith("contact_confirm:"):
+        return
+
+    user_id = int(data.split(":")[1])
+
+    pending_invitations[admin_id] = user_id
+
+    kb = InlineKeyboardMarkup([
         [
             InlineKeyboardButton(
                 "✅ Accept",
@@ -88,44 +98,41 @@ def cmd_contact(update: Update, context: CallbackContext):
         ]
     ])
 
-    try:
-        context.bot.send_message(
-            chat_id=user_id,
-            text=(
-                "📩 Admin wants to contact you.\n\n"
-                "Press ✅ Accept to start communication."
-            ),
-            reply_markup=keyboard,
-        )
-    except Exception as e:
-        logger.exception("Failed to send contact invite")
-        update.message.reply_text("❌ Failed to send invitation.")
-        return
+    context.bot.send_message(
+        chat_id=user_id,
+        text=(
+            "📩 Admin wants to contact you.\n\n"
+            "Press ✅ Accept to start communication."
+        ),
+        reply_markup=kb,
+    )
 
-    set_user_mode(admin_id, "contact_admin_pending", {"user_id": user_id})
-    update.message.reply_text("📨 Invitation sent.")
+    query.edit_message_text("📨 Invitation sent to user.")
+    context.bot.send_message(
+        chat_id=admin_id,
+        text="📨 Invitation sent. Waiting for user response.",
+    )
 
 
 # =========================
-# USER ACCEPTS INVITATION
+# USER ACCEPTS
 # =========================
 def contact_accept(update: Update, context: CallbackContext):
     query = update.callback_query
     query.answer()
 
     user_id = query.from_user.id
-    data = query.data
+    admin_id = int(query.data.split(":")[1])
 
-    if not data.startswith("contact_accept:"):
-        return
-
-    admin_id = int(data.split(":")[1])
-
-    if get_user_mode(admin_id) != "contact_admin_pending":
+    expected_user = pending_invitations.get(admin_id)
+    if expected_user != user_id:
         query.edit_message_text("❌ Invitation expired.")
         return
 
+    pending_invitations.pop(admin_id, None)
+
     clear_user_mode(user_id)
+    clear_user_mode(admin_id)
 
     set_user_mode(user_id, "contact_user", {"admin_id": admin_id})
     set_user_mode(admin_id, "contact_admin", {"user_id": user_id})
@@ -150,10 +157,10 @@ def relay_messages(update: Update, context: CallbackContext):
     if not msg:
         return
 
-    sender_mode = get_user_mode(sender_id)
+    mode = get_user_mode(sender_id)
 
     # ADMIN → USER
-    if sender_mode == "contact_admin":
+    if mode == "contact_admin":
         user_id = active_contacts.get(sender_id)
         if not user_id or get_user_mode(user_id) != "contact_user":
             _force_close(sender_id, user_id)
@@ -167,7 +174,7 @@ def relay_messages(update: Update, context: CallbackContext):
         return
 
     # USER → ADMIN
-    if sender_mode == "contact_user":
+    if mode == "contact_user":
         admin_id = reverse_contacts.get(sender_id)
         if not admin_id or get_user_mode(admin_id) != "contact_admin":
             _force_close(admin_id, sender_id)
@@ -186,21 +193,20 @@ def relay_messages(update: Update, context: CallbackContext):
 # =========================
 def cmd_end_contact(update: Update, context: CallbackContext):
     admin_id = update.effective_user.id
-
     if admin_id not in ADMIN_IDS:
         return
 
-    if get_user_mode(admin_id) != "contact_admin":
+    user_id = active_contacts.get(admin_id)
+    if not user_id:
         update.message.reply_text("❌ No active contact.")
         return
 
-    user_id = active_contacts.get(admin_id)
     _force_close(admin_id, user_id)
     update.message.reply_text("✅ Contact closed.")
 
 
 # =========================
-# INTERNAL CLOSE
+# HARD CLOSE
 # =========================
 def _force_close(admin_id, user_id):
     clear_user_mode(admin_id)
@@ -220,10 +226,13 @@ def setup(dispatcher):
     dispatcher.add_handler(CommandHandler("contact", cmd_contact))
     dispatcher.add_handler(CommandHandler("end_contact", cmd_end_contact))
     dispatcher.add_handler(
+        CallbackQueryHandler(contact_confirm, pattern=r"^contact_(confirm|cancel)")
+    )
+    dispatcher.add_handler(
         CallbackQueryHandler(contact_accept, pattern=r"^contact_accept:")
     )
     dispatcher.add_handler(
         MessageHandler(Filters.all & ~Filters.command, relay_messages)
     )
 
-    logger.info("contact_user feature loaded (STATE-ONLY)")
+    logger.info("contact_user feature loaded")
