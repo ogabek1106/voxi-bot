@@ -9,6 +9,12 @@ Rules:
 - NO order, NO groups, NO timers
 - Every forward re-validates states
 - Admin ends manually with /end_contact
+
+States used:
+- None / free
+- contact_admin_pending
+- contact_admin
+- contact_user
 """
 
 import logging
@@ -32,6 +38,11 @@ from database import (
     clear_user_mode,
 )
 
+# 🔧 MUST exist somewhere in your project
+# This function MUST return int user_id or None
+from features.token_resolver import resolve_user_id_by_token
+
+
 logger = logging.getLogger(__name__)
 
 # =========================
@@ -44,7 +55,7 @@ reverse_contacts = {}
 
 
 # =========================
-# /contact <user_id>/<token>
+# /contact <user_id | token>
 # =========================
 def cmd_contact(update: Update, context: CallbackContext):
     admin_id = update.effective_user.id
@@ -52,20 +63,32 @@ def cmd_contact(update: Update, context: CallbackContext):
     if admin_id not in ADMIN_IDS:
         return
 
+    admin_mode = get_user_mode(admin_id)
+
     # Admin MUST be free
-    if get_user_mode(admin_id) not in (None, "free"):
-        update.message.reply_text("❌ Finish your current action first.")
+    if admin_mode not in (None, "free"):
+        if admin_mode == "contact_admin_pending":
+            update.message.reply_text("⏳ Waiting for user response.")
+        else:
+            update.message.reply_text("❌ Finish your current action first.")
         return
 
-    if not context.args or "/" not in context.args[0]:
-        update.message.reply_text("Usage: /contact <user_id>/<token>")
+    if not context.args:
+        update.message.reply_text("Usage: /contact <user_id | token>")
         return
 
-    try:
-        user_id = int(context.args[0].split("/")[0])
-    except ValueError:
-        update.message.reply_text("❌ Invalid user_id.")
-        return
+    raw = context.args[0]
+
+    # 1️⃣ Numeric user_id
+    if raw.isdigit():
+        user_id = int(raw)
+
+    # 2️⃣ Token
+    else:
+        user_id = resolve_user_id_by_token(raw)
+        if not user_id:
+            update.message.reply_text("❌ Invalid or expired token.")
+            return
 
     keyboard = InlineKeyboardMarkup([
         [
@@ -89,7 +112,7 @@ def cmd_contact(update: Update, context: CallbackContext):
         update.message.reply_text("❌ Failed to send invitation.")
         return
 
-    # Lock admin temporarily
+    # Lock admin in pending state
     set_user_mode(admin_id, "contact_admin_pending", {"user_id": user_id})
     update.message.reply_text("📨 Invitation sent.")
 
@@ -151,7 +174,7 @@ def relay_messages(update: Update, context: CallbackContext):
             clear_user_mode(sender_id)
             return
 
-        # REVALIDATE USER STATE
+        # REVALIDATE USER
         if get_user_mode(user_id) != "contact_user":
             _force_close(sender_id, user_id)
             return
@@ -170,7 +193,7 @@ def relay_messages(update: Update, context: CallbackContext):
             clear_user_mode(sender_id)
             return
 
-        # REVALIDATE ADMIN STATE
+        # REVALIDATE ADMIN
         if get_user_mode(admin_id) != "contact_admin":
             _force_close(admin_id, sender_id)
             return
