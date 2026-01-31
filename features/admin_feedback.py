@@ -1,5 +1,7 @@
 import os
 from datetime import datetime
+import logging
+logger = logging.getLogger(__name__)
 
 # ---------- Storage channels ----------
 FEEDBACKS_STORAGE = int(os.getenv("FEEDBACKS_STORAGE"))
