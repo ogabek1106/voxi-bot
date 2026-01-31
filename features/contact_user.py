@@ -273,6 +273,10 @@ def relay_messages(update: Update, context: CallbackContext):
     if not user or not msg:
         return
 
+    # 🚫 NO ACTIVE BRIDGE → NOTHING TO FORWARD
+    if not active_bridges:
+        return
+
     # ================= ADMIN -> USER =================
     if _is_admin(user.id):
         bridge = active_bridges.get(user.id)
