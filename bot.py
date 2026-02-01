@@ -7,8 +7,8 @@ import handlers
 from global_checker import allow
 from handlers import numeric_message_handler
 from features.sub_check import check_subscription_callback
-from debug_dispatcher import enable_dispatcher_debug
-enable_dispatcher_debug()
+#from debug_dispatcher import enable_dispatcher_debug
+#enable_dispatcher_debug()
 
 #from features.track_commands import track_command   
 
