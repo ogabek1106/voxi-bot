@@ -25,6 +25,7 @@ from typing import Dict, Optional
 from global_checker import allow
 from global_cleaner import clean_user
 from database import set_user_mode
+from telegram.ext import BaseFilter
 from telegram.ext import DispatcherHandlerStop
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import (
@@ -326,6 +327,25 @@ def relay_messages(update: Update, context: CallbackContext):
         update.message.reply_text("❗ Admin hali bog‘lanmadi. Tugmani bosing.")
         pre_bridge_warned.add(user.id)
 
+class ContactActiveFilter(BaseFilter):
+    def filter(self, message):
+        user = message.from_user
+        if not user:
+            return False
+
+        # admin side
+        if user.id in active_bridges:
+            return True
+
+        # user side
+        for bridge in active_bridges.values():
+            if bridge["user_id"] == user.id:
+                return True
+
+        return False
+
+contact_active = ContactActiveFilter()
+
 # ---------- setup ----------
 
 def setup(dispatcher):
@@ -334,7 +354,11 @@ def setup(dispatcher):
     dispatcher.add_handler(CallbackQueryHandler(contact_decision, pattern=r"^contact_"))
     dispatcher.add_handler(CallbackQueryHandler(open_bridge, pattern=r"^bridge_open:"))
     dispatcher.add_handler(
-       MessageHandler(Filters.all & ~Filters.command, relay_messages)
+        MessageHandler(
+            Filters.all & ~Filters.command,
+            relay_messages,
+        )
     )
+
 
     logger.info("contact_user feature loaded")
