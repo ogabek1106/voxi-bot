@@ -1,7 +1,6 @@
 # features/sub_check.py
 """
 Central subscription gatekeeper for Voxi bot.
-Used by ALL features that require EBAI channel subscription.
 Aiogram 3 version.
 """
 
@@ -14,13 +13,13 @@ from aiogram.types import (
 )
 from aiogram.fsm.context import FSMContext
 
-EBAI_CHANNEL = "@IELTSforeverybody"   # 🔁 change once, everywhere updated
+EBAI_CHANNEL = "@IELTSforeverybody"
 
 router = Router()
 
 
 # ==========================================================
-# SUBSCRIPTION CHECK (LOW LEVEL)
+# LOW-LEVEL CHECK
 # ==========================================================
 
 async def is_subscribed(bot, user_id: int) -> bool:
@@ -32,19 +31,10 @@ async def is_subscribed(bot, user_id: int) -> bool:
 
 
 # ==========================================================
-# MAIN GATE (USED BY FEATURES)
+# MAIN GUARD (MESSAGE ONLY)
 # ==========================================================
 
 async def require_subscription(message: Message, state: FSMContext) -> bool:
-    """
-    Universal guard.
-    Returns True if user is subscribed.
-    Otherwise:
-      - stores user intent (FSM data)
-      - shows Uzbek subscribe UI
-      - returns False
-    """
-
     user = message.from_user
     if not user:
         return False
@@ -52,27 +42,25 @@ async def require_subscription(message: Message, state: FSMContext) -> bool:
     if await is_subscribed(message.bot, user.id):
         return True
 
-    # ==================================================
-    # STORE USER INTENT (SAFE, INTENT-BASED)
-    # ==================================================
+    # ─────────────────────────────
+    # STORE USER INTENT
+    # ─────────────────────────────
 
     pending_action = None
     text = message.text or ""
 
-    # /start <payload>
     if text.startswith("/start"):
         parts = text.split(maxsplit=1)
         if len(parts) > 1:
             pending_action = {
                 "type": "start",
-                "payload": parts[1]
+                "payload": parts[1].strip()
             }
         else:
             pending_action = {
                 "type": "start_plain"
             }
 
-    # numeric message (book code)
     elif text.isdigit():
         pending_action = {
             "type": "numeric",
@@ -82,15 +70,15 @@ async def require_subscription(message: Message, state: FSMContext) -> bool:
     if pending_action:
         await state.update_data(pending_action=pending_action)
 
-    # ==================================================
+    # ─────────────────────────────
     # SUBSCRIBE UI
-    # ==================================================
+    # ─────────────────────────────
 
     text = (
-        "🔒 *Kirish cheklangan*\n\n"
-        "*Voxi Bot*dan foydalanish uchun rasmiy kanalimizga "
+        "🔒 <b>Kirish cheklangan</b>\n\n"
+        "<b>Voxi Bot</b>dan foydalanish uchun rasmiy kanalimizga "
         "obuna bo‘lishingiz kerak.\n\n"
-        "👇 Avval obuna bo‘ling, so‘ng qaytib kelib *Tekshirish* tugmasini bosing."
+        "👇 Avval obuna bo‘ling, so‘ng <b>Tekshirish</b> tugmasini bosing."
     )
 
     keyboard = InlineKeyboardMarkup(
@@ -110,75 +98,70 @@ async def require_subscription(message: Message, state: FSMContext) -> bool:
         ]
     )
 
-    await message.answer(
-        text,
-        reply_markup=keyboard,
-        parse_mode="Markdown"
-    )
-
+    await message.answer(text, reply_markup=keyboard)
     return False
 
 
 # ==========================================================
-# CALLBACK: CHECK SUBSCRIPTION
+# CALLBACK: CHECK SUB
 # ==========================================================
 
 @router.callback_query(F.data == "check_sub")
 async def check_subscription_callback(callback: CallbackQuery, state: FSMContext):
-    user_id = callback.from_user.id
+    user = callback.from_user
+    if not user:
+        await callback.answer()
+        return
 
-    if not await is_subscribed(callback.bot, user_id):
+    if not await is_subscribed(callback.bot, user.id):
         await callback.answer("❌ Hali obuna bo‘linmagan", show_alert=True)
+        await callback.message.answer("📢 Avval kanalga obuna bo‘ling.")
         return
 
     await callback.answer("✅ Obuna tasdiqlandi!")
-    await callback.message.answer(
-        "🎉 Obuna muvaffaqiyatli!\n"
-        "⏳ So‘rov bajarilmoqda..."
-    )
+    await callback.message.answer("🎉 Obuna muvaffaqiyatli!\n⏳ So‘rov bajarilmoqda...")
 
     data = await state.get_data()
-    pending = data.pop("pending_action", None)
-    await state.set_data(data)
+    pending = data.get("pending_action")
+    await state.update_data(pending_action=None)
 
     if not pending:
         return
 
-    chat_id = callback.message.chat.id
+    message = callback.message
 
-    # ==================================================
-    # REPLAY STORED INTENT
-    # ==================================================
+    # ─────────────────────────────
+    # REPLAY INTENT
+    # ─────────────────────────────
 
-    # 🔹 PRIORITY 1: numeric message
+    # 1️⃣ Numeric (book code)
     if pending["type"] == "numeric":
         from handlers import send_book_by_code
-        await send_book_by_code(callback.message, pending["value"])
+        ok = await send_book_by_code(message, pending["value"])
+        if not ok:
+            await message.answer("Bunday kod topilmadi.")
         return
 
-    # 🔹 PRIORITY 2: /start payload
+    # 2️⃣ /start payload
     if pending["type"] == "start":
-        payload = pending["payload"].lower()
+        payload = pending["payload"]
 
         if payload.isdigit():
             from handlers import send_book_by_code
-            await send_book_by_code(callback.message, payload)
-            return
-
-        if payload == "ad_rec":
-            from features.ad_reciever import ad_rec_handler
-            await ad_rec_handler(callback.message)
+            ok = await send_book_by_code(message, payload)
+            if not ok:
+                await message.answer("Bunday kod topilmadi.")
             return
 
         if payload == "get_test":
             from features.get_test import get_test
-            await get_test(callback.message)
+            await get_test(message)
             return
 
         return
 
-    # 🔹 PRIORITY 3: plain /start
+    # 3️⃣ Plain /start
     if pending["type"] == "start_plain":
         from handlers import start_handler
-        await start_handler(callback.message, state)
+        await start_handler(message, state)
         return
