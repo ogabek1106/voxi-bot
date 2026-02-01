@@ -63,7 +63,7 @@ async def main():
         logger.warning("features.register_all_features not available. No feature modules loaded.")
 
     # ── GLOBAL routers (MUST BE LAST) ──
-    dp.include_router(global_cancel_router)
+    #dp.include_router(global_cancel_router)
 
     try:
         await bot.set_my_commands([
