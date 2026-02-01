@@ -1,21 +1,24 @@
 # bot.py
-import os
+import asyncio
 import logging
-from telegram.ext import CallbackQueryHandler
-from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
-import handlers
-from global_checker import allow
-from handlers import numeric_message_handler
-from features.sub_check import check_subscription_callback
-#from debug_dispatcher import enable_dispatcher_debug
-#enable_dispatcher_debug()
+import os
 
-#from features.track_commands import track_command   
+from aiogram import Bot, Dispatcher
+from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.types import BotCommand
+
+from handlers import router as core_router
+from features.sub_check import router as sub_check_router
 
 try:
     from features import register_all_features
 except Exception:
     register_all_features = None
+
+
+# ─────────────────────────────
+# Logging
+# ─────────────────────────────
 
 logging.basicConfig(
     level=logging.INFO,
@@ -23,34 +26,31 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+
+# ─────────────────────────────
+# Environment
+# ─────────────────────────────
+
 TOKEN = os.getenv("BOT_TOKEN")
 if not TOKEN:
     logger.error("BOT_TOKEN env var is not set. Exiting.")
     raise SystemExit("BOT_TOKEN missing")
 
-def numeric_message_router(update, context):
-    user = update.effective_user
-    if not user:
-        return
 
-    # ✅ ONLY FREE / NONE STATE
-    if not allow(user.id, mode=None):
-        return
+# ─────────────────────────────
+# Main entry
+# ─────────────────────────────
 
-    return numeric_message_handler(update, context)
+async def main():
+    bot = Bot(token=TOKEN, parse_mode="HTML")
 
-def main():
-    updater = Updater(TOKEN, use_context=True)
-    dp = updater.dispatcher
-    dp.add_handler(CommandHandler("start", handlers.start_handler, pass_args=True))
+    dp = Dispatcher(storage=MemoryStorage())
 
-    dp.add_handler(
-        MessageHandler(Filters.text & ~Filters.command, numeric_message_router)
-    )
+    # ── Core routers ──
+    dp.include_router(core_router)
+    dp.include_router(sub_check_router)
 
-    dp.add_handler(
-        CallbackQueryHandler(check_subscription_callback, pattern="^check_sub$")
-    )
+    # ── Feature routers ──
     if register_all_features:
         try:
             register_all_features(dp)
@@ -59,11 +59,18 @@ def main():
             logger.exception("Failed to load features: %s", e)
     else:
         logger.warning("features.register_all_features not available. No feature modules loaded.")
-   
+
+    # Optional: set bot commands
+    try:
+        await bot.set_my_commands([
+            BotCommand(command="start", description="Botni ishga tushirish"),
+        ])
+    except Exception:
+        pass
+
     logger.info("Bot starting polling...")
-    updater.start_polling()
-    updater.idle()
+    await dp.start_polling(bot)
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
