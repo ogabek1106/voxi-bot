@@ -1,24 +1,32 @@
 # handlers.py
+import asyncio
 import logging
-import threading
 import time
-from telegram import Update
-from telegram.ext import CallbackContext
+
+from aiogram import Router, F
+from aiogram.filters import CommandStart, StateFilter
+from aiogram.types import Message
+from aiogram.fsm.context import FSMContext
+
 from books import BOOKS
 from database import log_book_request
-from global_checker import allow
 from features.sub_check import require_subscription
-#from features.get_test import get_test
-#from features.ielts_checkup_ui import _main_user_keyboard
+# from features.get_test import get_test
+# from features.ielts_checkup_ui import _main_user_keyboard
 
 logger = logging.getLogger(__name__)
 
-DELETE_SECONDS = 15 * 60  # ⬅️ 15 mins
-PROGRESS_BAR_LENGTH = 12  # adjust length of bar if you want
+router = Router()
 
+DELETE_SECONDS = 15 * 60
+PROGRESS_BAR_LENGTH = 12
+
+
+# ─────────────────────────────
+# Utils (unchanged logic)
+# ─────────────────────────────
 
 def _format_mmss(seconds: int) -> str:
-    """Return MM:SS formatted string for given seconds (non-negative)."""
     if seconds < 0:
         seconds = 0
     m = seconds // 60
@@ -27,238 +35,178 @@ def _format_mmss(seconds: int) -> str:
 
 
 def _build_progress_bar(remaining: int, total: int, length: int = PROGRESS_BAR_LENGTH) -> str:
-    """Return a bar like █████----- based on remaining/total."""
     if total <= 0:
         return "─" * length
     frac = max(0.0, min(1.0, remaining / total))
     filled = int(round(frac * length))
     filled = max(0, min(length, filled))
-    bar = "█" * filled + "─" * (length - filled)
-    return bar
+    return "█" * filled + "─" * (length - filled)
 
 
-def send_book_by_code(chat_id: int, code: str, context: CallbackContext):
-    """
-    Sends the book (document) and a live-updating countdown message in the format:
-    ⏳ [█████-----] 04:30 - qolgan vaqt
-    Returns tuple (document_message_id, countdown_message_id) if successful, else (None, None).
-    """
+# ─────────────────────────────
+# Book sending (async version)
+# ─────────────────────────────
+
+async def send_book_by_code(message: Message, code: str):
     book = BOOKS.get(code)
     if not book:
-        return None, None
+        return False
 
     file_id = book.get("file_id")
     caption = book.get("caption", "")
 
     try:
-        sent = context.bot.send_document(
-            chat_id=chat_id,
+        sent = await message.bot.send_document(
+            chat_id=message.chat.id,
             document=file_id,
             caption=caption,
             parse_mode="Markdown",
         )
-        log_book_request(code)  # ✅ ADD THIS LINE
+        log_book_request(code)
     except Exception as e:
         logger.exception("Failed to send book: %s", e)
-        return None, None
+        return False
 
-    # Prepare initial countdown text (full bar)
-    mmss = _format_mmss(DELETE_SECONDS)
     bar = _build_progress_bar(DELETE_SECONDS, DELETE_SECONDS)
+    mmss = _format_mmss(DELETE_SECONDS)
     countdown_text = f"⏳ [{bar}] {mmss} - qolgan vaqt"
 
     try:
-        # send a plain text countdown (no markup)
-        countdown_msg = context.bot.send_message(chat_id=chat_id, text=countdown_text, disable_web_page_preview=True)
-    except Exception as e:
-        logger.exception("Failed to send countdown message: %s", e)
-        # fallback: schedule a simple delete of the document if countdown can't be created
-        def _del_doc():
-            try:
-                time.sleep(DELETE_SECONDS)
-                context.bot.delete_message(chat_id=chat_id, message_id=sent.message_id)
-            except Exception:
-                pass
-        t = threading.Thread(target=_del_doc, daemon=True)
-        t.start()
-        return sent.message_id, None
+        countdown_msg = await message.bot.send_message(
+            chat_id=message.chat.id,
+            text=countdown_text,
+            disable_web_page_preview=True
+        )
+    except Exception:
+        asyncio.create_task(_delete_later(message.bot, message.chat.id, sent.message_id))
+        return True
 
-    # Start updater thread that edits countdown every 60 seconds and deletes both at the end
-    thread = threading.Thread(
-        target=_countdown_updater_thread,
-        args=(context, chat_id, sent.message_id, countdown_msg.message_id, DELETE_SECONDS),
-        daemon=True,
+    asyncio.create_task(
+        _countdown_task(
+            bot=message.bot,
+            chat_id=message.chat.id,
+            doc_msg_id=sent.message_id,
+            countdown_msg_id=countdown_msg.message_id,
+            total_seconds=DELETE_SECONDS,
+        )
     )
-    thread.start()
 
-    return sent.message_id, countdown_msg.message_id
+    return True
 
 
-def _countdown_updater_thread(context: CallbackContext, chat_id: int, doc_msg_id: int, countdown_msg_id: int, total_seconds: int):
-    """
-    Background thread to:
-      - update countdown message roughly every 60 seconds (progress bar + MM:SS - qolgan vaqt)
-      - at the end, delete both the document message and the countdown message
-    """
+async def _delete_later(bot, chat_id, msg_id):
+    await asyncio.sleep(DELETE_SECONDS)
+    try:
+        await bot.delete_message(chat_id, msg_id)
+    except Exception:
+        pass
+
+
+async def _countdown_task(bot, chat_id, doc_msg_id, countdown_msg_id, total_seconds):
     start = time.time()
     end = start + total_seconds
-    current_countdown_id = countdown_msg_id
+    current_id = countdown_msg_id
 
-    # Loop until time is up
     while True:
-        now = time.time()
-        remaining = int(end - now)
+        remaining = int(end - time.time())
 
         if remaining <= 0:
-            # Time's up: delete both messages (ignore any exceptions)
             try:
-                context.bot.delete_message(chat_id=chat_id, message_id=doc_msg_id)
+                await bot.delete_message(chat_id, doc_msg_id)
             except Exception:
                 pass
             try:
-                context.bot.delete_message(chat_id=chat_id, message_id=current_countdown_id)
+                await bot.delete_message(chat_id, current_id)
             except Exception:
                 pass
-            logger.info("Deleted book msg %s and countdown %s in chat %s", doc_msg_id, current_countdown_id, chat_id)
             break
 
-        # Build progress bar and MM:SS text
         bar = _build_progress_bar(remaining, total_seconds)
         mmss = _format_mmss(remaining)
-        new_text = f"⏳ [{bar}] {mmss} - qolgan vaqt"
+        text = f"⏳ [{bar}] {mmss} - qolgan vaqt"
 
-        # Try to edit the countdown message. If it fails, create a new one and delete old (best-effort).
         try:
-            context.bot.edit_message_text(text=new_text, chat_id=chat_id, message_id=current_countdown_id)
-        except Exception as e:
-            logger.debug("Could not edit countdown message %s: %s", current_countdown_id, e)
-            # Attempt to post a new countdown message so the user sees the timer
+            await bot.edit_message_text(text, chat_id, current_id)
+        except Exception:
             try:
-                new_msg = context.bot.send_message(chat_id=chat_id, text=new_text, disable_web_page_preview=True)
-                # best-effort delete old countdown message (ignore any error)
+                new_msg = await bot.send_message(chat_id, text)
                 try:
-                    context.bot.delete_message(chat_id=chat_id, message_id=current_countdown_id)
+                    await bot.delete_message(chat_id, current_id)
                 except Exception:
                     pass
-                # update current countdown id to the newly created message
-                current_countdown_id = new_msg.message_id
-            except Exception as send_err:
-                # If even sending fails, log and continue — we'll still delete the document at the end
-                logger.debug("Also failed to send new countdown message: %s", send_err)
-                # Sleep a short time and loop again so deletion still happens on schedule
-                time.sleep(5)
+                current_id = new_msg.message_id
+            except Exception:
+                await asyncio.sleep(5)
                 continue
 
-        # Sleep either 60 seconds, or the remaining if less than 60
-        sleep_for = 60 if remaining > 60 else remaining
-        time.sleep(sleep_for)
+        await asyncio.sleep(60 if remaining > 60 else remaining)
 
 
-def _send_start_menu(update: Update, context: CallbackContext):
-    """
-    Sends the main start greeting + keyboard.
-    Safe to call from messages AND callbacks.
-    """
-    user = update.effective_user
-    name = (user.first_name or "do‘st") if user else "do‘st"
+# ─────────────────────────────
+# /start + deep links (FREE only)
+# ─────────────────────────────
 
-    msg = update.effective_message
-    if not msg:
+@router.message(CommandStart(), StateFilter(None))
+async def start_handler(message: Message, state: FSMContext):
+    data = await state.get_data()
+    if data.get("admin_mode"):
         return
 
-    msg.reply_text(
+    payload = message.text.split(maxsplit=1)
+    payload = payload[1] if len(payload) > 1 else ""
+
+    if payload:
+        payload = payload.strip()
+
+        if payload.lower() == "get_test":
+            return  # feature handles it
+
+        if payload.isdigit():
+            if not await require_subscription(message):
+                return
+            ok = await send_book_by_code(message, payload)
+            if not ok:
+                await message.answer("Bu kod bo‘yicha kitob topilmadi.")
+            return
+
+        if payload.lower() == "ad_rec":
+            from features.ad_reciever import ad_rec_handler
+            return await ad_rec_handler(message)
+
+        return  # ignore unknown payloads
+
+    # plain /start
+    name = message.from_user.first_name or "do‘st"
+    await message.answer(
         f"*Assalomu alaykum*, {name}!\n\n"
         "_⚠️ Voxi ishlash sifatini yaxshilash uchun yuborilgan ayrim matnlar anonim tarzda saqlanishi va tahlil qilinishi mumkin.\n"
         "Hech qanday shaxsiy ma’lumot yig‘ilmaydi.\n"
         "Botdan foydalanish orqali siz bunga rozilik berasiz._\n\n"
         "Menga *kitob kodini* yuboring yoki kerakli *bo'limni* tanlang 👇",
-        reply_markup=_main_user_keyboard(),
-        parse_mode="Markdown"
+        parse_mode="Markdown",
+        # reply_markup=_main_user_keyboard()
     )
 
-def start_handler(update: Update, context: CallbackContext):
-    """Handles /start and deep links.
 
-    Important changes:
-    - If payload == '' -> do nothing here (feature handles it).
-    - If payload is numeric -> treat as book code (unchanged).
-    - If payload is non-numeric and not '' -> ignore.
-    """
-    uid = update.effective_user.id
+# ─────────────────────────────
+# Numeric book messages (FREE only)
+# ─────────────────────────────
 
-    if not allow(uid, mode=None):
-        return
-    # 🔒 subscription gate
-    #if not require_subscription(update, context):
-        #return
-
-    # 🔴 BLOCK /start logic during admin conversations
-    if context.user_data.get("admin_mode"):
-        return
-        
-    args = context.args or []
-    chat_id = update.effective_chat.id
-
-    if args:
-        payload = str(args[0]).strip()
-
-        # If deep link is explicitly for test feature, let the feature handle it.
-        if payload.lower() == "get_test":
-            # Do nothing here so features/test_form.py (or features/deep_link.py) can respond.
-            # This prevents the core handler from sending greetings or "book not found" replies.
-            return get_test(update, context)
-
-        # Normal numeric deep-link -> book code (keep existing behaviour)
-        if payload.isdigit():
-            # 🔒 SUBSCRIPTION GATE
-            if not require_subscription(update, context):
-                return
-            code = payload
-            doc_id, countdown_id = send_book_by_code(chat_id, code, context)
-            if doc_id:
-                return
-            update.message.reply_text("Bu kod bo‘yicha kitob topilmadi.")
-            return
-
-        # Non-numeric payload (not get_test) -> ignore (no reply).
-        # This avoids misinterpreting arbitrary deep-link payloads and prevents unwanted replies.
-
-        if payload.lower() == "ad_rec":
-            from features.ad_reciever import ad_rec_handler
-            return ad_rec_handler(update, context)
-            # ✅ plain /start (no payload)
-    _send_start_menu(update, context)
-    return
-
-def numeric_message_handler(update: Update, context: CallbackContext):
-    uid = update.effective_user.id
-
-    # 🛑 mode lock
-    if not allow(uid, mode=None):
-        return
-    if context.user_data.get("admin_mode"):
+@router.message(StateFilter(None), F.text.regexp(r"^\d+$"))
+async def numeric_message_handler(message: Message, state: FSMContext):
+    data = await state.get_data()
+    if data.get("admin_mode"):
         return
 
-    if not update.message or not update.message.text:
+    if not await require_subscription(message):
         return
 
-    text = update.message.text.strip()
+    code = message.text.strip()
 
-    if not text.isdigit():
+    if code not in BOOKS:
+        await message.answer("Bunday kod topilmadi.")
         return
 
-    # 🔒 SUBSCRIPTION GATE (CRITICAL)
-    if not require_subscription(update, context):
-        return
-
-    chat_id = update.effective_chat.id
-
-    if text not in BOOKS:
-        update.message.reply_text("Bunday kod topilmadi.")
-        return
-
-    doc_id, countdown_id = send_book_by_code(chat_id, text, context)
-    if not doc_id:
-        update.message.reply_text("Kitobni yuborishda xatolik yuz berdi.")
-
-
+    ok = await send_book_by_code(message, code)
+    if not ok:
+        await message.answer("Kitobni yuborishda xatolik yuz berdi.")
