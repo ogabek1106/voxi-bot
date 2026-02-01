@@ -305,9 +305,25 @@ def message_router(update: Update, context: CallbackContext):
         awaiting_states.pop(user.id, None)
         _clear_persist(user.id)
 
+def broadcast_message_router(update: Update, context: CallbackContext):
+    user = update.effective_user
+    if not user:
+        return
+
+    # ✅ ONLY admins in broadcast_setup state
+    if not _is_admin(user.id):
+        return
+    if not allow(user.id, mode="broadcast_setup"):
+        return
+
+    return message_router(update, context)
+
 
 def setup(dispatcher):
     dispatcher.add_handler(CommandHandler("all_members", cmd_all_members))
     dispatcher.add_handler(CommandHandler("cancel", cmd_cancel))
     dispatcher.add_handler(CommandHandler("cancel_broadcast", cmd_cancel_broadcast))
-    dispatcher.add_handler(MessageHandler(Filters.all & ~Filters.command, message_router))
+    dispatcher.add_handler(
+      MessageHandler(Filters.all & ~Filters.command, broadcast_message_router)
+    )
+
