@@ -8,7 +8,7 @@ from aiogram.types import Message
 from aiogram.fsm.context import FSMContext
 
 from database import clear_all_user_modes
-from global_cleaner import clean_user
+#from global_cleaner import clean_user
 import admins
 
 logger = logging.getLogger(__name__)
@@ -36,7 +36,7 @@ async def global_cancel(message: Message, state: FSMContext):
         return
 
     # 🔥 HARD RESET USER (DB + runtime)
-    clean_user(user.id, reason="global_cancel")
+    #clean_user(user.id, reason="global_cancel")
 
     # Clear FSM state completely
     await state.clear()
