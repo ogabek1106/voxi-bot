@@ -8,7 +8,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import BotCommand
 
 from handlers import router as core_router
-from features.sub_check import router as sub_check_router
+#from features.sub_check import router as sub_check_router
 
 try:
     from features import register_all_features
@@ -48,7 +48,7 @@ async def main():
 
     # ── Core routers ──
     dp.include_router(core_router)
-    dp.include_router(sub_check_router)
+    #dp.include_router(sub_check_router)
 
     # ── Feature routers ──
     if register_all_features:
