@@ -4,6 +4,7 @@ import logging
 from telegram.ext import CallbackQueryHandler
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
 import handlers
+from global_checker import allow
 from handlers import numeric_message_handler
 from features.sub_check import check_subscription_callback
 from debug_dispatcher import enable_dispatcher_debug
@@ -27,6 +28,16 @@ if not TOKEN:
     logger.error("BOT_TOKEN env var is not set. Exiting.")
     raise SystemExit("BOT_TOKEN missing")
 
+def numeric_message_router(update, context):
+    user = update.effective_user
+    if not user:
+        return
+
+    # ✅ ONLY FREE / NONE STATE
+    if not allow(user.id, mode=None):
+        return
+
+    return numeric_message_handler(update, context)
 
 def main():
     updater = Updater(TOKEN, use_context=True)
@@ -34,7 +45,7 @@ def main():
     dp.add_handler(CommandHandler("start", handlers.start_handler, pass_args=True))
 
     dp.add_handler(
-        MessageHandler(Filters.text & ~Filters.command, numeric_message_handler)
+        MessageHandler(Filters.text & ~Filters.command, numeric_message_router)
     )
 
     dp.add_handler(
