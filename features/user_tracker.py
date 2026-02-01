@@ -30,7 +30,7 @@ class UserTrackerMiddleware(BaseMiddleware):
         event: TelegramObject,
         data: Dict[str, Any],
     ) -> Any:
-        user = self._extract_user(event)
+        user = data.get("event_from_user")
         if user:
             self._record_user(user)
 
