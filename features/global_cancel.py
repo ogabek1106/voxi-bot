@@ -5,10 +5,7 @@ from telegram import Update
 from telegram.ext import CallbackContext, CommandHandler
 from global_cleaner import clean_user
 
-from database import (
-    clear_user_mode,
-    clear_all_user_modes,
-)
+from database import clear_all_user_modes
 import admins
 
 logger = logging.getLogger(__name__)
@@ -21,46 +18,43 @@ def _is_admin(user_id: Optional[int]) -> bool:
     return user_id is not None and int(user_id) in {int(x) for x in raw}
 
 
-# ---------- /cancel ----------
+# ---------- /cancel (ANY USER) ----------
 
 def global_cancel(update: Update, context: CallbackContext):
     """
-    Admin-only global cancel.
-    Clears current admin's DB mode and conversation data.
-    Works from ANY state.
+    Universal cancel.
+    - Works for ANY user
+    - Works from ANY state
+    - Resets user to free/none
     """
     user = update.effective_user
     if not user:
         return
 
-    if not _is_admin(user.id):
-        update.message.reply_text("⛔ Admins only.")
-        return
-
+    # 🔥 HARD RESET USER STATE
     clean_user(user.id, reason="global_cancel")
-    cleared = True
 
-    # Clear any leftover conversation/user data
+    # Clear local session data
     context.user_data.clear()
 
     update.message.reply_text(
         "❌ Cancelled.\n"
-        "Your active admin mode has been cleared."
+        "Your current action was stopped and state reset."
     )
 
-    logger.warning(
-        "GLOBAL CANCEL | admin_id=%s | cleared_db_mode=%s",
+    logger.info(
+        "GLOBAL CANCEL | user_id=%s",
         user.id,
-        cleared,
     )
 
 
-# ---------- /cancel_all ----------
+# ---------- /cancel_all (ADMIN ONLY, GLOBAL RESET) ----------
 
 def global_cancel_all(update: Update, context: CallbackContext):
     """
-    Admin-only emergency reset.
-    Clears ALL rows from user_modes table.
+    Emergency global reset.
+    - Clears ALL user modes
+    - Admin-only
     """
     user = update.effective_user
     if not user:
@@ -70,15 +64,13 @@ def global_cancel_all(update: Update, context: CallbackContext):
         update.message.reply_text("⛔ Admins only.")
         return
 
-    clean_user(user.id, reason="global_cancel_all")
     removed = clear_all_user_modes()
 
-    # Clear local data as well
     context.user_data.clear()
 
     update.message.reply_text(
         "🚨 GLOBAL RESET\n\n"
-        "All active admin modes have been cleared.\n"
+        "All user states were cleared.\n"
         f"Rows removed: {removed}"
     )
 
@@ -92,14 +84,8 @@ def global_cancel_all(update: Update, context: CallbackContext):
 # ---------- setup ----------
 
 def setup(dispatcher):
-    # High priority, but NOT extreme
-    dispatcher.add_handler(
-        CommandHandler("cancel", global_cancel),
-        group=-10
-    )
-    dispatcher.add_handler(
-        CommandHandler("cancel_all", global_cancel_all),
-        group=-10
-    )
+    dispatcher.add_handler(CommandHandler("cancel", global_cancel))
+    dispatcher.add_handler(CommandHandler("cancel_all", global_cancel_all))
 
     logger.info("Feature loaded: global_cancel (/cancel, /cancel_all)")
+
