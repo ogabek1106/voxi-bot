@@ -9,7 +9,7 @@ from aiogram.types import BotCommand
 from features.global_cancel import router as global_cancel_router
 
 from handlers import router as core_router
-#from features.sub_check import router as sub_check_router
+from features.sub_check import router as sub_check_router
 
 try:
     from features import register_all_features
@@ -51,6 +51,8 @@ async def main():
     dp.include_router(core_router)
 
     # ── Feature routers ──
+    dp.include_router(sub_check_router)   # ✅ REQUIRED
+
     if register_all_features:
         try:
             register_all_features(dp)
@@ -63,7 +65,6 @@ async def main():
     # ── GLOBAL routers (MUST BE LAST) ──
     dp.include_router(global_cancel_router)
 
-    # Optional: set bot commands
     try:
         await bot.set_my_commands([
             BotCommand(command="start", description="Botni ishga tushirish"),
@@ -73,6 +74,7 @@ async def main():
 
     logger.info("Bot starting polling...")
     await dp.start_polling(bot)
+
 
 if __name__ == "__main__":
     asyncio.run(main())
