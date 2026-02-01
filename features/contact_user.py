@@ -294,11 +294,7 @@ def relay_messages(update: Update, context: CallbackContext):
                 target,
                 msg.message_id,
             )
-
-            # 🛑 message fully handled, stop dispatcher
-            raise DispatcherHandlerStop
-
-        return
+            return
 
     # ================= USER -> ADMIN =================
     for admin_id, bridge in active_bridges.items():
@@ -319,9 +315,7 @@ def relay_messages(update: Update, context: CallbackContext):
                 admin_id,
                 msg.message_id,
             )
-
-            # 🛑 message fully handled, stop dispatcher
-            raise DispatcherHandlerStop
+            return
 
     # ================= PRE-BRIDGE WARNING =================
     if (
@@ -340,8 +334,7 @@ def setup(dispatcher):
     dispatcher.add_handler(CallbackQueryHandler(contact_decision, pattern=r"^contact_"))
     dispatcher.add_handler(CallbackQueryHandler(open_bridge, pattern=r"^bridge_open:"))
     dispatcher.add_handler(
-        MessageHandler(Filters.all & ~Filters.command, relay_messages),
-        group=-250  # 🔥 highest priority to avoid shadowing
+       MessageHandler(Filters.all & ~Filters.command, relay_messages)
     )
 
     logger.info("contact_user feature loaded")
