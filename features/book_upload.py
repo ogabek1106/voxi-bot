@@ -194,6 +194,19 @@ def upload_router(update: Update, context: CallbackContext):
             update.message.reply_text("✅ Uploaded but failed to format reply. Check logs.")
         except Exception:
             pass
+def book_upload_message_router(update: Update, context: CallbackContext):
+    user = update.effective_user
+    if not user:
+        return
+
+    # ✅ ONLY admins in book_upload state
+    if not _is_admin(user.id):
+        return
+    if not allow(user.id, mode="book_upload"):
+        return
+
+    return upload_router(update, context)
+
 
 
 def setup(dispatcher):
@@ -207,7 +220,8 @@ def setup(dispatcher):
             | Filters.audio
             | Filters.voice
             | Filters.animation,
-            upload_router,
+            book_upload_message_router,
         )
     )
+
     logger.info("book_upload feature loaded. STORAGE_CHAT_ID=%s", STORAGE_CHAT_ID)
