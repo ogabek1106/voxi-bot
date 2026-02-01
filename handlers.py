@@ -7,6 +7,7 @@ from aiogram import Router, F
 from aiogram.filters import CommandStart, StateFilter
 from aiogram.types import Message
 from aiogram.fsm.context import FSMContext
+from features.sub_check import require_subscription
 
 from books import BOOKS
 from database import log_book_request
@@ -137,6 +138,8 @@ async def _countdown_task(bot, chat_id, doc_msg_id, countdown_msg_id, total_seco
 
 @router.message(CommandStart(), StateFilter(None))
 async def start_handler(message: Message, state: FSMContext):
+    if not await require_subscription(message, state):
+        return
     payload = message.text.split(maxsplit=1)
     payload = payload[1].strip() if len(payload) > 1 else ""
 
@@ -162,6 +165,8 @@ async def start_handler(message: Message, state: FSMContext):
 
 @router.message(StateFilter(None), F.text.regexp(r"^\d+$"))
 async def numeric_message_handler(message: Message, state: FSMContext):
+    if not await require_subscription(message, state):
+        return
     code = message.text.strip()
 
     if code not in BOOKS:
