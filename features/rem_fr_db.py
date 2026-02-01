@@ -3,8 +3,8 @@
 Feature: /rem_fr_db <user_id>
 
 Admin-only command.
-Removes a user from the database so they can be re-recorded
-by user_tracker middleware on next interaction.
+Removes a user from the users table so they will be
+re-recorded by user_tracker middleware on next interaction.
 """
 
 import logging
@@ -15,7 +15,7 @@ from aiogram.types import Message
 from aiogram.fsm.context import FSMContext
 
 import admins
-from database import remove_user_by_id  # you must already have or add this
+from database import delete_user
 
 logger = logging.getLogger(__name__)
 
@@ -58,9 +58,9 @@ async def remove_from_db(message: Message, state: FSMContext):
     target_id = int(parts[1])
 
     try:
-        removed = remove_user_by_id(target_id)
+        removed = delete_user(target_id)
     except Exception as e:
-        logger.exception("Failed to remove user %s: %s", target_id, e)
+        logger.exception("Failed to delete user %s: %s", target_id, e)
         await message.answer("❌ Database error.")
         return
 
