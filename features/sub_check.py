@@ -2,101 +2,89 @@
 """
 Central subscription gatekeeper for Voxi bot.
 Used by ALL features that require EBAI channel subscription.
+Aiogram 3 version.
 """
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import CallbackQueryHandler
-from telegram import Update
-#from telegram.ext import DispatcherHandlerStop
+from aiogram import Router, F
+from aiogram.types import (
+    Message,
+    CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+)
+from aiogram.fsm.context import FSMContext
 
 EBAI_CHANNEL = "@IELTSforeverybody"   # 🔁 change once, everywhere updated
 
-
-# ==========================================================
-# DEBUG HELPER (TEMPORARY)
-# ==========================================================
-
-#def _debug(update, context, text: str):
-    #try:
-        #msg = update.effective_message
-        #if msg:
-            #msg.reply_text(f"🧪 DEBUG:\n{text}")
-    #except Exception:
-        #pass
+router = Router()
 
 
 # ==========================================================
-# SUBSCRIPTION CHECK
+# SUBSCRIPTION CHECK (LOW LEVEL)
 # ==========================================================
 
-def is_subscribed(bot, user_id: int) -> bool:
+async def is_subscribed(bot, user_id: int) -> bool:
     try:
-        member = bot.get_chat_member(EBAI_CHANNEL, user_id)
+        member = await bot.get_chat_member(EBAI_CHANNEL, user_id)
         return member.status in ("member", "administrator", "creator")
     except Exception:
         return False
 
 
 # ==========================================================
-# MAIN GATE
+# MAIN GATE (USED BY FEATURES)
 # ==========================================================
 
-def require_subscription(update, context) -> bool:
+async def require_subscription(message: Message, state: FSMContext) -> bool:
     """
     Universal guard.
     Returns True if user is subscribed.
     Otherwise:
-      - stores user intent
+      - stores user intent (FSM data)
       - shows Uzbek subscribe UI
       - returns False
     """
 
-    user = update.effective_user
-    bot = context.bot
-
-    if user is None:
+    user = message.from_user
+    if not user:
         return False
 
-    if is_subscribed(bot, user.id):
-        #_debug(update, context, "User IS subscribed → allow")
+    if await is_subscribed(message.bot, user.id):
         return True
 
     # ==================================================
-    # STORE USER INTENT (INTENT-BASED, SAFE)
+    # STORE USER INTENT (SAFE, INTENT-BASED)
     # ==================================================
-    try:
-        args = getattr(context, "args", None)
 
-        # /start <payload>
-        if update.message and update.message.text.startswith("/start") and args:
-            context.user_data["pending_action"] = {
+    pending_action = None
+    text = message.text or ""
+
+    # /start <payload>
+    if text.startswith("/start"):
+        parts = text.split(maxsplit=1)
+        if len(parts) > 1:
+            pending_action = {
                 "type": "start",
-                "payload": args[0]
+                "payload": parts[1]
             }
-
-        # plain /start
-        elif update.message and update.message.text == "/start":
-            context.user_data["pending_action"] = {
+        else:
+            pending_action = {
                 "type": "start_plain"
             }
 
-        # numeric message (book code)
-        elif update.message and update.message.text and update.message.text.strip().isdigit():
-            context.user_data["pending_action"] = {
-                "type": "numeric",
-                "value": update.message.text.strip()
-            }
+    # numeric message (book code)
+    elif text.isdigit():
+        pending_action = {
+            "type": "numeric",
+            "value": text
+        }
 
-    except Exception:
-        pass
+    if pending_action:
+        await state.update_data(pending_action=pending_action)
+
     # ==================================================
-
-    #_debug(
-        #update,
-        #context,
-        #f"BLOCKED by subscription\n"
-        #f"Stored pending_action = {context.user_data.get('pending_action')}"
-    #)
+    # SUBSCRIBE UI
+    # ==================================================
 
     text = (
         "🔒 *Kirish cheklangan*\n\n"
@@ -105,17 +93,28 @@ def require_subscription(update, context) -> bool:
         "👇 Avval obuna bo‘ling, so‘ng qaytib kelib *Tekshirish* tugmasini bosing."
     )
 
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("📢 Kanalga obuna bo‘lish", url="https://t.me/IELTSforeverybody")],
-        [InlineKeyboardButton("🔄 Obunani tekshirish", callback_data="check_sub")]
-    ])
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="📢 Kanalga obuna bo‘lish",
+                    url="https://t.me/IELTSforeverybody"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🔄 Obunani tekshirish",
+                    callback_data="check_sub"
+                )
+            ]
+        ]
+    )
 
-    if update.effective_message:
-        update.effective_message.reply_text(
-            text,
-            reply_markup=keyboard,
-            parse_mode="Markdown"
-        )
+    await message.answer(
+        text,
+        reply_markup=keyboard,
+        parse_mode="Markdown"
+    )
 
     return False
 
@@ -124,89 +123,62 @@ def require_subscription(update, context) -> bool:
 # CALLBACK: CHECK SUBSCRIPTION
 # ==========================================================
 
-def check_subscription_callback(update, context):
-    """Handles 🔄 Obunani tekshirish tugmasi"""
+@router.callback_query(F.data == "check_sub")
+async def check_subscription_callback(callback: CallbackQuery, state: FSMContext):
+    user_id = callback.from_user.id
 
-    #_debug(update, context, "Entered check_subscription_callback")
-
-    query = update.callback_query
-    user_id = query.from_user.id
-
-    if not is_subscribed(context.bot, user_id):
-        query.answer("❌ Hali obuna bo‘linmagan")
-        #_debug(update, context, "User is STILL NOT subscribed")
+    if not await is_subscribed(callback.bot, user_id):
+        await callback.answer("❌ Hali obuna bo‘linmagan", show_alert=True)
         return
 
-    query.answer("✅ Obuna tasdiqlandi!")
-    query.message.reply_text(
+    await callback.answer("✅ Obuna tasdiqlandi!")
+    await callback.message.answer(
         "🎉 Obuna muvaffaqiyatli!\n"
         "⏳ So‘rov bajarilmoqda..."
     )
 
-    #_debug(update, context, "User IS subscribed — replaying intent")
-
-    # ==================================================
-    # NORMALIZE UPDATE (CRITICAL FIX)
-    # ==================================================
-    if not update.message and query and query.message:
-        update.message = query.message
-
-    # ==================================================
-    # REPLAY STORED INTENT (AUTO-RUN)
-    # ==================================================
-    pending = context.user_data.pop("pending_action", None)
-
-    #_debug(update, context, f"Popped pending_action = {pending}")
+    data = await state.get_data()
+    pending = data.pop("pending_action", None)
+    await state.set_data(data)
 
     if not pending:
         return
 
-    chat_id = query.message.chat_id
+    chat_id = callback.message.chat.id
 
-    # 🔹 PRIORITY 1: numeric (message)
+    # ==================================================
+    # REPLAY STORED INTENT
+    # ==================================================
+
+    # 🔹 PRIORITY 1: numeric message
     if pending["type"] == "numeric":
-        #_debug(update, context, "Replaying NUMERIC action")
         from handlers import send_book_by_code
-        send_book_by_code(chat_id, pending["value"], context)
+        await send_book_by_code(callback.message, pending["value"])
         return
 
     # 🔹 PRIORITY 2: /start payload
     if pending["type"] == "start":
         payload = pending["payload"].lower()
-        #_debug(update, context, f"Replaying START payload = {payload}")
 
-        # ✅ FIX: numeric deep-link (/start 39)
         if payload.isdigit():
             from handlers import send_book_by_code
-            send_book_by_code(chat_id, payload, context)
+            await send_book_by_code(callback.message, payload)
             return
 
         if payload == "ad_rec":
             from features.ad_reciever import ad_rec_handler
-            ad_rec_handler(update, context)
+            await ad_rec_handler(callback.message)
             return
 
         if payload == "get_test":
             from features.get_test import get_test
-            get_test(update, context)
+            await get_test(callback.message)
             return
 
         return
 
     # 🔹 PRIORITY 3: plain /start
     if pending["type"] == "start_plain":
-        #_debug(update, context, "Replaying PLAIN /start")
-        from handlers import _send_start_menu
-        _send_start_menu(update, context)
+        from handlers import start_handler
+        await start_handler(callback.message, state)
         return
-    # ==================================================
-
-
-# ==========================================================
-# HANDLER REGISTRATION
-# ==========================================================
-
-def setup(dispatcher):
-    dispatcher.add_handler(
-        CallbackQueryHandler(check_subscription_callback, pattern="^check_sub$")
-    )
