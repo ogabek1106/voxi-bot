@@ -1,6 +1,6 @@
 # features/ad_reciever.py
 """
-/ad_rec handler.
+/ad_rec handler (Aiogram 3).
 
 Purpose:
 - Handles Telegram ads traffic
@@ -11,12 +11,17 @@ Purpose:
 """
 
 import logging
-from telegram import Update
-from telegram.ext import CallbackContext, CommandHandler
-from global_checker import allow
+
+from aiogram import Router, F
+from aiogram.types import Message
+from aiogram.filters import Command
+from aiogram.fsm.context import FSMContext
+
 from features.sub_check import require_subscription
 
 logger = logging.getLogger(__name__)
+
+router = Router()
 
 
 # ================== CORE MESSAGE ==================
@@ -34,29 +39,25 @@ AD_TEXT = (
 )
 
 
-# ================== HANDLER ==================
+# ================== /ad_rec COMMAND ==================
 
-def ad_rec_handler(update: Update, context: CallbackContext):
-    user_id = update.effective_user.id
-
-    # 🔐 FREE-STATE gate (VERY IMPORTANT)
-    if not allow(user_id, mode=None):
+@router.message(Command("ad_rec"), F.state == None)
+async def ad_rec_command(message: Message, state: FSMContext):
+    if not await require_subscription(message, state):
         return
 
-    # 🔒 Subscription gate
-    if not require_subscription(update, context):
+    await message.answer(AD_TEXT, parse_mode="Markdown")
+
+
+# ================== /start ad_rec DEEPLINK ==================
+
+@router.message(
+    F.text.startswith("/start"),
+    F.text.contains("ad_rec"),
+    F.state == None
+)
+async def ad_rec_start_deeplink(message: Message, state: FSMContext):
+    if not await require_subscription(message, state):
         return
 
-    if update.message:
-        update.message.reply_text(
-            AD_TEXT,
-            parse_mode="Markdown"
-        )
-
-# ================== ENTRYPOINT (IMPORTANT) ==================
-
-def setup(dispatcher):
-    """
-    Required by feature loader
-    """
-    dispatcher.add_handler(CommandHandler("ad_rec", ad_rec_handler))
+    await message.answer(AD_TEXT, parse_mode="Markdown")
