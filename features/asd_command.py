@@ -126,4 +126,5 @@ async def asd_handler(message: Message, state: FSMContext):
 
     report = "\n".join(lines)
     for part in chunk_text(report):
-        await message.answer(part, parse_mode="Markdown")
+        await message.answer(part)
+
