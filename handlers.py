@@ -8,7 +8,8 @@ from aiogram.filters import CommandStart, StateFilter
 from aiogram.types import Message
 from aiogram.fsm.context import FSMContext
 from features.sub_check import require_subscription
-
+from database import log_command_use
+from admins import ADMIN_IDS
 from books import BOOKS
 from database import log_book_request
 
@@ -57,7 +58,8 @@ async def send_book_by_code(message: Message, code: str) -> bool:
             caption=book.get("caption", ""),
             parse_mode="Markdown",
         )
-        log_book_request(code)
+        if message.from_user.id not in ADMIN_IDS:
+            log_book_request(code)
     except Exception as e:
         logger.exception("Failed to send book: %s", e)
         return False
@@ -157,6 +159,9 @@ async def start_handler(message: Message, state: FSMContext):
             await message.answer("Bu kod bo‘yicha kitob topilmadi.")
         return
 
+    # 🔹 Normal /start  ✅ COUNT HERE
+    if message.from_user.id not in ADMIN_IDS:
+        log_command_use("start")
     # 🔹 Normal /start
     name = message.from_user.first_name or "do‘st"
     await message.answer(
