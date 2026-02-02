@@ -12,7 +12,6 @@ from typing import Optional
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command
-from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.storage.base import StorageKey
@@ -31,9 +30,8 @@ BRIDGE_TIMEOUT = 24 * 60 * 60  # 24 hours
 # ─────────────────────────────
 
 class ContactState(StatesGroup):
-    admin_confirm = State()      # admin: waiting YES/NO
-    user_invited = State()       # user: invited, not connected
-    bridge_active = State()      # both sides: relay allowed
+    admin_confirm = State()   # admin waiting YES / NO
+    bridge_active = State()   # active relay on both sides
 
 
 # ─────────────────────────────
@@ -171,37 +169,48 @@ async def open_bridge(cb: CallbackQuery, state: FSMContext, dispatcher: Dispatch
         ),
     )
 
-    asyncio.create_task(auto_close(cb.bot, admin_id, user_id))
+    asyncio.create_task(
+        auto_close(cb.bot, admin_id, user_id, dispatcher)
+    )
 
 # ─────────────────────────────
 # /end_contact (admin)
 # ─────────────────────────────
 
 @router.message(Command("end_contact"), ContactState.bridge_active)
-async def end_contact(message: Message, state: FSMContext):
+async def end_contact(message: Message, state: FSMContext, dispatcher: Dispatcher):
     if not is_admin(message.from_user.id):
         return
 
     data = await state.get_data()
     peer = data.get("peer")
 
+    admin_id = message.from_user.id
+
+    # ── clear admin side ──
     await state.clear()
 
     if peer:
-        peer_state = state.bot.fsm.get_context(
-            bot=message.bot,
-            chat_id=peer,
-            user_id=peer,
+        # ── create peer FSM context correctly ──
+        peer_ctx = FSMContext(
+            storage=dispatcher.storage,
+            key=StorageKey(
+                bot_id=message.bot.id,
+                chat_id=peer,
+                user_id=peer,
+            )
         )
-        await peer_state.clear()
+        await peer_ctx.clear()
 
         try:
-            await message.bot.send_message(peer, "ℹ️ Contact closed by admin.")
+            await message.bot.send_message(
+                peer,
+                "ℹ️ Contact closed by admin."
+            )
         except Exception:
             pass
 
     await message.answer("✅ Contact closed.")
-
 
 # ─────────────────────────────
 # Message relay (ACTIVE ONLY)
@@ -225,15 +234,30 @@ async def relay(message: Message, state: FSMContext):
 # Auto-close timeout
 # ─────────────────────────────
 
-async def auto_close(bot, admin_id: int, user_id: int):
+async def auto_close(bot, admin_id: int, user_id: int, dispatcher: Dispatcher):
     await asyncio.sleep(BRIDGE_TIMEOUT)
 
-    admin_state = bot.fsm.get_context(bot, admin_id, admin_id)
-    user_state = bot.fsm.get_context(bot, user_id, user_id)
+    admin_ctx = FSMContext(
+        storage=dispatcher.storage,
+        key=StorageKey(
+            bot_id=bot.id,
+            chat_id=admin_id,
+            user_id=admin_id,
+        )
+    )
 
-    if await admin_state.get_state() == ContactState.bridge_active:
-        await admin_state.clear()
-        await user_state.clear()
+    user_ctx = FSMContext(
+        storage=dispatcher.storage,
+        key=StorageKey(
+            bot_id=bot.id,
+            chat_id=user_id,
+            user_id=user_id,
+        )
+    )
+
+    if await admin_ctx.get_state() == ContactState.bridge_active:
+        await admin_ctx.clear()
+        await user_ctx.clear()
         try:
             await bot.send_message(admin_id, "⏱ Contact auto-closed (timeout).")
             await bot.send_message(user_id, "⏱ Contact expired.")
