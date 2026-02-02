@@ -8,7 +8,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import BotCommand
 from features.global_cancel import router as global_cancel_router
 from features.user_tracker import setup_middleware
-
+from aiogram.types import BotCommand
 from handlers import router as core_router
 from features.sub_check import router as sub_check_router
 
@@ -72,6 +72,7 @@ async def main():
     try:
         await bot.set_my_commands([
             BotCommand(command="start", description="Botni ishga tushirish"),
+            BotCommand(command="all_books", description="Mavjud kitoblar ro'yxati"),
         ])
     except Exception:
         pass
