@@ -78,7 +78,9 @@ async def cmd_all_members(message: Message, state: FSMContext):
     )
 
 
-@router.message(Command("cancel"))
+@router.message(Command("cancel"), BroadcastState.awaiting_targets)
+@router.message(Command("cancel"), BroadcastState.awaiting_message)
+@router.message(Command("cancel"), BroadcastState.broadcasting)
 async def cmd_cancel(message: Message, state: FSMContext):
     if not is_admin(message.from_user.id):
         return
