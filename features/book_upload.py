@@ -88,14 +88,13 @@ async def book_upload_start(message: Message, state: FSMContext):
 # /cancel
 # ─────────────────────────────
 
-@router.message(Command("cancel"))
+@router.message(Command("cancel"), BookUploadState.waiting_file)
 async def book_upload_cancel(message: Message, state: FSMContext):
     if not is_admin(message.from_user.id):
         return
 
     await state.clear()
     await message.answer("🛑 Upload cancelled.")
-
 
 # ─────────────────────────────
 # File receiver
