@@ -37,17 +37,7 @@ async def ad_rec_command(message: Message, state: FSMContext):
         return
     await message.answer(AD_TEXT, parse_mode="Markdown")
 
-
-# /start ad_rec deep link (ONLY correct way)
-@router.message(CommandStart(deep_link=True))
-async def ad_rec_start_deeplink(message: Message, state: FSMContext):
-    payload = message.text.split(maxsplit=1)
-    payload = payload[1] if len(payload) > 1 else ""
-
-    if payload != "ad_rec":
-        return
-
+async def emit_ad(message: Message, state: FSMContext):
     if not await require_subscription(message, state):
         return
-
     await message.answer(AD_TEXT, parse_mode="Markdown")
