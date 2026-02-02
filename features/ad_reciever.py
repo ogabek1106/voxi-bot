@@ -1,20 +1,13 @@
 # features/ad_reciever.py
 """
 /ad_rec handler (Aiogram 3).
-
-Purpose:
-- Handles Telegram ads traffic
-- Works for:
-    • /ad_rec command
-    • /start ad_rec deep link
-- Checks channel subscription BEFORE showing details
 """
 
 import logging
 
-from aiogram import Router, F
+from aiogram import Router
 from aiogram.types import Message
-from aiogram.filters import Command
+from aiogram.filters import Command, CommandStart
 from aiogram.fsm.context import FSMContext
 
 from features.sub_check import require_subscription
@@ -23,8 +16,6 @@ logger = logging.getLogger(__name__)
 
 router = Router()
 
-
-# ================== CORE MESSAGE ==================
 
 AD_TEXT = (
     "🏆 *MMT (Monthly Mastery Test)* - Ingliz tili daraja testi\n\n"
@@ -39,24 +30,23 @@ AD_TEXT = (
 )
 
 
-# ================== /ad_rec COMMAND ==================
-
-@router.message(Command("ad_rec"), F.state == None)
+# /ad_rec command
+@router.message(Command("ad_rec"))
 async def ad_rec_command(message: Message, state: FSMContext):
     if not await require_subscription(message, state):
         return
-
     await message.answer(AD_TEXT, parse_mode="Markdown")
 
 
-# ================== /start ad_rec DEEPLINK ==================
-
-@router.message(
-    F.text.startswith("/start"),
-    F.text.contains("ad_rec"),
-    F.state == None
-)
+# /start ad_rec deep link (ONLY correct way)
+@router.message(CommandStart(deep_link=True))
 async def ad_rec_start_deeplink(message: Message, state: FSMContext):
+    payload = message.text.split(maxsplit=1)
+    payload = payload[1] if len(payload) > 1 else ""
+
+    if payload != "ad_rec":
+        return
+
     if not await require_subscription(message, state):
         return
 
