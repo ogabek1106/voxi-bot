@@ -14,6 +14,9 @@ from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKe
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.storage.base import StorageKey
+from aiogram.dispatcher.dispatcher import Dispatcher
 
 from admins import ADMIN_IDS
 
@@ -122,7 +125,7 @@ async def contact_decision(cb: CallbackQuery, state: FSMContext):
 # ─────────────────────────────
 
 @router.callback_query(F.data.startswith("bridge_open:"))
-async def open_bridge(cb: CallbackQuery, state: FSMContext):
+async def open_bridge(cb: CallbackQuery, state: FSMContext, dispatcher: Dispatcher):
     await cb.answer()
 
     admin_id = int(cb.data.split(":")[1])
@@ -131,27 +134,44 @@ async def open_bridge(cb: CallbackQuery, state: FSMContext):
     if is_admin(user_id):
         return
 
-    # lock both sides
-    await state.set_state(ContactState.bridge_active)
-
-    admin_state = state.bot.fsm.get_context(
-        bot=cb.bot,
-        chat_id=admin_id,
-        user_id=admin_id,
+    # ── Create FSM contexts manually (CORRECT WAY) ──
+    admin_ctx = FSMContext(
+        storage=dispatcher.storage,
+        key=StorageKey(
+            bot_id=cb.bot.id,
+            chat_id=admin_id,
+            user_id=admin_id,
+        )
     )
-    await admin_state.set_state(ContactState.bridge_active)
-    await admin_state.update_data(peer=user_id)
 
-    await state.update_data(peer=admin_id)
+    user_ctx = FSMContext(
+        storage=dispatcher.storage,
+        key=StorageKey(
+            bot_id=cb.bot.id,
+            chat_id=user_id,
+            user_id=user_id,
+        )
+    )
+
+    # ── Lock both sides ──
+    await admin_ctx.set_state(ContactState.bridge_active)
+    await admin_ctx.update_data(peer=user_id)
+
+    await user_ctx.set_state(ContactState.bridge_active)
+    await user_ctx.update_data(peer=admin_id)
 
     await cb.message.edit_text("✅ You are now connected to admin.")
+
     await cb.bot.send_message(
         chat_id=admin_id,
-        text=f"📩 User {user_id} connected.\nUse /end_contact to close."
+        text=(
+            f"📩 User {user_id} connected.\n\n"
+            "You can reply now.\n"
+            "Use /end_contact to close."
+        ),
     )
 
     asyncio.create_task(auto_close(cb.bot, admin_id, user_id))
-
 
 # ─────────────────────────────
 # /end_contact (admin)
