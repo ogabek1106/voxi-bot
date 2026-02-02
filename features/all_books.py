@@ -12,6 +12,8 @@ from aiogram import Router
 from aiogram.types import Message
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
+from database import log_command_use
+from admins import ADMIN_IDS
 
 from books import BOOKS
 from features.sub_check import require_subscription
@@ -57,6 +59,10 @@ async def all_books_handler(message: Message, state: FSMContext):
     # 🔐 FREE-STATE gate (FSM-safe)
     if not await require_subscription(message, state):
         return
+
+    # ✅ COUNT /all_books (NON-ADMIN ONLY)
+    if message.from_user.id not in ADMIN_IDS:
+        log_command_use("all_books")
 
     if not BOOKS:
         await message.answer("📚 No books are available yet.")
