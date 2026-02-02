@@ -8,7 +8,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import BotCommand
 from features.global_cancel import router as global_cancel_router
 from features.user_tracker import setup_middleware
-from aiogram.types import BotCommand
+
 from handlers import router as core_router
 from features.sub_check import router as sub_check_router
 
