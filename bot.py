@@ -6,11 +6,11 @@ import os
 from aiogram import Bot, Dispatcher
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import BotCommand
-from features.global_cancel import router as global_cancel_router
+# from features.global_cancel import router as global_cancel_router
 from features.user_tracker import setup_middleware
 
 from handlers import router as core_router
-from features.sub_check import router as sub_check_router
+# from features.sub_check import router as sub_check_router
 
 try:
     from features import register_all_features
@@ -48,14 +48,16 @@ async def main():
 
     dp = Dispatcher(storage=MemoryStorage())
 
-     # ── MIDDLEWARES ──
+    # ── MIDDLEWARES ──
     setup_middleware(dp)
-    
+
     # ── Core routers ──
     dp.include_router(core_router)
 
     # ── Feature routers ──
-    dp.include_router(sub_check_router)   # ✅ REQUIRED
+    # ❗ DO NOT include feature routers manually
+    # They are loaded ONLY via register_all_features()
+    # dp.include_router(sub_check_router)
 
     if register_all_features:
         try:
@@ -67,7 +69,7 @@ async def main():
         logger.warning("features.register_all_features not available. No feature modules loaded.")
 
     # ── GLOBAL routers (MUST BE LAST) ──
-    #dp.include_router(global_cancel_router)
+    # dp.include_router(global_cancel_router)
 
     try:
         await bot.set_my_commands([
