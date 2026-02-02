@@ -95,6 +95,6 @@ async def count_uses_handler(message: Message):
 
     await message.answer(
         "\n".join(lines),
-        parse_mode="Markdown",
+        #parse_mode="Markdown",
         disable_web_page_preview=True,
     )
