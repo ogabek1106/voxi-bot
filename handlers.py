@@ -140,15 +140,24 @@ async def _countdown_task(bot, chat_id, doc_msg_id, countdown_msg_id, total_seco
 async def start_handler(message: Message, state: FSMContext):
     if not await require_subscription(message, state):
         return
-    payload = message.text.split(maxsplit=1)
-    payload = payload[1].strip() if len(payload) > 1 else ""
 
-    if payload and payload.isdigit():
+    parts = message.text.split(maxsplit=1)
+    payload = parts[1].strip() if len(parts) > 1 else ""
+
+    # 🔹 Deep-link: AD
+    if payload == "ad_rec":
+        from features.ad_reciever import emit_ad
+        await emit_ad(message, state)
+        return
+
+    # 🔹 Deep-link: BOOK by code
+    if payload.isdigit():
         ok = await send_book_by_code(message, payload)
         if not ok:
             await message.answer("Bu kod bo‘yicha kitob topilmadi.")
         return
 
+    # 🔹 Normal /start
     name = message.from_user.first_name or "do‘st"
     await message.answer(
         f"*Assalomu alaykum*, {name}!\n\n"
