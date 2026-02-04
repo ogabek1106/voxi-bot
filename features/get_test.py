@@ -164,13 +164,15 @@ async def _update_skip_warning(state: FSMContext, bot):
     numbers = ", ".join(str(i + 1) for i in skipped)
     text = f"⚠️ <b>You skipped questions:</b> {numbers}"
 
+    # 👇 ONLY EDIT. If edit fails, DO NOT create new message.
     if msg_id:
         try:
             await bot.edit_message_text(chat_id, msg_id, text, parse_mode="HTML")
-            return
         except Exception:
             pass
+        return
 
+    # 👇 create only once
     msg = await bot.send_message(chat_id, text, parse_mode="HTML")
     await state.update_data(skip_warn_msg_id=msg.message_id)
 
