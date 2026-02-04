@@ -370,8 +370,22 @@ async def _render_question(state: FSMContext, bot):
         msg = await bot.send_message(data["chat_id"], text, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons), parse_mode="HTML")
         await state.update_data(question_msg_id=msg.message_id)
     else:
-        await bot.edit_message_text(data["chat_id"], data["question_msg_id"], text, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons), parse_mode="HTML")
-
+        try:
+            await bot.edit_message_text(
+                chat_id=data["chat_id"],
+                message_id=data["question_msg_id"],
+                text=text,
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
+                parse_mode="HTML",
+            )
+        except Exception:
+            msg = await bot.send_message(
+                data["chat_id"],
+                text,
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
+                parse_mode="HTML",
+            )
+            await state.update_data(question_msg_id=msg.message_id)
 
 # ─────────────────────────────
 # Callbacks
@@ -386,8 +400,8 @@ async def answer_handler(query: CallbackQuery, state: FSMContext):
 
     await query.answer("Noted ✅")
 
-    _, idx, choice = query.data.split("|")
-    idx = int(idx)
+    idx = (await state.get_data())["index"]
+    _, _, choice = query.data.split("|")
 
     data["answers"][idx] = choice
     data["skipped"].discard(idx)
