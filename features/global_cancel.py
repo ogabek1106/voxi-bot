@@ -1,4 +1,14 @@
 # global_cancel.py
+"""
+Global emergency reset (ADMIN ONLY).
+
+WARNING:
+- This is a destructive command.
+- Clears user_modes for ALL users.
+- Clears admin FSM state.
+- Must NOT include /cancel here.
+"""
+
 import logging
 from typing import Optional
 
@@ -23,31 +33,6 @@ router = Router()
 def _is_admin(user_id: Optional[int]) -> bool:
     raw = getattr(admins, "ADMIN_IDS", []) or []
     return user_id is not None and int(user_id) in {int(x) for x in raw}
-
-
-# ─────────────────────────────
-# /cancel — ANY USER, HARD RESET
-# ─────────────────────────────
-
-@router.message(Command("cancel"))
-async def global_cancel(message: Message, state: FSMContext):
-    user = message.from_user
-    if not user:
-        return
-
-    # 🔥 HARD RESET USER (DB + runtime)
-    #clean_user(user.id, reason="global_cancel")
-
-    # Clear FSM state completely
-    await state.clear()
-
-    await message.answer(
-        "❌ Cancelled.\n"
-        "Your current action was stopped and state reset."
-    )
-
-    logger.info("GLOBAL CANCEL | user_id=%s", user.id)
-
 
 # ─────────────────────────────
 # /cancel_all — ADMIN ONLY
