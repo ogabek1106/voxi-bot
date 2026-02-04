@@ -14,7 +14,9 @@ import logging
 import time
 import random
 import string
-from typing import Optional, Dict, Any, List, Tuple
+import sqlite3
+import os
+from typing import Dict
 
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
@@ -33,8 +35,6 @@ from database import (
     set_user_mode,
     clear_user_mode,
 )
-import sqlite3
-import os
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -47,7 +47,7 @@ SQLITE_TIMEOUT = 5
 
 
 # ─────────────────────────────
-# Low-level DB helpers (ported)
+# DB helpers
 # ─────────────────────────────
 
 def _connect():
@@ -105,31 +105,21 @@ def _clear_previous_attempt(user_id: int, test_id: str):
     conn = _connect()
     try:
         cur = conn.execute(
-            """
-            SELECT token
-            FROM test_scores
-            WHERE user_id = ? AND test_id = ?;
-            """,
+            "SELECT token FROM test_scores WHERE user_id = ? AND test_id = ?;",
             (user_id, test_id),
         )
         row = cur.fetchone()
         if row:
             token = row[0]
-            conn.execute(
-                "DELETE FROM test_answers WHERE token = ? AND test_id = ?;",
-                (token, test_id),
-            )
-            conn.execute(
-                "DELETE FROM test_scores WHERE user_id = ? AND test_id = ?;",
-                (user_id, test_id),
-            )
+            conn.execute("DELETE FROM test_answers WHERE token = ? AND test_id = ?;", (token, test_id))
+            conn.execute("DELETE FROM test_scores WHERE user_id = ? AND test_id = ?;", (user_id, test_id))
             conn.commit()
     finally:
         conn.close()
 
 
 # ─────────────────────────────
-# Generic helpers
+# Helpers
 # ─────────────────────────────
 
 def _gen_token(length=7):
@@ -150,7 +140,7 @@ def _time_progress_bar(left: int, total: int, width: int = 15) -> str:
     empty = width - filled
     return f"[{'▓' * filled}{'-' * empty}]"
 
-def _get_skipped_questions(data: dict):
+def _get_skipped_questions(data: Dict):
     skipped = data.get("skipped", set())
     answered = set(data.get("answers", {}).keys())
     return sorted(i for i in skipped if i not in answered)
@@ -167,28 +157,22 @@ async def get_test(message: Message, state: FSMContext):
         return
 
     await state.clear()
+    clear_user_mode(user.id)
 
     if not await require_subscription(message):
         return
 
     active = get_active_test()
     if not active:
-        await message.answer(
-            "❌ No active tests at the moment.\n"
-            "Please check back later."
-        )
+        await message.answer("❌ No active tests at the moment.")
         return
 
-    test_id, name, level, question_count, time_limit, published_at = active
+    test_id, name, level, question_count, time_limit, _ = active
 
-    keyboard = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(text="▶️ Start", callback_data="start_test"),
-                InlineKeyboardButton(text="❌ Cancel", callback_data="cancel_test"),
-            ]
-        ]
-    )
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="▶️ Start", callback_data="start_test"),
+        InlineKeyboardButton(text="❌ Cancel", callback_data="cancel_test"),
+    ]])
 
     await message.answer(
         "🧪 <b>Active Test</b>\n\n"
@@ -204,6 +188,7 @@ async def get_test(message: Message, state: FSMContext):
 
 @router.callback_query(F.data == "cancel_test")
 async def cancel_test(query: CallbackQuery, state: FSMContext):
+    clear_user_mode(query.from_user.id)
     await state.clear()
     await query.message.edit_text("❌ Test start cancelled.")
     await query.answer()
@@ -223,7 +208,12 @@ async def start_test_entry(query: CallbackQuery, state: FSMContext):
 
     set_user_mode(user_id, TEST_MODE)
 
-    if user_id in getattr(admins, "ADMIN_IDS", set()) or not get_user_name(user_id):
+    is_admin = user_id in getattr(admins, "ADMIN_IDS", set())
+
+    if is_admin:
+        set_user_name(user_id, None)
+
+    if is_admin or not get_user_name(user_id):
         await state.update_data(awaiting_name=True)
         await query.message.edit_text(
             "👤 Before starting the test, please enter your <b>full name</b>.\n\n"
@@ -238,10 +228,7 @@ async def start_test_entry(query: CallbackQuery, state: FSMContext):
 @router.message(F.text & ~F.text.startswith("/"))
 async def capture_name(message: Message, state: FSMContext):
     user = message.from_user
-    if not user:
-        return
-
-    if get_user_mode(user.id) != TEST_MODE:
+    if not user or get_user_mode(user.id) != TEST_MODE:
         return
 
     data = await state.get_data()
@@ -249,14 +236,14 @@ async def capture_name(message: Message, state: FSMContext):
         return
 
     name = message.text.strip()
-    if len(name) < 3:
+    if len(name) < 3 or len(name) > 64:
         await message.answer("❗ Please enter a valid full name.")
         return
 
     set_user_name(user.id, name)
     await state.update_data(awaiting_name=False)
 
-    await message.answer(f"✅ Thank you, <b>{name}</b>.\n\nStarting your test now…", parse_mode="HTML")
+    await message.answer(f"✅ Thank you, <b>{name}</b>. Starting your test now…", parse_mode="HTML")
     await _start_test_core(message.chat.id, state, user.id)
 
 
@@ -265,27 +252,26 @@ async def capture_name(message: Message, state: FSMContext):
 # ─────────────────────────────
 
 async def _start_test_core(chat_id: int, state: FSMContext, user_id: int):
+    bot = state.bot
+
     active_test = get_active_test()
     if not active_test:
-        await router.bot.send_message(chat_id, "❌ No active test.")
+        await bot.send_message(chat_id, "❌ No active test.")
         clear_user_mode(user_id)
         return
 
-    test_id, name, level, question_count, time_limit, _ = active_test
+    test_id, _, _, _, time_limit, _ = active_test
 
     token, finished = _get_existing_token(user_id, test_id)
 
     if user_id in getattr(admins, "ADMIN_IDS", set()):
         _clear_previous_attempt(user_id, test_id)
-        token = None
-        finished = False
+        token, finished = None, False
 
     if token and finished and user_id not in getattr(admins, "ADMIN_IDS", set()):
-        await router.bot.send_message(
+        await bot.send_message(
             chat_id,
-            f"❌ You already passed this test.\n\n"
-            f"🔑 Your token: <code>{token}</code>\n"
-            "📊 Send /result to see your result.",
+            f"❌ You already passed this test.\n\n🔑 Your token: <code>{token}</code>\n📊 Send /result to see your result.",
             parse_mode="HTML",
         )
         clear_user_mode(user_id)
@@ -297,12 +283,13 @@ async def _start_test_core(chat_id: int, state: FSMContext, user_id: int):
 
     questions = _load_questions(test_id)
     if not questions:
-        await router.bot.send_message(chat_id, "❌ Test has no questions.")
+        await bot.send_message(chat_id, "❌ Test has no questions.")
         clear_user_mode(user_id)
         return
 
     await state.update_data(
         chat_id=chat_id,
+        user_id=user_id,
         token=token,
         start_ts=start_ts,
         limit_min=time_limit,
@@ -316,13 +303,9 @@ async def _start_test_core(chat_id: int, state: FSMContext, user_id: int):
         auto_finished=False,
     )
 
-    await router.bot.send_message(chat_id, f"🔑 <b>Your token:</b> <code>{token}</code>", parse_mode="HTML")
+    await bot.send_message(chat_id, f"🔑 <b>Your token:</b> <code>{token}</code>", parse_mode="HTML")
 
-    timer_msg = await router.bot.send_message(
-        chat_id,
-        f"⏱ <b>Time left:</b> {_format_timer(_time_left(start_ts, time_limit))}",
-        parse_mode="HTML",
-    )
+    timer_msg = await bot.send_message(chat_id, f"⏱ <b>Time left:</b> {_format_timer(_time_left(start_ts, time_limit))}", parse_mode="HTML")
     await state.update_data(timer_msg_id=timer_msg.message_id)
 
     asyncio.create_task(_timer_loop(state))
@@ -341,11 +324,10 @@ async def _timer_loop(state: FSMContext):
             return
 
         try:
-            await router.bot.edit_message_text(
+            await state.bot.edit_message_text(
                 chat_id=data["chat_id"],
                 message_id=data["timer_msg_id"],
-                text=f"⏱ <b>Time left:</b> {_format_timer(left)}\n"
-                     f"{_time_progress_bar(left, data['total_seconds'])}",
+                text=f"⏱ <b>Time left:</b> {_format_timer(left)}\n{_time_progress_bar(left, data['total_seconds'])}",
                 parse_mode="HTML",
             )
         except Exception:
@@ -356,6 +338,7 @@ async def _timer_loop(state: FSMContext):
 
 async def _render_question(state: FSMContext):
     data = await state.get_data()
+    bot = state.bot
     idx = data["index"]
 
     _, q_text, a, b, c, d = data["questions"][idx]
@@ -384,21 +367,10 @@ async def _render_question(state: FSMContext):
     buttons.append([InlineKeyboardButton(text="🏁 Finish", callback_data="finish")])
 
     if data.get("question_msg_id") is None:
-        msg = await router.bot.send_message(
-            data["chat_id"],
-            text,
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
-            parse_mode="HTML",
-        )
+        msg = await bot.send_message(data["chat_id"], text, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons), parse_mode="HTML")
         await state.update_data(question_msg_id=msg.message_id)
     else:
-        await router.bot.edit_message_text(
-            chat_id=data["chat_id"],
-            message_id=data["question_msg_id"],
-            text=text,
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
-            parse_mode="HTML",
-        )
+        await bot.edit_message_text(data["chat_id"], data["question_msg_id"], text, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons), parse_mode="HTML")
 
 
 # ─────────────────────────────
@@ -408,7 +380,6 @@ async def _render_question(state: FSMContext):
 @router.callback_query(F.data.startswith("ans|"))
 async def answer_handler(query: CallbackQuery, state: FSMContext):
     await query.answer("Noted ✅")
-
     data = await state.get_data()
     if data.get("finished"):
         return
@@ -419,12 +390,7 @@ async def answer_handler(query: CallbackQuery, state: FSMContext):
     data["answers"][idx] = choice
     data["skipped"].discard(idx)
 
-    save_test_answer(
-        data["token"],
-        data["context_test_id"],
-        idx + 1,
-        choice,
-    )
+    save_test_answer(data["token"], data["context_test_id"], idx + 1, choice)
 
     if idx < len(data["questions"]) - 1:
         data["index"] = idx + 1
@@ -440,11 +406,10 @@ async def prev_handler(query: CallbackQuery, state: FSMContext):
     if data.get("finished"):
         return
 
-    current = data["index"]
-    if current > 0:
-        if current not in data["answers"]:
-            data["skipped"].add(current)
-        data["index"] = current - 1
+    if data["index"] > 0:
+        if data["index"] not in data["answers"]:
+            data["skipped"].add(data["index"])
+        data["index"] -= 1
         await state.update_data(**data)
         await _render_question(state)
 
@@ -456,12 +421,10 @@ async def next_handler(query: CallbackQuery, state: FSMContext):
     if data.get("finished"):
         return
 
-    current = data["index"]
-    total = len(data["questions"])
-    if current < total - 1:
-        if current not in data["answers"]:
-            data["skipped"].add(current)
-        data["index"] = current + 1
+    if data["index"] < len(data["questions"]) - 1:
+        if data["index"] not in data["answers"]:
+            data["skipped"].add(data["index"])
+        data["index"] += 1
         await state.update_data(**data)
         await _render_question(state)
 
@@ -481,14 +444,8 @@ async def finish_handler(query: CallbackQuery, state: FSMContext):
     if answered < total:
         skipped = _get_skipped_questions(data)
         numbers = ", ".join(str(i + 1) for i in skipped)
-        text = (
-            "⚠️ You have unanswered questions.\n\n"
-            f"Skipped: {numbers}\n\n"
-            "Do you really want to finish?"
-        )
-
         await query.message.edit_text(
-            text,
+            f"⚠️ You have unanswered questions.\n\nSkipped: {numbers}\n\nDo you really want to finish?",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="⚠️ Finish anyway", callback_data="finish_anyway")],
                 [InlineKeyboardButton(text="❌ Continue", callback_data="continue_test")],
@@ -512,7 +469,7 @@ async def continue_test_handler(query: CallbackQuery, state: FSMContext):
 
 
 # ─────────────────────────────
-# Finish logic
+# Finish
 # ─────────────────────────────
 
 async def _auto_finish(state: FSMContext):
@@ -536,18 +493,13 @@ async def _finish(state: FSMContext, manual: bool):
     total = len(data["questions"])
     correct_map = _load_correct_answers(data["context_test_id"])
 
-    correct = sum(
-        1
-        for idx, selected in data["answers"].items()
-        if correct_map.get(idx) == selected
-    )
-
+    correct = sum(1 for idx, selected in data["answers"].items() if correct_map.get(idx) == selected)
     score = round((correct / total) * 100, 2)
 
     save_test_score(
         token=data["token"],
         test_id=data["context_test_id"],
-        user_id=data["chat_id"],
+        user_id=data["user_id"],
         total_questions=total,
         correct_answers=correct,
         score=score,
@@ -556,19 +508,19 @@ async def _finish(state: FSMContext, manual: bool):
         auto_finished=data["auto_finished"],
     )
 
+    bot = state.bot
     for key in ("timer_msg_id", "question_msg_id"):
         try:
-            await router.bot.delete_message(data["chat_id"], data[key])
+            await bot.delete_message(data["chat_id"], data[key])
         except Exception:
             pass
 
-    await router.bot.send_message(
+    await bot.send_message(
         data["chat_id"],
         "✅ Your answers were submitted!\n\n"
         f"🔑 Your token: {data['token']}\n"
-        f"To see your result, send:\n"
-        f"/result {data['token']}",
+        f"To see your result, send:\n/result {data['token']}",
     )
 
-    clear_user_mode(data["chat_id"])
+    clear_user_mode(data["user_id"])
     await state.clear()
