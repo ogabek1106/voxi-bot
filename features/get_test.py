@@ -145,8 +145,7 @@ def _get_skipped_questions(data: Dict):
     answered = set(data.get("answers", {}).keys())
     return sorted(i for i in skipped if i not in answered)
 
-async def _update_skip_warning(state: FSMContext, bot):
-    data = await state.get_data()
+async def _update_skip_warning(state: FSMContext, bot, data: Dict):
     skipped = _get_skipped_questions(data)
 
     msg_id = data.get("skip_warn_msg_id")
@@ -164,7 +163,6 @@ async def _update_skip_warning(state: FSMContext, bot):
     numbers = ", ".join(str(i + 1) for i in skipped)
     text = f"⚠️ <b>You skipped questions:</b> {numbers}"
 
-    # 👇 ONLY EDIT. If edit fails, DO NOT create new message.
     if msg_id:
         try:
             await bot.edit_message_text(chat_id, msg_id, text, parse_mode="HTML")
@@ -172,7 +170,6 @@ async def _update_skip_warning(state: FSMContext, bot):
             pass
         return
 
-    # 👇 create only once
     msg = await bot.send_message(chat_id, text, parse_mode="HTML")
     await state.update_data(skip_warn_msg_id=msg.message_id)
 
@@ -437,7 +434,7 @@ async def answer_handler(query: CallbackQuery, state: FSMContext):
 
     data["answers"][idx] = choice
     data["skipped"].discard(idx)
-    await _update_skip_warning(state, query.bot)
+    await _update_skip_warning(state, query.bot, data)
 
     save_test_answer(data["token"], data["context_test_id"], idx + 1, choice)
 
@@ -460,7 +457,7 @@ async def prev_handler(query: CallbackQuery, state: FSMContext):
         
         data["index"] -= 1
         await state.update_data(**data)
-        await _update_skip_warning(state, query.bot)
+        await _update_skip_warning(state, query.bot, data)
         await _render_question(state, query.bot)
 
 
@@ -477,7 +474,7 @@ async def next_handler(query: CallbackQuery, state: FSMContext):
         
         data["index"] += 1
         await state.update_data(**data)
-        await _update_skip_warning(state, query.bot)
+        await _update_skip_warning(state, query.bot, data)
         await _render_question(state, query.bot)
 
 
