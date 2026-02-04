@@ -360,9 +360,9 @@ async def _render_question(state: FSMContext, bot):
         ])
 
     buttons.append([
-        InlineKeyboardButton(text="⬅️", callback_data="prev"),
+        InlineKeyboardButton(text="⬅️ Prev", callback_data=f"prev|{idx}"),
         InlineKeyboardButton(text=f"{idx + 1}/{len(data['questions'])}", callback_data="noop"),
-        InlineKeyboardButton(text="➡️", callback_data="next"),
+        InlineKeyboardButton(text="Next ➡️", callback_data=f"next|{idx}"),
     ])
     buttons.append([InlineKeyboardButton(text="🏁 Finish", callback_data="finish")])
 
@@ -400,7 +400,7 @@ async def answer_handler(query: CallbackQuery, state: FSMContext):
     await state.update_data(**data)
     await _render_question(state, query.bot)
 
-@router.callback_query(F.data == "prev")
+@router.callback_query(F.data.startswith("prev|"))
 async def prev_handler(query: CallbackQuery, state: FSMContext):
     await query.answer()
     data = await state.get_data()
@@ -415,7 +415,7 @@ async def prev_handler(query: CallbackQuery, state: FSMContext):
         await _render_question(state, query.bot)
 
 
-@router.callback_query(F.data == "next")
+@router.callback_query(F.data.startswith("next|"))
 async def next_handler(query: CallbackQuery, state: FSMContext):
     await query.answer()
     data = await state.get_data()
