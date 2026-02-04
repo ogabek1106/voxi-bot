@@ -159,7 +159,7 @@ async def get_test(message: Message, state: FSMContext):
     await state.clear()
     clear_user_mode(user.id)
 
-    if not await require_subscription(message):
+    if not await require_subscription(message, state):
         return
 
     active = get_active_test()
@@ -202,6 +202,9 @@ async def cancel_test(query: CallbackQuery, state: FSMContext):
 async def start_test_entry(query: CallbackQuery, state: FSMContext):
     await query.answer()
     user_id = query.from_user.id
+
+    if not await require_subscription(query.message, state):
+        return
 
     if get_user_mode(user_id) is not None:
         return
@@ -315,9 +318,8 @@ async def _start_test_core(chat_id: int, state: FSMContext, user_id: int):
 async def _timer_loop(state: FSMContext):
     while True:
         data = await state.get_data()
-        if not data or data.get("finished"):
+        if not data or data.get("finished") or "start_ts" not in data:
             return
-
         left = _time_left(data["start_ts"], data["limit_min"])
         if left <= 0:
             await _auto_finish(state)
@@ -379,10 +381,12 @@ async def _render_question(state: FSMContext):
 
 @router.callback_query(F.data.startswith("ans|"))
 async def answer_handler(query: CallbackQuery, state: FSMContext):
-    await query.answer("Noted ✅")
     data = await state.get_data()
     if data.get("finished"):
+        await query.answer("⏱ Test already finished")
         return
+
+    await query.answer("Noted ✅")
 
     _, idx, choice = query.data.split("|")
     idx = int(idx)
@@ -397,7 +401,6 @@ async def answer_handler(query: CallbackQuery, state: FSMContext):
 
     await state.update_data(**data)
     await _render_question(state)
-
 
 @router.callback_query(F.data == "prev")
 async def prev_handler(query: CallbackQuery, state: FSMContext):
