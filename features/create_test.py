@@ -323,7 +323,9 @@ async def edit_test(message: Message, state: FSMContext):
 @router.message(Command("cancel_all"))
 async def cancel(message: Message, state: FSMContext):
     if await state.get_state() is None:
-        return  # let global cancel handle free state
+        await message.answer("ℹ️ No active process to cancel.")
+        return
 
     await abort(message.from_user.id, state, "create_test cancelled")
     await message.answer("🛑 Test creation cancelled.")
+
