@@ -22,7 +22,7 @@ import time
 import logging
 from typing import Optional
 
-from aiogram import Router
+from aiogram import Router, F
 from aiogram.types import Message
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
@@ -133,21 +133,21 @@ async def start(message: Message, state: FSMContext):
 # META
 # ─────────────────────────────
 
-@router.message(CreateTest.name)
+@router.message(CreateTest.name, ~F.text.startswith("/"))
 async def name_step(message: Message, state: FSMContext):
     await state.update_data(name=message.text.strip())
     await state.set_state(CreateTest.level)
     await message.answer("Send LEVEL (A2 / B1 / B2 / C1)")
 
 
-@router.message(CreateTest.level)
+@router.message(CreateTest.level, ~F.text.startswith("/"))
 async def level_step(message: Message, state: FSMContext):
     await state.update_data(level=message.text.strip())
     await state.set_state(CreateTest.time)
     await message.answer("Send TIME LIMIT (minutes)")
 
 
-@router.message(CreateTest.time)
+@router.message(CreateTest.time, ~F.text.startswith("/"))
 async def time_step(message: Message, state: FSMContext):
     if not message.text.isdigit():
         await message.answer("❗ Send a number.")
@@ -158,7 +158,7 @@ async def time_step(message: Message, state: FSMContext):
     await message.answer("Send NUMBER OF QUESTIONS")
 
 
-@router.message(CreateTest.count)
+@router.message(CreateTest.count, ~F.text.startswith("/"))
 async def count_step(message: Message, state: FSMContext):
     if not message.text.isdigit():
         await message.answer("❗ Send a number.")
@@ -189,7 +189,7 @@ async def count_step(message: Message, state: FSMContext):
 # QUESTIONS
 # ─────────────────────────────
 
-@router.message(CreateTest.question)
+@router.message(CreateTest.question, ~F.text.startswith("/"))
 async def question_step(message: Message, state: FSMContext):
     await state.update_data(question_text=message.text.strip())
     await state.set_state(CreateTest.answers)
@@ -203,7 +203,7 @@ async def question_step(message: Message, state: FSMContext):
     )
 
 
-@router.message(CreateTest.answers)
+@router.message(CreateTest.answers, ~F.text.startswith("/"))
 async def answers_step(message: Message, state: FSMContext):
     parsed = parse_answers(message.text)
     if not parsed:
@@ -215,7 +215,7 @@ async def answers_step(message: Message, state: FSMContext):
     await message.answer("Send CORRECT answer (a/b/c/d)")
 
 
-@router.message(CreateTest.correct)
+@router.message(CreateTest.correct, ~F.text.startswith("/"))
 async def correct_step(message: Message, state: FSMContext):
     correct = message.text.lower().strip()
     if correct not in ("a", "b", "c", "d"):
@@ -320,6 +320,10 @@ async def edit_test(message: Message, state: FSMContext):
 # ─────────────────────────────
 
 @router.message(Command("cancel"))
+@router.message(Command("cancel_all"))
 async def cancel(message: Message, state: FSMContext):
+    if await state.get_state() is None:
+        return  # let global cancel handle free state
+
     await abort(message.from_user.id, state, "create_test cancelled")
     await message.answer("🛑 Test creation cancelled.")
