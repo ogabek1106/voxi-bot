@@ -22,7 +22,7 @@ import time
 import logging
 from typing import Optional
 
-from aiogram import Router, F
+from aiogram import Router
 from aiogram.types import Message
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
@@ -35,11 +35,7 @@ from database import (
     get_all_test_definitions,
     save_test_question,
     ensure_test_questions_table,
-    set_user_mode,
-    clear_user_mode,
 )
-from global_checker import allow
-from global_cleaner import clean_user
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -92,9 +88,13 @@ def parse_answers(text: str) -> Optional[dict]:
 
 
 async def abort(uid: int, state: FSMContext, reason: str):
-    clean_user(uid, reason=reason)
-    clear_user_mode(uid)
+    logger.info("Create test aborted: %s (uid=%s)", reason, uid)
     await state.clear()
+
+
+async def ensure_free_or_same(state: FSMContext) -> bool:
+    current = await state.get_state()
+    return current is None
 
 
 # ─────────────────────────────
@@ -109,10 +109,10 @@ async def start(message: Message, state: FSMContext):
         await message.answer("⛔ Admins only.")
         return
 
-    if not allow(uid, mode=None, allow_free=False):
+    if not await ensure_free_or_same(state):
+        await message.answer("⏳ Finish current process first.")
         return
 
-    set_user_mode(uid, MODE)
     await state.clear()
 
     await state.update_data(
@@ -252,10 +252,10 @@ async def correct_step(message: Message, state: FSMContext):
 
 @router.message(Command("edit_q"))
 async def edit_question(message: Message, state: FSMContext):
-    uid = message.from_user.id
     data = await state.get_data()
 
-    if not allow(uid, mode=MODE):
+    if await state.get_state() is None:
+        await message.answer("❗ You are not editing a test.")
         return
 
     parts = message.text.split()
@@ -301,7 +301,6 @@ async def edit_test(message: Message, state: FSMContext):
 
     test_id, name, level, q_count, time_limit, _ = test
 
-    set_user_mode(uid, MODE)
     await state.clear()
     await state.update_data(
         test_id=test_id,
