@@ -454,13 +454,13 @@ async def finish_handler(query: CallbackQuery, state: FSMContext):
         )
         return
 
-    await _finish(state, manual=True, query.bot)
+    await _finish(state, manual=True, bot=query.bot)
 
 
 @router.callback_query(F.data == "finish_anyway")
 async def finish_anyway_handler(query: CallbackQuery, state: FSMContext):
     await query.answer()
-    await _finish(state, manual=True, query.bot)
+    await _finish(state, manual=True, bot=query.bot)
 
 
 @router.callback_query(F.data == "continue_test")
@@ -474,7 +474,7 @@ async def continue_test_handler(query: CallbackQuery, state: FSMContext):
 # ─────────────────────────────
 
 async def _auto_finish(state: FSMContext, bot):
-    await _finish(state, manual=False, bot)
+    await _finish(state, manual=False, bot=bot)
 
 async def _finish(state: FSMContext, manual: bool, bot):
     data = await state.get_data()
