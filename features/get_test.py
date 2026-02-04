@@ -145,6 +145,35 @@ def _get_skipped_questions(data: Dict):
     answered = set(data.get("answers", {}).keys())
     return sorted(i for i in skipped if i not in answered)
 
+async def _update_skip_warning(state: FSMContext, bot):
+    data = await state.get_data()
+    skipped = _get_skipped_questions(data)
+
+    msg_id = data.get("skip_warn_msg_id")
+    chat_id = data["chat_id"]
+
+    if not skipped:
+        if msg_id:
+            try:
+                await bot.delete_message(chat_id, msg_id)
+            except Exception:
+                pass
+            await state.update_data(skip_warn_msg_id=None)
+        return
+
+    numbers = ", ".join(str(i + 1) for i in skipped)
+    text = f"⚠️ <b>You skipped questions:</b> {numbers}"
+
+    if msg_id:
+        try:
+            await bot.edit_message_text(chat_id, msg_id, text, parse_mode="HTML")
+            return
+        except Exception:
+            pass
+
+    msg = await bot.send_message(chat_id, text, parse_mode="HTML")
+    await state.update_data(skip_warn_msg_id=msg.message_id)
+
 
 # ─────────────────────────────
 # /get_test
@@ -303,6 +332,7 @@ async def _start_test_core(chat_id: int, state: FSMContext, user_id: int, bot):
         index=0,
         finished=False,
         auto_finished=False,
+        skip_warn_msg_id=None,
     )
 
     await bot.send_message(chat_id, f"🔑 <b>Your token:</b> <code>{token}</code>", parse_mode="HTML")
@@ -405,6 +435,7 @@ async def answer_handler(query: CallbackQuery, state: FSMContext):
 
     data["answers"][idx] = choice
     data["skipped"].discard(idx)
+    await _update_skip_warning(state, query.bot)
 
     save_test_answer(data["token"], data["context_test_id"], idx + 1, choice)
 
@@ -424,8 +455,10 @@ async def prev_handler(query: CallbackQuery, state: FSMContext):
     if data["index"] > 0:
         if data["index"] not in data["answers"]:
             data["skipped"].add(data["index"])
+        
         data["index"] -= 1
         await state.update_data(**data)
+        await _update_skip_warning(state, query.bot)
         await _render_question(state, query.bot)
 
 
@@ -439,8 +472,10 @@ async def next_handler(query: CallbackQuery, state: FSMContext):
     if data["index"] < len(data["questions"]) - 1:
         if data["index"] not in data["answers"]:
             data["skipped"].add(data["index"])
+        
         data["index"] += 1
         await state.update_data(**data)
+        await _update_skip_warning(state, query.bot)
         await _render_question(state, query.bot)
 
 
