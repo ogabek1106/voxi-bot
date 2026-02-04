@@ -225,7 +225,7 @@ async def start_test_entry(query: CallbackQuery, state: FSMContext):
         )
         return
 
-    await _start_test_core(query.message.chat.id, state, user_id)
+    await _start_test_core(query.message.chat.id, state, user_id, query.bot)
 
 
 @router.message(F.text & ~F.text.startswith("/"))
@@ -247,16 +247,15 @@ async def capture_name(message: Message, state: FSMContext):
     await state.update_data(awaiting_name=False)
 
     await message.answer(f"✅ Thank you, <b>{name}</b>. Starting your test now…", parse_mode="HTML")
-    await _start_test_core(message.chat.id, state, user.id)
+    await _start_test_core(message.chat.id, state, user.id, message.bot)
 
 
 # ─────────────────────────────
 # CORE ENGINE
 # ─────────────────────────────
 
-async def _start_test_core(chat_id: int, state: FSMContext, user_id: int):
-    bot = state.bot
-
+async def _start_test_core(chat_id: int, state: FSMContext, user_id: int, bot):
+    
     active_test = get_active_test()
     if not active_test:
         await bot.send_message(chat_id, "❌ No active test.")
@@ -311,22 +310,22 @@ async def _start_test_core(chat_id: int, state: FSMContext, user_id: int):
     timer_msg = await bot.send_message(chat_id, f"⏱ <b>Time left:</b> {_format_timer(_time_left(start_ts, time_limit))}", parse_mode="HTML")
     await state.update_data(timer_msg_id=timer_msg.message_id)
 
-    asyncio.create_task(_timer_loop(state))
-    await _render_question(state)
+    asyncio.create_task(_timer_loop(state, bot))
+    await _render_question(state, bot)
 
 
-async def _timer_loop(state: FSMContext):
+async def _timer_loop(state: FSMContext, bot):
     while True:
         data = await state.get_data()
         if not data or data.get("finished") or "start_ts" not in data:
             return
         left = _time_left(data["start_ts"], data["limit_min"])
         if left <= 0:
-            await _auto_finish(state)
+            await _auto_finish(state, bot)
             return
 
         try:
-            await state.bot.edit_message_text(
+            await bot.edit_message_text(
                 chat_id=data["chat_id"],
                 message_id=data["timer_msg_id"],
                 text=f"⏱ <b>Time left:</b> {_format_timer(left)}\n{_time_progress_bar(left, data['total_seconds'])}",
@@ -338,9 +337,8 @@ async def _timer_loop(state: FSMContext):
         await asyncio.sleep(15)
 
 
-async def _render_question(state: FSMContext):
+async def _render_question(state: FSMContext, bot):
     data = await state.get_data()
-    bot = state.bot
     idx = data["index"]
 
     _, q_text, a, b, c, d = data["questions"][idx]
@@ -400,7 +398,7 @@ async def answer_handler(query: CallbackQuery, state: FSMContext):
         data["index"] = idx + 1
 
     await state.update_data(**data)
-    await _render_question(state)
+    await _render_question(state, query.bot)
 
 @router.callback_query(F.data == "prev")
 async def prev_handler(query: CallbackQuery, state: FSMContext):
@@ -414,7 +412,7 @@ async def prev_handler(query: CallbackQuery, state: FSMContext):
             data["skipped"].add(data["index"])
         data["index"] -= 1
         await state.update_data(**data)
-        await _render_question(state)
+        await _render_question(state, query.bot)
 
 
 @router.callback_query(F.data == "next")
@@ -429,7 +427,7 @@ async def next_handler(query: CallbackQuery, state: FSMContext):
             data["skipped"].add(data["index"])
         data["index"] += 1
         await state.update_data(**data)
-        await _render_question(state)
+        await _render_question(state, query.bot)
 
 
 @router.callback_query(F.data == "noop")
@@ -456,30 +454,29 @@ async def finish_handler(query: CallbackQuery, state: FSMContext):
         )
         return
 
-    await _finish(state, manual=True)
+    await _finish(state, manual=True, query.bot)
 
 
 @router.callback_query(F.data == "finish_anyway")
 async def finish_anyway_handler(query: CallbackQuery, state: FSMContext):
     await query.answer()
-    await _finish(state, manual=True)
+    await _finish(state, manual=True, query.bot)
 
 
 @router.callback_query(F.data == "continue_test")
 async def continue_test_handler(query: CallbackQuery, state: FSMContext):
     await query.answer("Continue ✍️")
-    await _render_question(state)
+    await _render_question(state, query.bot)
 
 
 # ─────────────────────────────
 # Finish
 # ─────────────────────────────
 
-async def _auto_finish(state: FSMContext):
-    await _finish(state, manual=False)
+async def _auto_finish(state: FSMContext, bot):
+    await _finish(state, manual=False, bot)
 
-
-async def _finish(state: FSMContext, manual: bool):
+async def _finish(state: FSMContext, manual: bool, bot):
     data = await state.get_data()
     if not data or data.get("finished"):
         return
@@ -511,7 +508,7 @@ async def _finish(state: FSMContext, manual: bool):
         auto_finished=data["auto_finished"],
     )
 
-    bot = state.bot
+    
     for key in ("timer_msg_id", "question_msg_id"):
         try:
             await bot.delete_message(data["chat_id"], data[key])
