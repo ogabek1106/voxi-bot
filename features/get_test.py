@@ -165,7 +165,13 @@ async def _update_skip_warning(state: FSMContext, bot, data: Dict):
 
     if msg_id:
         try:
-            await bot.edit_message_text(chat_id, msg_id, text, parse_mode="HTML")
+            await bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=msg_id,
+                text=text,
+                parse_mode="HTML",
+            )
+
         except Exception:
             pass
         return
