@@ -68,8 +68,9 @@ def speaking_submenu_keyboard():
 # ─────────────────────────────
 
 def ui_allowed(user_id: int) -> bool:
-    return get_user_mode(user_id) in (None, "FREE", IELTS_MODE)
-
+    mode = get_user_mode(user_id)
+    logger.warning("IELTS UI blocked, user %s mode=%s", user_id, mode)
+    return mode in (None, IELTS_MODE)
 def ui_owner(user_id: int) -> bool:
     return get_user_mode(user_id) == IELTS_MODE
 
@@ -186,3 +187,4 @@ async def route_speaking_parts(message: Message):
         return
 
     await message.answer("/ielts_speaking")
+
