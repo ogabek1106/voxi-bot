@@ -101,7 +101,7 @@ async def cmd_cancel_broadcast(message: Message, state: FSMContext):
 
 
 # ─────────────── stages ───────────────
-@router.message(BroadcastState.awaiting_targets, ~Command())
+@router.message(BroadcastState.awaiting_targets, ~Command("cancel_all"))
 async def receive_targets(message: Message, state: FSMContext):
     if not is_admin(message.from_user.id):
         return
@@ -126,7 +126,7 @@ async def receive_targets(message: Message, state: FSMContext):
     await message.answer("✅ Targets set. Now send the message to broadcast.")
 
 
-@router.message(BroadcastState.awaiting_message, ~Command())
+@router.message(BroadcastState.awaiting_message, ~Command("cancel_all"))
 async def receive_message(message: Message, state: FSMContext):
     if not is_admin(message.from_user.id):
         return
