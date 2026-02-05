@@ -15,28 +15,28 @@ Shows:
 import logging
 import os
 import sqlite3
-from datetime import timedelta
-from database import get_checker_mode
-from telegram import Update
-from telegram.ext import CallbackContext, CommandHandler
+
+from aiogram import Router
+from aiogram.filters import Command
+from aiogram.types import Message
+from aiogram.fsm.context import FSMContext
 
 import admins
-from database import get_active_test, get_user_name
+from database import get_active_test, get_user_name, get_checker_mode
 
 logger = logging.getLogger(__name__)
+router = Router()
 
 DB_PATH = os.getenv("DB_PATH", os.getenv("SQLITE_PATH", "/data/data.db"))
 SQLITE_TIMEOUT = 5
 
 
-# ---------- helpers ----------
+# ─────────────────────────────
+# Helpers
+# ─────────────────────────────
 
 def _connect():
-    return sqlite3.connect(
-        DB_PATH,
-        timeout=SQLITE_TIMEOUT,
-        check_same_thread=False,
-    )
+    return sqlite3.connect(DB_PATH, timeout=SQLITE_TIMEOUT, check_same_thread=False)
 
 
 def _is_admin(user_id: int) -> bool:
@@ -45,33 +45,35 @@ def _is_admin(user_id: int) -> bool:
 
 
 def _format_seconds(seconds: float) -> str:
-    seconds = int(seconds)
+    seconds = int(seconds or 0)
     m, s = divmod(seconds, 60)
     return f"{m:02d}:{s:02d}"
 
 
-# ---------- command ----------
+# ─────────────────────────────
+# /top_results (admin)
+# ─────────────────────────────
 
-def top_results_command(update: Update, context: CallbackContext):
-    message = update.message
+@router.message(Command("top_results"))
+async def top_results_handler(message: Message, state: FSMContext):
     user_id = message.from_user.id
 
-    # 🚫 FREE STATE ONLY
+    # 🚫 FSM guard
     if get_checker_mode(user_id) is not None:
+        await message.answer("⚠️ Finish current operation before using /top_results.")
         return
 
     if not _is_admin(user_id):
-        message.reply_text("⛔ This command is for admins only.")
+        await message.answer("⛔ This command is for admins only.")
         return
-
 
     active = get_active_test()
     if not active:
-        message.reply_text("❌ No active test.")
+        await message.answer("❌ No active test.")
         return
 
     test_id, _, _, _, time_limit_min, _ = active
-    total_seconds = time_limit_min * 60
+    total_seconds = (time_limit_min or 0) * 60
 
     conn = _connect()
     cur = conn.cursor()
@@ -89,7 +91,7 @@ def top_results_command(update: Update, context: CallbackContext):
 
     if total_participants == 0:
         conn.close()
-        message.reply_text("📊 No results yet.")
+        await message.answer("📊 No results yet.")
         return
 
     # ---------- AVERAGE SCORE ----------
@@ -101,8 +103,7 @@ def top_results_command(update: Update, context: CallbackContext):
         """,
         (test_id,),
     )
-    avg_score = cur.fetchone()[0] or 0
-    avg_score = round(avg_score, 1)
+    avg_score = round((cur.fetchone()[0] or 0), 1)
 
     # ---------- AVERAGE TIME SPENT ----------
     cur.execute(
@@ -135,7 +136,6 @@ def top_results_command(update: Update, context: CallbackContext):
         (test_id,),
     )
     top_rows = cur.fetchall()
-
     conn.close()
 
     # ---------- BUILD MESSAGE ----------
@@ -158,14 +158,4 @@ def top_results_command(update: Update, context: CallbackContext):
             f"Score: <b>{score}</b> | Time: <b>{_format_seconds(time_spent)}</b>\n"
         )
 
-    message.reply_text(
-        "\n".join(lines),
-        parse_mode="HTML",
-    )
-
-
-# ---------- setup ----------
-
-def setup(dispatcher, bot=None):
-    dispatcher.add_handler(CommandHandler("top_results", top_results_command))
-    logger.info("Feature loaded: top_results")
+    await message.answer("\n".join(lines), parse_mode="HTML")
