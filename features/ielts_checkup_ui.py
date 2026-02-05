@@ -28,7 +28,7 @@ IELTS_MODE = "ielts_check_up"
 
 def main_user_keyboard():
     return ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text="🧠 IELTS Check Up")]],
+        keyboard=[[KeyboardButton(text="🧠 IELTS_CHECKUP__DEBUG__XYZ")]],
         resize_keyboard=True
     )
 
@@ -78,12 +78,13 @@ def ui_owner(user_id: int) -> bool:
 # Entry
 # ─────────────────────────────
 
-@router.message(F.text == "🧠 IELTS Check Up")
+@router.message(F.text == "🧠 IELTS_CHECKUP__DEBUG__XYZ")
 async def open_ielts_checkup(message: Message, state: FSMContext):
+    logger.critical("🔥 IELTS UI DEBUG BUTTON FIRED 🔥")
     uid = message.from_user.id
 
-    if not ui_allowed(uid):
-        return
+    #if not ui_allowed(uid):
+    #    return
 
     set_user_mode(uid, IELTS_MODE)
 
@@ -187,4 +188,5 @@ async def route_speaking_parts(message: Message):
         return
 
     await message.answer("/ielts_speaking")
+
 
