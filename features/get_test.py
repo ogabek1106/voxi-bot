@@ -262,7 +262,7 @@ async def start_test_entry(query: CallbackQuery, state: FSMContext):
     await _start_test_core(query.message.chat.id, state, user_id, query.bot)
 
 
-@router.message(F.text)
+@router.message()
 async def capture_name(message: Message, state: FSMContext):
     user = message.from_user
     if not user or get_user_mode(user.id) != TEST_MODE:
