@@ -4,12 +4,12 @@ import importlib
 import logging
 from aiogram import Router
 #from aiogram.dispatcher.dispatcher import Dispatcher
-from aiogram import Dispatcher
+#from aiogram import Dispatcher
 
 logger = logging.getLogger(__name__)
 
 
-def register_all_features(dp: Dispatcher):
+def register_all_features(dp):
     """
     Aiogram 3 feature loader.
 
