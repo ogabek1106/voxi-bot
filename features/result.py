@@ -40,6 +40,29 @@ router = Router()
 DB_PATH = os.getenv("DB_PATH", os.getenv("SQLITE_PATH", "/data/data.db"))
 SQLITE_TIMEOUT = 5
 
+MAX_TELEGRAM_LEN = 4000  # keep margin for HTML tags
+
+def _split_text_for_telegram(text: str, limit: int = MAX_TELEGRAM_LEN):
+    chunks = []
+    current = []
+
+    size = 0
+    for line in text.split("\n"):
+        # +1 for newline
+        line_len = len(line) + 1
+
+        if size + line_len > limit:
+            chunks.append("\n".join(current))
+            current = [line]
+            size = line_len
+        else:
+            current.append(line)
+            size += line_len
+
+    if current:
+        chunks.append("\n".join(current))
+
+    return chunks
 
 # ─────────────────────────────
 # Helpers (READ-ONLY SQL)
@@ -237,8 +260,13 @@ async def result_handler(message: Message, state: FSMContext):
     else:
         text += "\n\n<i>Detailed results are currently closed.</i>"
 
-    await message.answer(text, parse_mode="HTML")
-
+    if len(text) <= MAX_TELEGRAM_LEN:
+        await message.answer(text, parse_mode="HTML")
+    else:
+        parts = _split_text_for_telegram(text)
+        for i, part in enumerate(parts, start=1):
+            header = f"<b>📄 Results (part {i}/{len(parts)})</b>\n\n" if i > 1 else ""
+            await message.answer(header + part, parse_mode="HTML")
 
 # ─────────────────────────────
 # /open_results (admin)
