@@ -51,6 +51,9 @@ async def main():
     # ── MIDDLEWARES ──
     setup_middleware(dp)
 
+    # ── Core routers ──
+    dp.include_router(core_router)
+    
     if register_all_features:
         try:
             register_all_features(dp)
@@ -59,10 +62,7 @@ async def main():
             logger.exception("Failed to load features: %s", e)
     else:
         logger.warning("features.register_all_features not available. No feature modules loaded.")
-
-    # ── Core routers ──
-    dp.include_router(core_router)
-    
+  
     # ── GLOBAL routers (MUST BE LAST) ──
     # dp.include_router(global_cancel_router)
 
