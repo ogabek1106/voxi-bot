@@ -65,7 +65,7 @@ async def main():
     dp.include_router(core_router)
 
     # ── GLOBAL routers (MUST BE LAST) ──
-    dp.include_router(global_cancel_router)
+    #dp.include_router(global_cancel_router)
 
     try:
         await bot.set_my_commands([
