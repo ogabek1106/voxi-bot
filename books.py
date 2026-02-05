@@ -229,6 +229,11 @@ else:
             "file_id": "BQACAgIAAxkBAALJyGl7gsZazS-UA2UGYY7y1rTQfXItAAKWkwACzErhS8kGPwyPzdmOOAQ",
             "filename": "📗 Work on Your Grammar – Advanced (C1).pdf",
             "caption": "📗 *Work on Your Grammar – Advanced (C1).pdf*\n\n⏰ File will be deleted in 15 minutes.\n\nMore 👉 @IELTSforeverybody"
+        },
+        "45": {
+            "file_id": "BQACAgIAAxkBAALYdmmEl--WC0MU0EQwhkzlHqRG2VjQAAJVnwACswYpSMzJ_siXbntHOAQ",
+            "filename": "📒Intermediate Vocabularu.pdf",
+            "caption": "📒 *Intermediate Vocabularu.pdf*\n\n⏰ File will be deleted in 15 minutes.\n\nMore 👉 @IELTSforeverybody"
         }
     }
 
