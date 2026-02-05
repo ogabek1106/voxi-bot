@@ -141,8 +141,8 @@ async def _countdown_task(bot, chat_id, doc_msg_id, countdown_msg_id, total_seco
 
 @router.message(CommandStart(), StateFilter(None))
 async def start_handler(message: Message, state: FSMContext):
-    if not await require_subscription(message, state):
-        return
+    #if not await require_subscription(message, state):
+    #    return
 
     parts = message.text.split(maxsplit=1)
     payload = parts[1].strip() if len(parts) > 1 else ""
