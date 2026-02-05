@@ -139,7 +139,7 @@ async def _countdown_task(bot, chat_id, doc_msg_id, countdown_msg_id, total_seco
 # /start + deep links (FREE)
 # ─────────────────────────────
 
-@router.message(CommandStart(), StateFilter(None))
+@router.message(CommandStart())
 async def start_handler(message: Message, state: FSMContext):
     if not await require_subscription(message, state):
         return
@@ -179,7 +179,7 @@ async def start_handler(message: Message, state: FSMContext):
 # Numeric messages (FREE)
 # ─────────────────────────────
 
-@router.message(StateFilter(None), F.text.regexp(r"^\d+$"))
+@router.message(F.text.regexp(r"^\d+$"))
 async def numeric_message_handler(message: Message, state: FSMContext):
     if not await require_subscription(message, state):
         return
