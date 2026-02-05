@@ -38,7 +38,7 @@ def _is_admin(user_id: Optional[int]) -> bool:
 # /cancel_all — ADMIN ONLY
 # ─────────────────────────────
 
-+ @router.message(Command("cancel_all"), state="*")
+@router.message(Command("cancel_all"), state="*")
 async def global_cancel_all(message: Message, state: FSMContext):
     user = message.from_user
     if not user:
