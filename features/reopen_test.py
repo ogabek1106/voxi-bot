@@ -15,26 +15,28 @@ Rules:
 import logging
 import os
 import sqlite3
-from telegram import Update
-from telegram.ext import CallbackContext, CommandHandler
+
+from aiogram import Router
+from aiogram.filters import Command
+from aiogram.types import Message
+from aiogram.fsm.context import FSMContext
 
 import admins
 from database import get_active_test, get_checker_mode
 
 logger = logging.getLogger(__name__)
+router = Router()
 
 DB_PATH = os.getenv("DB_PATH", os.getenv("SQLITE_PATH", "/data/data.db"))
 SQLITE_TIMEOUT = 5
 
 
-# ---------- helpers ----------
+# ─────────────────────────────
+# Helpers
+# ─────────────────────────────
 
 def _connect():
-    return sqlite3.connect(
-        DB_PATH,
-        timeout=SQLITE_TIMEOUT,
-        check_same_thread=False,
-    )
+    return sqlite3.connect(DB_PATH, timeout=SQLITE_TIMEOUT, check_same_thread=False)
 
 
 def _is_admin(user_id: int) -> bool:
@@ -42,30 +44,34 @@ def _is_admin(user_id: int) -> bool:
     return int(user_id) in {int(x) for x in raw}
 
 
-# ---------- command ----------
+# ─────────────────────────────
+# /reopen_test (admin)
+# ─────────────────────────────
 
-def reopen_test_command(update: Update, context: CallbackContext):
-    message = update.message
+@router.message(Command("reopen_test"))
+async def reopen_test_handler(message: Message, state: FSMContext):
     admin_id = message.from_user.id
 
     # 🔒 ADMIN ONLY
     if not _is_admin(admin_id):
-        message.reply_text("⛔ This command is for admins only.")
+        await message.answer("⛔ This command is for admins only.")
         return
 
     # 🔒 FREE MODE ONLY
     if get_checker_mode(admin_id) is not None:
+        await message.answer("⚠️ Finish current operation before using /reopen_test.")
         return
 
-    if not context.args:
-        message.reply_text("❗ Usage:\n/reopen_test <user_id | token>")
+    parts = message.text.split(maxsplit=1)
+    if len(parts) < 2:
+        await message.answer("❗ Usage:\n/reopen_test <user_id | token>")
         return
 
-    identifier = context.args[0].strip()
+    identifier = parts[1].strip()
 
     active = get_active_test()
     if not active:
-        message.reply_text("❌ No active test.")
+        await message.answer("❌ No active test.")
         return
 
     test_id = active[0]
@@ -91,10 +97,9 @@ def reopen_test_command(update: Update, context: CallbackContext):
         row = cur.fetchone()
         if row:
             token = row[0]
-
     else:
         # case 2: token provided
-        token = identifier
+        token = identifier.strip()
         cur.execute(
             """
             SELECT user_id
@@ -109,24 +114,29 @@ def reopen_test_command(update: Update, context: CallbackContext):
 
     if not user_id or not token:
         conn.close()
-        message.reply_text("ℹ️ No attempt found for this user/token in the active test.")
+        await message.answer("ℹ️ No attempt found for this user/token in the active test.")
         return
 
     # ---------- DELETE ATTEMPT ----------
-    cur.execute(
-        "DELETE FROM test_answers WHERE token = ? AND test_id = ?;",
-        (token, test_id),
-    )
+    try:
+        cur.execute(
+            "DELETE FROM test_answers WHERE token = ? AND test_id = ?;",
+            (token, test_id),
+        )
+        cur.execute(
+            "DELETE FROM test_scores WHERE user_id = ? AND test_id = ?;",
+            (user_id, test_id),
+        )
+        conn.commit()
+    except Exception as e:
+        logger.exception("Failed to reopen test for user_id=%s token=%s", user_id, token)
+        await message.answer("❌ Failed to reopen test attempt due to DB error.")
+        conn.close()
+        return
+    finally:
+        conn.close()
 
-    cur.execute(
-        "DELETE FROM test_scores WHERE user_id = ? AND test_id = ?;",
-        (user_id, test_id),
-    )
-
-    conn.commit()
-    conn.close()
-
-    message.reply_text(
+    await message.answer(
         "✅ Test access reopened.\n\n"
         f"👤 User ID: <code>{user_id}</code>\n"
         f"🔑 Token: <code>{token}</code>\n"
@@ -134,10 +144,3 @@ def reopen_test_command(update: Update, context: CallbackContext):
         "The user can now start the test again.",
         parse_mode="HTML",
     )
-
-
-# ---------- setup ----------
-
-def setup(dispatcher, bot=None):
-    dispatcher.add_handler(CommandHandler("reopen_test", reopen_test_command))
-    logger.info("Feature loaded: reopen_test")
