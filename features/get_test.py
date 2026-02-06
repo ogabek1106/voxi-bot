@@ -38,7 +38,7 @@ from database import (
 
 logger = logging.getLogger(__name__)
 router = Router()
-router.message.filter(lambda m: get_user_mode(m.from_user.id) == TEST_MODE)
+#router.message.filter(lambda m: get_user_mode(m.from_user.id) == TEST_MODE)
 TEST_MODE = "in_test"
 EXTRA_GRACE_SECONDS = 0
 
@@ -266,6 +266,10 @@ async def start_test_entry(query: CallbackQuery, state: FSMContext):
 async def capture_name(message: Message, state: FSMContext):
     user = message.from_user
     if not user or get_user_mode(user.id) != TEST_MODE:
+        return
+
+    # 👇 THIS is the real guard
+    if get_user_mode(user.id) != TEST_MODE:
         return
 
     data = await state.get_data()
