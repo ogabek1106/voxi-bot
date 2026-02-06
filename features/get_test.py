@@ -262,15 +262,15 @@ async def start_test_entry(query: CallbackQuery, state: FSMContext):
     await _start_test_core(query.message.chat.id, state, user_id, query.bot)
 
 
-@router.message(F.text & ~F.text.startswith("/"))
+@router.message(F.text & ~F.text.startswith("/") & (F.func(lambda m: get_user_mode(m.from_user.id) == TEST_MODE)))
 async def capture_name(message: Message, state: FSMContext):
     user = message.from_user
     if not user or get_user_mode(user.id) != TEST_MODE:
         return
 
     # 👇 THIS is the real guard
-    if get_user_mode(user.id) != TEST_MODE:
-        return
+    #if get_user_mode(user.id) != TEST_MODE:
+    #    return
 
     data = await state.get_data()
     if not data.get("awaiting_name"):
