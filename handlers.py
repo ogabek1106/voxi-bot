@@ -153,6 +153,12 @@ async def start_handler(message: Message, state: FSMContext):
         await emit_ad(message, state)
         return
 
+    # 🔹 Deep-link: GET TEST  
+    if payload == "get_test":
+        from features.get_test import get_test
+        await get_test(message, state)
+        return
+    
     # 🔹 Deep-link: BOOK by code
     if payload.isdigit():
         ok = await send_book_by_code(message, payload)
