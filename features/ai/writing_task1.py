@@ -19,6 +19,7 @@ from aiogram import Router, F
 from aiogram.types import Message
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 
 from database import (
     get_user_mode,
@@ -117,6 +118,12 @@ IMPORTANT:
 MAX_TELEGRAM_LEN = 4000
 
 
+def _checker_cancel_keyboard():
+    return ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text="❌ Cancel")]],
+        resize_keyboard=True
+    )
+
 async def _split_and_send(message: Message, text: str):
     for i in range(0, len(text), MAX_TELEGRAM_LEN):
         await message.answer(text[i:i + MAX_TELEGRAM_LEN], parse_mode="Markdown")
@@ -177,7 +184,8 @@ async def start_check(message: Message, state: FSMContext):
         "📝 *IELTS Writing Task 1 SAVOLINI yuboring.*\n\n"
         "Grafik, jadval, jarayon yoki xarita bo‘lishi mumkin.\n"
         "Matn yoki rasm yuboring.",
-        parse_mode="Markdown"
+        parse_mode="Markdown",
+        reply_markup=_checker_cancel_keyboard()
     )
 
 
@@ -273,15 +281,16 @@ async def receive_report(message: Message, state: FSMContext):
     finally:
         await state.clear()
         set_user_mode(uid, IELTS_MODE)
-        await message.answer("✅ Tekshiruv yakunlandi.")
+        from features.ielts_checkup_ui import ielts_skills_reply_keyboard
+        await message.answer("✅ Tekshiruv yakunlandi.", reply_markup=ielts_skills_reply_keyboard())
 
 
 # ─────────────────────────────
 # Cancel
 # ─────────────────────────────
 
-@router.message(Command("cancel"))
-async def cancel(message: Message, state: FSMContext):
+@router.message(F.text == "❌ Cancel", StateFilter("*"))
+async def cancel_anytime(message: Message, state: FSMContext):
     uid = message.from_user.id
 
     if get_user_mode(uid) != CHECKER_MODE:
@@ -290,4 +299,10 @@ async def cancel(message: Message, state: FSMContext):
     await state.clear()
     set_user_mode(uid, IELTS_MODE)
 
-    await message.answer("❌ Tekshiruv bekor qilindi.")
+    from features.ielts_checkup_ui import ielts_skills_reply_keyboard
+
+    await message.answer(
+        "❌ Tekshiruv bekor qilindi.",
+        reply_markup=ielts_skills_reply_keyboard()
+    )
+
