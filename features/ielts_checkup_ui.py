@@ -14,6 +14,7 @@ from aiogram import Router, F
 from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton
 from aiogram.fsm.context import FSMContext
 from aiogram.filters import Command
+from features.sub_check import require_subscription
 
 from database import get_user_mode, set_user_mode, clear_user_mode
 
@@ -133,6 +134,10 @@ async def writing_menu(message: Message):
     if not ui_owner(uid):
         return
 
+    # 🔒 SUB CHECK — ONLY HERE
+    if not await require_subscription(message, state):
+        return
+
     await message.answer(
         "✍️ Writing section:",
         reply_markup=writing_submenu_keyboard()
@@ -190,6 +195,7 @@ async def route_speaking_parts(message: Message):
         return
 
     await message.answer("/ielts_speaking")
+
 
 
 
