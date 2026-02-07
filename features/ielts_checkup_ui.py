@@ -162,7 +162,7 @@ async def coming_soon(message: Message):
 # ─────────────────────────────
 
 @router.message(F.text == "📝 Writing Task 1")
-async def route_writing_task1(message: Message):
+async def route_writing_task1(message: Message, state: FSMContext):
     uid = message.from_user.id
     if not ui_owner(uid):
         return
@@ -189,6 +189,7 @@ async def route_speaking_parts(message: Message):
         return
 
     await message.answer("/ielts_speaking")
+
 
 
 
