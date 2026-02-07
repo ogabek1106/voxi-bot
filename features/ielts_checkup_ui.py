@@ -167,8 +167,9 @@ async def route_writing_task1(message: Message):
     if not ui_owner(uid):
         return
 
-    await message.answer("/ielts_writing_task1")
-
+    from features.ai.writing_task1 import start_check
+    await start_check(message, state)
+    
 @router.message(F.text == "🧠 Writing Task 2")
 async def route_writing_task2(message: Message):
     uid = message.from_user.id
@@ -188,5 +189,6 @@ async def route_speaking_parts(message: Message):
         return
 
     await message.answer("/ielts_speaking")
+
 
 
