@@ -135,8 +135,8 @@ async def writing_menu(message: Message):
         return
 
     # 🔒 SUB CHECK — ONLY HERE
-    if not await require_subscription(message, state):
-        return
+    #if not await require_subscription(message, state):
+    #    return
 
     await message.answer(
         "✍️ Writing section:",
@@ -195,6 +195,7 @@ async def route_speaking_parts(message: Message):
         return
 
     await message.answer("/ielts_speaking")
+
 
 
 
