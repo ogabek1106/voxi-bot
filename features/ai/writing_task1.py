@@ -28,7 +28,7 @@ from database import (
 )
 
 from features.ai.check_limits import can_use_feature
-#from features.admin_feedback import send_admin_card, store_writing_essay
+from features.admin_feedback import send_admin_card, store_writing_essay
 
 import openai
 
@@ -249,7 +249,7 @@ async def receive_report(message: Message, state: FSMContext):
 
     await message.answer("⏳ Tekshirilmoqda, iltimos kuting...")
 
-    store_writing_essay(message.bot, report, "#writing1")
+    await store_writing_essay(message.bot, report, "#writing1")
 
     try:
         response = await openai.ChatCompletion.acreate(
@@ -263,7 +263,7 @@ async def receive_report(message: Message, state: FSMContext):
 
         output_text = response["choices"][0]["message"]["content"].strip()
         await _split_and_send(message, output_text)
-        send_admin_card(message.bot, uid, "New IELTS Writing Task 1", output_text)
+        await send_admin_card(message.bot, uid, "New IELTS Writing Task 1", output_text)
         log_ai_usage(uid, "writing")
 
     except Exception:
