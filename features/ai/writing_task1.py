@@ -289,10 +289,8 @@ async def receive_report(message: Message, state: FSMContext):
 # Cancel
 # ─────────────────────────────
 
-@router.message(
-    F.text == "❌ Cancel",
-    StateFilter(WAITING_FOR_TOPIC) | StateFilter(WAITING_FOR_REPORT)
-)
+@router.message(F.text == "❌ Cancel", StateFilter(WAITING_FOR_TOPIC))
+@router.message(F.text == "❌ Cancel", StateFilter(WAITING_FOR_REPORT))
 async def cancel_anytime(message: Message, state: FSMContext):
     uid = message.from_user.id
 
@@ -307,3 +305,4 @@ async def cancel_anytime(message: Message, state: FSMContext):
         "❌ Tekshiruv bekor qilindi.",
         reply_markup=ielts_skills_reply_keyboard()
     )
+
