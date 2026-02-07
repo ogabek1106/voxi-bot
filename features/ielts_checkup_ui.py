@@ -129,14 +129,14 @@ async def back_to_skills(message: Message, state: FSMContext):
 # ─────────────────────────────
 
 @router.message(F.text == "✍️ Writing")
-async def writing_menu(message: Message):
+async def writing_menu(message: Message, state: FSMContext):
     uid = message.from_user.id
     if not ui_owner(uid):
         return
 
     # 🔒 SUB CHECK — ONLY HERE
-    #if not await require_subscription(message, state):
-    #    return
+    if not await require_subscription(message, state):
+        return
 
     await message.answer(
         "✍️ Writing section:",
@@ -195,6 +195,7 @@ async def route_speaking_parts(message: Message):
         return
 
     await message.answer("/ielts_speaking")
+
 
 
 
