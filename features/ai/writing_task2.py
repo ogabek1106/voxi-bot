@@ -183,7 +183,8 @@ async def start_check(message: Message, state: FSMContext):
 # Receive Topic
 # ─────────────────────────────
 
-@router.message(StateFilter(WAITING_FOR_TOPIC), (F.photo | (F.text & ~F.text.casefold().contains("cancel"))))
+@router.message(StateFilter(WAITING_FOR_TOPIC), F.text != "❌ Cancel")
+@router.message(StateFilter(WAITING_FOR_TOPIC), F.photo)
 async def receive_topic(message: Message, state: FSMContext):
     uid = message.from_user.id
 
@@ -218,7 +219,8 @@ async def receive_topic(message: Message, state: FSMContext):
 # Receive Essay
 # ─────────────────────────────
 
-@router.message(StateFilter(WAITING_FOR_ESSAY), (F.photo | (F.text & ~F.text.casefold().contains("cancel"))))
+@router.message(StateFilter(WAITING_FOR_ESSAY), F.text != "❌ Cancel")
+@router.message(StateFilter(WAITING_FOR_ESSAY), F.photo)
 async def receive_essay(message: Message, state: FSMContext):
     uid = message.from_user.id
 
@@ -279,7 +281,8 @@ async def receive_essay(message: Message, state: FSMContext):
 # Cancel (inner only)
 # ─────────────────────────────
 
-@router.message(F.text == "❌ Cancel", StateFilter("*"))
+@router.message(F.text == "❌ Cancel", StateFilter(WAITING_FOR_TOPIC))
+@router.message(F.text == "❌ Cancel", StateFilter(WAITING_FOR_ESSAY))
 async def cancel_anytime(message: Message, state: FSMContext):
     uid = message.from_user.id
 
