@@ -15,7 +15,10 @@ This file is FUTURE-PROOF:
 
 import time
 from typing import Dict
-from admins import ADMIN_IDS
+
+from admins import ADMIN_IDS  # OK if admins.py is top-level
+# If admins.py is under features/, change to:
+# from features.admins import ADMIN_IDS
 
 # ==============================
 # TEMPORARY TARIFF LISTS
@@ -75,6 +78,7 @@ def can_use_feature(user_id: int, feature: str) -> Dict:
     Main limiter function.
     Returns a structured decision dict.
     """
+
     # 🚧 TEMPORARILY DISABLE ALL LIMITS
     return {
         "allowed": True,
@@ -85,7 +89,7 @@ def can_use_feature(user_id: int, feature: str) -> Dict:
         "retry_after_seconds": None,
         "message": None,
     }
-    
+
     # 🔑 ADMIN / OWNER BYPASS (NO LIMITS)
     if user_id in ADMIN_IDS:
         return {
@@ -100,7 +104,6 @@ def can_use_feature(user_id: int, feature: str) -> Dict:
 
     tariff = get_user_tariff(user_id)
 
-    # If tariff has no limits yet → allow
     if tariff not in LIMITS:
         return {
             "allowed": True,
@@ -110,7 +113,6 @@ def can_use_feature(user_id: int, feature: str) -> Dict:
 
     limit = LIMITS[tariff].get(feature, 0)
 
-    # Feature not allowed at all
     if limit <= 0:
         return {
             "allowed": False,
@@ -127,7 +129,6 @@ def can_use_feature(user_id: int, feature: str) -> Dict:
 
     used = count_ai_usage_since(user_id, feature, since)
 
-    # Allowed
     if used < limit:
         return {
             "allowed": True,
@@ -138,7 +139,6 @@ def can_use_feature(user_id: int, feature: str) -> Dict:
             "message": None,
         }
 
-    # Blocked → calculate remaining time
     last_used = get_last_ai_usage_time(user_id, feature)
 
     retry_after = 0
