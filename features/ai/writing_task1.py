@@ -14,7 +14,7 @@ import logging
 import os
 import base64
 import asyncio
-
+from aiogram.filters import StateFilter
 from aiogram import Router, F
 from aiogram.types import Message
 from aiogram.filters import Command
@@ -27,7 +27,6 @@ from database import (
     log_ai_usage,
 )
 
-from global_cleaner import clean_user
 from features.ai.check_limits import can_use_feature
 from features.admin_feedback import send_admin_card, store_writing_essay
 
@@ -118,11 +117,9 @@ IMPORTANT:
 MAX_TELEGRAM_LEN = 4000
 
 
-def _split_and_send(message: Message, text: str):
+async def _split_and_send(message: Message, text: str):
     for i in range(0, len(text), MAX_TELEGRAM_LEN):
-        asyncio.create_task(
-            message.answer(text[i:i + MAX_TELEGRAM_LEN], parse_mode="Markdown")
-        )
+        await message.answer(text[i:i + MAX_TELEGRAM_LEN], parse_mode="Markdown")
 
 
 async def _ocr_image_to_text(bot, photos):
@@ -188,7 +185,7 @@ async def start_check(message: Message, state: FSMContext):
 # Receive Topic
 # ─────────────────────────────
 
-@router.message(F.text | F.photo, state=WAITING_FOR_TOPIC)
+@router.message(F.text | F.photo, StateFilter(WAITING_FOR_TOPIC))
 async def receive_topic(message: Message, state: FSMContext):
     uid = message.from_user.id
 
@@ -223,7 +220,7 @@ async def receive_topic(message: Message, state: FSMContext):
 # Receive Report
 # ─────────────────────────────
 
-@router.message(F.text | F.photo, state=WAITING_FOR_REPORT)
+@router.message(F.text | F.photo, StateFilter(WAITING_FOR_REPORT))
 async def receive_report(message: Message, state: FSMContext):
     uid = message.from_user.id
 
@@ -265,7 +262,7 @@ async def receive_report(message: Message, state: FSMContext):
         )
 
         output_text = response["choices"][0]["message"]["content"].strip()
-        _split_and_send(message, output_text)
+        await _split_and_send(message, output_text)
         send_admin_card(message.bot, uid, "New IELTS Writing Task 1", output_text)
         log_ai_usage(uid, "writing")
 
@@ -274,7 +271,6 @@ async def receive_report(message: Message, state: FSMContext):
         await message.answer("❌ Xatolik yuz berdi. Keyinroq urinib ko‘ring.")
 
     finally:
-        clean_user(uid, reason="writing_task1 finished")
         await state.clear()
         set_user_mode(uid, IELTS_MODE)
         await message.answer("✅ Tekshiruv yakunlandi.")
@@ -291,7 +287,6 @@ async def cancel(message: Message, state: FSMContext):
     if get_user_mode(uid) != CHECKER_MODE:
         return
 
-    clean_user(uid, reason="writing_task1 cancel")
     await state.clear()
     set_user_mode(uid, IELTS_MODE)
 
