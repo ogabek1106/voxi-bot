@@ -177,7 +177,7 @@ async def start_handler(message: Message, state: FSMContext):
         "anonim tarzda saqlanishi va tahlil qilinishi mumkin._\n\n"
         "Menga *kitob kodini* yuboring 👇",
         parse_mode="Markdown",
-        #reply_markup=main_user_keyboard(),
+        reply_markup=main_user_keyboard(),
     )
 
 
