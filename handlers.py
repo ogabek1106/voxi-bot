@@ -12,7 +12,7 @@ from database import log_command_use
 from admins import ADMIN_IDS
 from books import BOOKS
 from database import log_book_request
-#from features.ielts_checkup_ui import main_user_keyboard
+from features.ielts_checkup_ui import main_user_keyboard
 
 logger = logging.getLogger(__name__)
 
