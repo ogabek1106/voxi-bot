@@ -171,12 +171,13 @@ async def route_writing_task1(message: Message, state: FSMContext):
     await start_check(message, state)
     
 @router.message(F.text == "🧠 Writing Task 2")
-async def route_writing_task2(message: Message):
+async def route_writing_task2(message: Message, state: FSMContext):
     uid = message.from_user.id
     if not ui_owner(uid):
         return
 
-    await message.answer("/ielts_writing_task2")
+    from features.ai.writing_task2 import start_check
+    await start_check(message, state)
 
 @router.message(F.text.in_({
     "🗣️ Part 1 – Introduction",
@@ -189,6 +190,7 @@ async def route_speaking_parts(message: Message):
         return
 
     await message.answer("/ielts_speaking")
+
 
 
 
