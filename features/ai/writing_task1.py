@@ -193,7 +193,7 @@ async def start_check(message: Message, state: FSMContext):
 # Receive Topic
 # ─────────────────────────────
 
-@router.message(StateFilter(WAITING_FOR_TOPIC))
+@router.message(StateFilter(WAITING_FOR_TOPIC), F.text != "❌ Cancel")
 async def receive_topic(message: Message, state: FSMContext):
     uid = message.from_user.id
 
@@ -228,7 +228,7 @@ async def receive_topic(message: Message, state: FSMContext):
 # Receive Report
 # ─────────────────────────────
 
-@router.message(StateFilter(WAITING_FOR_REPORT))
+@router.message(StateFilter(WAITING_FOR_REPORT), F.text != "❌ Cancel")
 async def receive_report(message: Message, state: FSMContext):
     uid = message.from_user.id
 
@@ -289,7 +289,10 @@ async def receive_report(message: Message, state: FSMContext):
 # Cancel
 # ─────────────────────────────
 
-@router.message(F.text == "❌ Cancel", StateFilter("*"))
+@router.message(
+    F.text == "❌ Cancel",
+    StateFilter(WAITING_FOR_TOPIC) | StateFilter(WAITING_FOR_REPORT)
+)
 async def cancel_anytime(message: Message, state: FSMContext):
     uid = message.from_user.id
 
@@ -300,9 +303,7 @@ async def cancel_anytime(message: Message, state: FSMContext):
     set_user_mode(uid, IELTS_MODE)
 
     from features.ielts_checkup_ui import ielts_skills_reply_keyboard
-
     await message.answer(
         "❌ Tekshiruv bekor qilindi.",
         reply_markup=ielts_skills_reply_keyboard()
     )
-
