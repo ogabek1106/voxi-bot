@@ -9,6 +9,7 @@ from aiogram.filters import Command, StateFilter
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
 from features.ielts_checkup_ui import main_user_keyboard
+from features.admin_feedback import send_admin_card, store_writing_essay
 
 from database import get_user_mode, set_user_mode, clear_user_mode
 
@@ -219,6 +220,14 @@ async def analyze_text(message: Message, state: FSMContext):
         raw = response["choices"][0]["message"]["content"]
         ai_data = json.loads(raw)
 
+        try:
+            prob = _safe_int(ai_data.get("ai_probability", 0))
+            if prob <= 30:
+                await store_writing_essay(message.bot, text, "#ai_detect_clean")
+        except Exception:
+            logger.exception("Failed to store AI Detector text")
+
+
     except Exception:
         logger.exception("AI Detection failed")
         ai_data = {
@@ -235,7 +244,7 @@ async def analyze_text(message: Message, state: FSMContext):
         parse_mode="HTML",
         reply_markup=_next_actions_keyboard()
     )
-
+    await send_admin_card(message.bot, uid, "New AI Detection", output)
     await state.clear()
     clear_user_mode(uid)
 
