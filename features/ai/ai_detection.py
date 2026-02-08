@@ -281,8 +281,8 @@ async def analyze_text(message: Message, state: FSMContext):
 
     await message.answer(
         output,
-        parse_mode="HTML",
-        reply_markup=_next_actions_keyboard()
+        parse_mode="HTML"
+        #reply_markup=_next_actions_keyboard()
     )
     await send_admin_card(message.bot, uid, "New AI Detection", output)
     await state.clear()
