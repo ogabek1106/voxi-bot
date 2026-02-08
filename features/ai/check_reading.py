@@ -131,6 +131,18 @@ async def _ocr_image_to_text(bot, photos):
         logger.exception("OCR failed")
         return ""
 
+def _should_confirm_album(message: Message, data: dict, key: str) -> bool:
+    album_id = message.media_group_id
+    if not album_id:
+        return True
+
+    confirmed = data.setdefault(key, set())
+    if album_id in confirmed:
+        return False
+
+    confirmed.add(album_id)
+    return True
+
 def _split_passage_and_questions(text: str):
     lines = text.splitlines()
     passage, questions = [], []
@@ -211,7 +223,10 @@ async def collect_passage(message: Message, state: FSMContext):
             data["texts"].append(text)
 
     await state.update_data(texts=data["texts"])
-    await message.answer("📄 Qabul qilindi. Tugatgach ➡️ *Davom etish* ni bosing.", parse_mode="Markdown")
+
+    # ✅ Confirm only once per album
+    if _should_confirm_album(message, data, "confirmed_passage_albums"):
+        await message.answer("📄 Qabul qilindi. Tugatgach ➡️ *Davom etish* ni bosing.", parse_mode="Markdown")
 
 @router.message(StateFilter(WAITING_FOR_PASSAGE), F.text == "➡️ Davom etish")
 async def proceed_to_answers(message: Message, state: FSMContext):
@@ -261,8 +276,11 @@ async def collect_answers(message: Message, state: FSMContext):
             data["answers"].append(text)
 
     await state.update_data(answers=data["answers"])
-    await message.answer("✍️ Qabul qilindi. Tugatgach ➡️ *Davom etish* ni bosing.", parse_mode="Markdown")
 
+    # ✅ Confirm only once per album
+    if _should_confirm_album(message, data, "confirmed_answers_albums"):
+        await message.answer("✍️ Qabul qilindi. Tugatgach ➡️ *Davom etish* ni bosing.", parse_mode="Markdown")
+        
 @router.message(StateFilter(WAITING_FOR_ANSWERS), F.text == "➡️ Davom etish")
 async def finalize_reading(message: Message, state: FSMContext):
     uid = message.from_user.id
