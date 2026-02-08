@@ -215,4 +215,15 @@ async def route_speaking_part3(message: Message, state: FSMContext):
     from features.ai.check_speaking3 import start_check
     await start_check(message, state)
 
+@router.message(F.text == "📖 Reading")
+async def route_reading(message: Message, state: FSMContext):
+    uid = message.from_user.id
+    if not ui_owner(uid):
+        return
 
+    # 🔒 SUB CHECK — SAME AS WRITING & SPEAKING
+    if not await require_subscription(message, state):
+        return
+
+    from features.ai.check_reading import start_check
+    await start_check(message, state)
