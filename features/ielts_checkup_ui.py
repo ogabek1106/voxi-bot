@@ -192,3 +192,12 @@ async def route_speaking_part1(message: Message, state: FSMContext):
 
     from features.ai.check_speaking1 import start_check
     await start_check(message, state)
+
+@router.message(F.text == "🗣️ Part 2 – Cue Card")
+async def route_speaking_part2(message: Message, state: FSMContext):
+    uid = message.from_user.id
+    if not ui_owner(uid):
+        return
+
+    from features.ai.check_speaking2 import start_check
+    await start_check(message, state)
