@@ -1,4 +1,4 @@
-# features/ai/check_reading.py
+    # features/ai/check_reading.py
 import logging
 import os
 import base64
@@ -131,16 +131,19 @@ async def _ocr_image_to_text(bot, photos):
         logger.exception("OCR failed")
         return ""
 
-def _should_confirm_album(message: Message, data: dict, key: str) -> bool:
+async def _should_confirm_album_safe(message: Message, state: FSMContext, key: str) -> bool:
     album_id = message.media_group_id
     if not album_id:
         return True
 
-    confirmed = data.setdefault(key, set())
+    data = await state.get_data()
+    confirmed = set(data.get(key, []))
+
     if album_id in confirmed:
         return False
 
     confirmed.add(album_id)
+    await state.update_data(**{key: list(confirmed)})
     return True
 
 def _split_passage_and_questions(text: str):
@@ -214,22 +217,19 @@ async def collect_passage(message: Message, state: FSMContext):
         return
 
     data = await state.get_data()
+    texts = list(data.get("texts", []))  # 👈 safe copy
 
     if message.text:
-        data["texts"].append(message.text)
+        texts.append(message.text)
 
     elif message.photo:
         text = await _ocr_image_to_text(message.bot, message.photo)
         if text.strip():
-            data["texts"].append(text)
+            texts.append(text)
 
-    # 🔥 ALWAYS persist texts
-    await state.update_data(texts=data["texts"])
+    await state.update_data(texts=texts)  # 👈 atomic update
 
-    confirmed = _should_confirm_album(message, data, "confirmed_passage_albums")
-
-    # 🔥 persist album registry into FSM
-    await state.update_data(confirmed_passage_albums=data.get("confirmed_passage_albums"))
+    confirmed = await _should_confirm_album_safe(message, state, "confirmed_passage_albums")
 
     if confirmed:
         await message.answer(
@@ -276,22 +276,19 @@ async def collect_answers(message: Message, state: FSMContext):
         return
 
     data = await state.get_data()
+    answers = list(data.get("answers", []))  # 👈 safe copy
 
     if message.text:
-        data["answers"].append(message.text)
+        answers.append(message.text)
 
     elif message.photo:
         text = await _ocr_image_to_text(message.bot, message.photo)
         if text.strip():
-            data["answers"].append(text)
+            answers.append(text)
 
-    # 🔥 ALWAYS persist answers
-    await state.update_data(answers=data["answers"])
+    await state.update_data(answers=answers)  # 👈 atomic update
 
-    confirmed = _should_confirm_album(message, data, "confirmed_answers_albums")
-
-    # 🔥 persist album registry into FSM
-    await state.update_data(confirmed_answers_albums=data.get("confirmed_answers_albums"))
+    confirmed = await _should_confirm_album_safe(message, state, "confirmed_answers_albums")
 
     if confirmed:
         await message.answer(
