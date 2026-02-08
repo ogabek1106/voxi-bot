@@ -217,16 +217,25 @@ async def collect_passage(message: Message, state: FSMContext):
 
     if message.text:
         data["texts"].append(message.text)
+
     elif message.photo:
         text = await _ocr_image_to_text(message.bot, message.photo)
         if text.strip():
             data["texts"].append(text)
 
+    # 🔥 ALWAYS persist texts
     await state.update_data(texts=data["texts"])
 
-    # ✅ Confirm only once per album
-    if _should_confirm_album(message, data, "confirmed_passage_albums"):
-        await message.answer("📄 Qabul qilindi. Tugatgach ➡️ *Davom etish* ni bosing.", parse_mode="Markdown")
+    confirmed = _should_confirm_album(message, data, "confirmed_passage_albums")
+
+    # 🔥 persist album registry into FSM
+    await state.update_data(confirmed_passage_albums=data.get("confirmed_passage_albums"))
+
+    if confirmed:
+        await message.answer(
+            "📄 Qabul qilindi. Tugatgach ➡️ *Davom etish* ni bosing.",
+            parse_mode="Markdown"
+        )
 
 @router.message(StateFilter(WAITING_FOR_PASSAGE), F.text == "➡️ Davom etish")
 async def proceed_to_answers(message: Message, state: FSMContext):
@@ -270,17 +279,26 @@ async def collect_answers(message: Message, state: FSMContext):
 
     if message.text:
         data["answers"].append(message.text)
+
     elif message.photo:
         text = await _ocr_image_to_text(message.bot, message.photo)
         if text.strip():
             data["answers"].append(text)
 
+    # 🔥 ALWAYS persist answers
     await state.update_data(answers=data["answers"])
 
-    # ✅ Confirm only once per album
-    if _should_confirm_album(message, data, "confirmed_answers_albums"):
-        await message.answer("✍️ Qabul qilindi. Tugatgach ➡️ *Davom etish* ni bosing.", parse_mode="Markdown")
-        
+    confirmed = _should_confirm_album(message, data, "confirmed_answers_albums")
+
+    # 🔥 persist album registry into FSM
+    await state.update_data(confirmed_answers_albums=data.get("confirmed_answers_albums"))
+
+    if confirmed:
+        await message.answer(
+            "✍️ Qabul qilindi. Tugatgach ➡️ *Davom etish* ni bosing.",
+            parse_mode="Markdown"
+        )
+
 @router.message(StateFilter(WAITING_FOR_ANSWERS), F.text == "➡️ Davom etish")
 async def finalize_reading(message: Message, state: FSMContext):
     uid = message.from_user.id
