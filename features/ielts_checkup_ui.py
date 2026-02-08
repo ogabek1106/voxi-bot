@@ -190,15 +190,5 @@ async def route_speaking_part1(message: Message, state: FSMContext):
     if not ui_owner(uid):
         return
 
-    from features.ai.speaking_part1 import start_check
+    from features.ai.check_speaking1 import start_check
     await start_check(message, state)
-
-
-
-
-
-
-
-
-
-
