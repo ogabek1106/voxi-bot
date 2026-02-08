@@ -168,17 +168,58 @@ async def start_ai_detect(message: Message, state: FSMContext):
     )
 
 
+async def _ocr_image_to_text(bot, photos):
+    try:
+        photo = photos[-1]
+        file = await bot.get_file(photo.file_id)
+        image_bytes = await bot.download_file(file.file_path)
+
+        import base64
+        image_b64 = base64.b64encode(image_bytes.read()).decode("utf-8")
+        image_data_url = f"data:image/jpeg;base64,{image_b64}"
+
+        response = await openai.ChatCompletion.acreate(
+            model="gpt-4o-mini",
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "Extract ALL readable text. Return ONLY text."},
+                        {"type": "image_url", "image_url": {"url": image_data_url}},
+                    ],
+                }
+            ],
+            max_tokens=800,
+        )
+
+        return response["choices"][0]["message"]["content"].strip()
+
+    except Exception:
+        logger.exception("OCR failed in AI Detection")
+        return ""
+
+
+
 # ─────────────────────────────
 # Collect Text (NOT GLOBAL)
 # ─────────────────────────────
 
 @router.message(StateFilter(WAITING_FOR_TEXT), F.text != "❌ Cancel")
+@router.message(StateFilter(WAITING_FOR_TEXT), F.photo)
 async def collect_text(message: Message, state: FSMContext):
     uid = message.from_user.id
     if get_user_mode(uid) != AI_MODE:
         return
 
-    text = message.text or ""
+    if message.text:
+        text = message.text.strip()
+    elif message.photo:
+        await message.answer("🖼️ Rasm ichidagi matn o‘qilmoqda...")
+        text = await _ocr_image_to_text(message.bot, message.photo)
+    else:
+        await message.answer("❗️Matn yoki rasm yuboring.")
+        return
+
     words = _word_count(text)
 
     if words < MIN_WORDS:
@@ -193,7 +234,6 @@ async def collect_text(message: Message, state: FSMContext):
     await message.answer("⏳ <b>Matn tahlil qilinmoqda...</b>", parse_mode="HTML")
 
     await analyze_text(message, state)
-
 
 # ─────────────────────────────
 # Analyze
