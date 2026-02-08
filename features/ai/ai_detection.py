@@ -80,6 +80,12 @@ RULES:
 - No extra text.
 - No explanations outside JSON.
 - If the text appears clearly human-written but structured, keep AI probability BELOW 50.
+
+CRITICAL CALIBRATION RULE (IELTS / NON-NATIVE WRITING):
+- If the text contains frequent grammatical errors, broken sentence structures, awkward collocations, or unclear phrasing typical of non-native learners, the AI probability MUST NOT exceed 45%, even if the text has basic structure (introduction, body, conclusion).
+- Organized structure alone is NOT a strong signal of AI. IELTS-style essay templates and simple logical organization are common in human student writing.
+When human and AI signals are mixed, always prefer LOWER confidence and keep AI probability below 50.
+
 """
 
 # ─────────────────────────────
