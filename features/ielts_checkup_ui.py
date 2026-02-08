@@ -158,7 +158,7 @@ async def speaking_menu(message: Message, state: FSMContext):
         reply_markup=speaking_submenu_keyboard()
     )
     
-@router.message(F.text.in_({"🎧 Listening", "📖 Reading"}))
+@router.message(F.text.in_({"🎧 Listening"}))
 async def coming_soon(message: Message):
     uid = message.from_user.id
     if not ui_owner(uid):
@@ -227,3 +227,4 @@ async def route_reading(message: Message, state: FSMContext):
 
     from features.ai.check_reading import start_check
     await start_check(message, state)
+
