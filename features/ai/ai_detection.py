@@ -230,7 +230,7 @@ async def analyze_text(message: Message, state: FSMContext):
     await state.clear()
     clear_user_mode(uid)
 
-    await message.answer("⬅️ Asosiy menyu.", reply_markup=main_user_keyboard())
+    await message.answer("✔️ Tekshiruv yakunlandi.", reply_markup=main_user_keyboard())
 
 # ─────────────────────────────
 # Cancel
