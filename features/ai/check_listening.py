@@ -213,8 +213,8 @@ def _format_listening_feedback(data: dict) -> str:
 # Entry
 # ─────────────────────────────
 
-@router.message(Command("check_listening"))
-async def start_listening(message: Message, state: FSMContext):
+@router.message(Command("ielts_listening"))
+async def start_check(message: Message, state: FSMContext):
     uid = message.from_user.id
 
     if get_user_mode(uid) != IELTS_MODE:
