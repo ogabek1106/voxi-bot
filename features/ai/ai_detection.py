@@ -171,7 +171,7 @@ async def start_ai_detect(message: Message, state: FSMContext):
 # Collect Text (NOT GLOBAL)
 # ─────────────────────────────
 
-@router.message(StateFilter(WAITING_FOR_TEXT), F.text)
+@router.message(StateFilter(WAITING_FOR_TEXT), F.text != "❌ Cancel")
 async def collect_text(message: Message, state: FSMContext):
     uid = message.from_user.id
     if get_user_mode(uid) != AI_MODE:
