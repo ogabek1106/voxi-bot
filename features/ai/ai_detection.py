@@ -8,6 +8,7 @@ from aiogram import Router, F
 from aiogram.filters import Command, StateFilter
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
+from features.ielts_checkup_ui import main_user_keyboard
 
 from database import get_user_mode, set_user_mode, clear_user_mode
 
@@ -229,6 +230,7 @@ async def analyze_text(message: Message, state: FSMContext):
     await state.clear()
     clear_user_mode(uid)
 
+    await message.answer("⬅️ Asosiy menyu.", reply_markup=main_user_keyboard())
 
 # ─────────────────────────────
 # Cancel
@@ -242,4 +244,4 @@ async def cancel_anytime(message: Message, state: FSMContext):
 
     await state.clear()
     clear_user_mode(uid)
-    await message.answer("❌ Bekor qilindi.")
+    await message.answer("❌ Bekor qilindi.", reply_markup=main_user_keyboard())
