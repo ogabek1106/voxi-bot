@@ -29,7 +29,10 @@ IELTS_MODE = "ielts_check_up"
 
 def main_user_keyboard():
     return ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text="🧠 IELTS Check Up")]],
+        keyboard=[
+            [KeyboardButton(text="🧠 IELTS Check Up")],
+            [KeyboardButton(text="🤖 AI Detector")],  
+        ],
         resize_keyboard=True
     )
 
@@ -240,4 +243,19 @@ async def route_listening(message: Message, state: FSMContext):
 
     from features.ai.check_listening import start_check
     await start_check(message, state)
+
+@router.message(F.text == "🤖 AI Detector")
+async def route_ai_detector(message: Message, state: FSMContext):
+    uid = message.from_user.id
+
+    # Optional: block if another UI mode is active
+    if get_user_mode(uid) is not None:
+        return
+
+    # 🔒 SUB CHECK — SAME AS OTHERS
+    if not await require_subscription(message, state):
+        return
+    
+    from features.ai.ai_detection import start_ai_detect
+    await start_ai_detect(message, state)
 
