@@ -1,49 +1,29 @@
 # features/ai/ai_detection.py
-"""
-/ai_detect
-General AI Detection (Turnitin-style, non-IELTS)
-
-Flow:
-1) User sends /ai_detect
-2) Bot asks for TEXT
-3) User sends text
-4) Bot analyzes AI probability
-5) Bot shows result + next actions
-"""
-
 import logging
 import os
 import json
 import re
 
-from telegram import (
-    Update,
-    InlineKeyboardMarkup,
-    InlineKeyboardButton,
-)
-from global_checker import allow
-from global_cleaner import clean_user
-from telegram.ext import (
-    CallbackContext,
-    CommandHandler,
-    ConversationHandler,
-    MessageHandler,
-    Filters,
-)
-from telegram.ext import DispatcherHandlerStop
+from aiogram import Router, F
+from aiogram.filters import Command, StateFilter
+from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.fsm.context import FSMContext
+
+from database import get_user_mode, set_user_mode, clear_user_mode
 
 import openai
 
 logger = logging.getLogger(__name__)
+router = Router()
+
+AI_MODE = "ai_detect"
+WAITING_FOR_TEXT = "ai_detect_text"
+
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
-# ---------- States ----------
-WAITING_FOR_TEXT = 0
-
-# ---------- Config ----------
 MIN_WORDS = 120
+MAX_TELEGRAM_LEN = 4000
 
-# ---------- SYSTEM PROMPT ----------
 SYSTEM_PROMPT = """
 You are an AI text analysis system.
 
@@ -100,12 +80,11 @@ RULES:
 - If the text appears clearly human-written but structured, keep AI probability BELOW 50.
 """
 
-# ---------- Helpers ----------
+# ─────────────────────────────
+# Helpers
+# ─────────────────────────────
 
 def _ai_color_tone(ai_probability: int) -> str:
-    """
-    Maps AI likelihood to color emoji.
-    """
     if ai_probability < 30:
         return "🟢"
     elif ai_probability < 50:
@@ -123,99 +102,102 @@ def _safe_int(value, default=0):
     except Exception:
         return default
 
-
 def _word_count(text: str) -> int:
     return len(re.findall(r"\b\w+\b", text))
 
-
 def _next_actions_keyboard():
     return InlineKeyboardMarkup(
-        [
+        inline_keyboard=[
             [
-                InlineKeyboardButton("✨ Humanize text", callback_data="ai_humanize"),
-                InlineKeyboardButton("🔍 Check plagiarism", callback_data="ai_plagiarism"),
+                InlineKeyboardButton(text="✨ Humanize text", callback_data="ai_humanize"),
+                InlineKeyboardButton(text="🔍 Check plagiarism", callback_data="ai_plagiarism"),
             ],
             [
-                InlineKeyboardButton("🔁 Re-check AI score", callback_data="ai_recheck"),
-                InlineKeyboardButton("⬅️ Back", callback_data="ai_back"),
+                InlineKeyboardButton(text="🔁 Re-check AI score", callback_data="ai_recheck"),
+                InlineKeyboardButton(text="⬅️ Back", callback_data="ai_back"),
             ],
         ]
     )
-
 
 def _format_result(data: dict) -> str:
     raw_prob = data.get("ai_probability", 0)
     ai_prob = _safe_int(raw_prob)
     color = _ai_color_tone(ai_prob)
-    confidence = data.get("confidence", "—")
-    explanation = data.get("explanation", "—")
-    segments = data.get("ai_segments", "—")
 
     return (
         f"<b>🤖 AI Detection Result</b>\n\n"
         f"<b>AI likelihood:</b> {ai_prob}% {color}\n"
-        f"<b>Confidence:</b> {confidence}\n\n"
-        f"<b>🧠 Explanation</b>\n"
-        f"{explanation}\n\n"
-        f"<b>🔎 AI-like patterns</b>\n"
-        f"{segments}"
+        f"<b>Confidence:</b> {data.get('confidence','—')}\n\n"
+        f"<b>🧠 Explanation</b>\n{data.get('explanation','—')}\n\n"
+        f"<b>🔎 AI-like patterns</b>\n{data.get('ai_segments','—')}"
     )
 
 
-# ---------- Handlers ----------
+# ─────────────────────────────
+# Entry (UI / command triggers this)
+# ─────────────────────────────
 
-def start_ai_detect(update: Update, context: CallbackContext):
-    user = update.effective_user
-    if not user:
-        return ConversationHandler.END
+@router.message(Command("ai_detect"))
+async def start_ai_detect(message: Message, state: FSMContext):
+    uid = message.from_user.id
 
-    if not allow(user.id, mode="ai_detect", allow_free=True):
-        raise DispatcherHandlerStop
+    # 🔒 Do NOT start if another mode is active
+    if get_user_mode(uid) not in (None, AI_MODE):
+        return
 
-    set_checker_mode(user.id, "ai_detect")
-    context.user_data.clear()
+    set_user_mode(uid, AI_MODE)
+    await state.set_state(WAITING_FOR_TEXT)
+    await state.update_data(text=None)
 
-    update.message.reply_text(
+    await message.answer(
         "🧠 <b>AI Detection</b>\n\n"
-        "Iltimos, tekshirmoqchi bo‘lgan matnni yuboring.\n"
+        "Tekshirmoqchi bo‘lgan matnni yuboring.\n"
         f"(Kamida {MIN_WORDS} so‘z)",
         parse_mode="HTML"
     )
 
-    return WAITING_FOR_TEXT
 
+# ─────────────────────────────
+# Collect Text (NOT GLOBAL)
+# ─────────────────────────────
 
-def collect_text(update: Update, context: CallbackContext):
-    user = update.effective_user
-    if not user or not allow(user.id, mode="ai_detect"):
-        return WAITING_FOR_TEXT
+@router.message(StateFilter(WAITING_FOR_TEXT), F.text)
+async def collect_text(message: Message, state: FSMContext):
+    uid = message.from_user.id
+    if get_user_mode(uid) != AI_MODE:
+        return
 
-    text = update.message.text or ""
+    text = message.text or ""
     words = _word_count(text)
 
     if words < MIN_WORDS:
-        update.message.reply_text(
+        await message.answer(
             f"⚠️ Matn juda qisqa.\n"
             f"Kamida {MIN_WORDS} so‘z bo‘lishi kerak.\n"
             f"Hozirgi: {words} so‘z."
         )
-        return WAITING_FOR_TEXT
+        return
 
-    context.user_data["text"] = text
+    await state.update_data(text=text)
+    await message.answer("⏳ <b>Matn tahlil qilinmoqda...</b>", parse_mode="HTML")
 
-    update.message.reply_text(
-        "⏳ <b>Matn tahlil qilinmoqda...</b>",
-        parse_mode="HTML"
-    )
-
-    return analyze_text(update, context)
+    await analyze_text(message, state)
 
 
-def analyze_text(update: Update, context: CallbackContext):
-    text = context.user_data.get("text", "")
+# ─────────────────────────────
+# Analyze
+# ─────────────────────────────
+
+async def analyze_text(message: Message, state: FSMContext):
+    uid = message.from_user.id
+    if get_user_mode(uid) != AI_MODE:
+        return
+
+    data = await state.get_data()
+    text = data.get("text", "")
 
     try:
-        response = openai.ChatCompletion.create(
+        response = await openai.ChatCompletion.acreate(
             model="gpt-4o-mini",
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
@@ -225,68 +207,39 @@ def analyze_text(update: Update, context: CallbackContext):
         )
 
         raw = response["choices"][0]["message"]["content"]
-
-        try:
-            data = json.loads(raw)
-        except Exception:
-            logger.exception("AI Detection JSON parse failed")
-            data = {
-                "ai_probability": "—",
-                "confidence": "Low",
-                "explanation": "Tahlil jarayonida texnik noaniqlik yuz berdi.",
-                "ai_segments": "Aniqlanmadi."
-            }
+        ai_data = json.loads(raw)
 
     except Exception:
         logger.exception("AI Detection failed")
-        data = {
+        ai_data = {
             "ai_probability": "—",
             "confidence": "Low",
-            "explanation": "AI tahlilini bajarishda xatolik yuz berdi.",
+            "explanation": "Tahlil jarayonida texnik xatolik yuz berdi.",
             "ai_segments": "Aniqlanmadi."
         }
 
-    output = _format_result(data)
+    output = _format_result(ai_data)
 
-    update.message.reply_text(
+    await message.answer(
         output,
         parse_mode="HTML",
         reply_markup=_next_actions_keyboard()
     )
-    clean_user(update.effective_user.id, reason="ai_detect finished")
-    return ConversationHandler.END
+
+    await state.clear()
+    clear_user_mode(uid)
 
 
-def cancel(update: Update, context: CallbackContext):
-    user = update.effective_user
-    if user:
-        clean_user(user.id, reason="ai_detect cancel")
+# ─────────────────────────────
+# Cancel
+# ─────────────────────────────
 
-    context.user_data.clear()
+@router.message(F.text == "❌ Cancel", StateFilter(WAITING_FOR_TEXT))
+async def cancel_anytime(message: Message, state: FSMContext):
+    uid = message.from_user.id
+    if get_user_mode(uid) != AI_MODE:
+        return
 
-    update.message.reply_text("❌ Bekor qilindi.")
-    return ConversationHandler.END
-
-
-# ---------- Registration ----------
-
-def register(dispatcher):
-    conv = ConversationHandler(
-        per_message=False,
-        entry_points=[
-            CommandHandler("ai_detect", start_ai_detect),
-        ],
-        states={
-            WAITING_FOR_TEXT: [
-                MessageHandler(Filters.text & ~Filters.command, collect_text),
-            ],
-        },
-        fallbacks=[CommandHandler("cancel", cancel)],
-        allow_reentry=False,
-    )
-
-    dispatcher.add_handler(conv, group=2)
-
-
-def setup(dispatcher):
-    register(dispatcher)
+    await state.clear()
+    clear_user_mode(uid)
+    await message.answer("❌ Bekor qilindi.")
