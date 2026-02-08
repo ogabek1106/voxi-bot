@@ -194,7 +194,7 @@ async def start_check(message: Message, state: FSMContext):
 # Collect Passage + Questions
 # ─────────────────────────────
 
-@router.message(StateFilter(WAITING_FOR_PASSAGE), F.text != "➡️ Davom etish")
+@router.message(StateFilter(WAITING_FOR_PASSAGE), F.text.not_in({"➡️ Davom etish", "❌ Cancel"}))
 @router.message(StateFilter(WAITING_FOR_PASSAGE), F.photo)
 async def collect_passage(message: Message, state: FSMContext):
     uid = message.from_user.id
@@ -244,7 +244,7 @@ async def proceed_to_answers(message: Message, state: FSMContext):
 # Collect Answers
 # ─────────────────────────────
 
-@router.message(StateFilter(WAITING_FOR_ANSWERS), F.text != "➡️ Davom etish")
+@router.message(StateFilter(WAITING_FOR_ANSWERS), F.text.not_in({"➡️ Davom etish", "❌ Cancel"}))
 @router.message(StateFilter(WAITING_FOR_ANSWERS), F.photo)
 async def collect_answers(message: Message, state: FSMContext):
     uid = message.from_user.id
