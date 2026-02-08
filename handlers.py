@@ -166,6 +166,23 @@ async def start_handler(message: Message, state: FSMContext):
             await message.answer("Bu kod bo‘yicha kitob topilmadi.")
         return
 
+    # 🔹 Deep-link: REFRESH UI (force re-show start for existing users)
+    if payload == "refresh":
+        if message.from_user.id not in ADMIN_IDS:
+            log_command_use("start")
+
+        name = message.from_user.first_name or "do‘st"
+        await message.answer(
+            f"*Assalomu alaykum*, {name}!\n\n"
+            "_⚠️ Voxi ishlash sifatini yaxshilash uchun yuborilgan ayrim matnlar "
+            "anonim tarzda saqlanishi va tahlil qilinishi mumkin._\n\n"
+            "Menga *kitob kodini* yuboring 👇",
+            parse_mode="Markdown",
+            reply_markup=main_user_keyboard(),
+        )
+        return
+
+    
     # 🔹 Normal /start  ✅ COUNT HERE
     if message.from_user.id not in ADMIN_IDS:
         log_command_use("start")
