@@ -134,6 +134,14 @@ def _format_result(data: dict) -> str:
     )
 
 
+def _ai_keyboard():
+    from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+    return ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text="❌ Cancel")]],
+        resize_keyboard=True
+    )
+
+
 # ─────────────────────────────
 # Entry (UI / command triggers this)
 # ─────────────────────────────
@@ -154,7 +162,8 @@ async def start_ai_detect(message: Message, state: FSMContext):
         "🧠 <b>AI Detection</b>\n\n"
         "Tekshirmoqchi bo‘lgan matnni yuboring.\n"
         f"(Kamida {MIN_WORDS} so‘z)",
-        parse_mode="HTML"
+        parse_mode="HTML",
+        reply_markup=_ai_keyboard()
     )
 
 
