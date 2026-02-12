@@ -234,6 +234,11 @@ else:
             "file_id": "BQACAgIAAxkBAALYdmmEl--WC0MU0EQwhkzlHqRG2VjQAAJVnwACswYpSMzJ_siXbntHOAQ",
             "filename": "📒Intermediate Vocabularu.pdf",
             "caption": "📒 *Intermediate Vocabularu.pdf*\n\n⏰ File will be deleted in 15 minutes.\n\nMore 👉 @IELTSforeverybody"
+        },
+        "46": {
+            "file_id": "BQACAgIAAxkBAALy9mmNvK6NrMqDS3w06vMk1b9eF7qjAAK8nwACTPtwSB-e21pGjYoaOgQ",
+            "filename": "📘Destination C1&C2.pdf",
+            "caption": "📘 *Destination C1&C2.pdf*\n\n⏰ File will be deleted in 15 minutes.\n\nMore 👉 @IELTSforeverybody"
         }
     }
 
