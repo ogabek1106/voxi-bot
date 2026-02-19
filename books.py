@@ -244,6 +244,11 @@ else:
             "file_id": "BQACAgIAAxkBAAEBOoBplrBRsmNEJRWICGpoDLCr0Z-ucQACFZQAAswxuUhy2-HOZEfw5DoE",
             "filename": "📗 4000 Essential English words 1.pdf",
             "caption": "📗 *4000 Essential English words 1.pdf*\n\n⏰ File will be deleted in 15 minutes.\n\nMore 👉 @IELTSforeverybody"
+        },
+        "48": {
+            "file_id": "BQACAgIAAxkBAAEBOodplrMTTKgZxNYP8Cu7VcQVAAHdiWIAAiaUAALMMblIaCAwTw_2_0M6BA",
+            "filename": "📖 Cambridge IELTS 1 with 🎧 Listening Audio.pdf",
+            "caption": "📖 *Cambridge IELTS 1 with 🎧 Listening Audio.pdf*\n\n⏰ File will be deleted in 15 minutes.\n\nMore 👉 @IELTSforeverybody"
         }
     }
 
