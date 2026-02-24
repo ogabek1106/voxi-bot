@@ -29,7 +29,7 @@ router = Router()
 
 DB_PATH = os.getenv("DB_PATH", os.getenv("SQLITE_PATH", "/data/data.db"))
 SQLITE_TIMEOUT = 5
-SHOW_REFERRAL_BONUS = True  # 🔴 turn OFF bonus display for simple tests
+SHOW_REFERRAL_BONUS = False  # 🔴 turn OFF bonus display for simple tests
 BONUS_TIERS = {
     5: "2× bonus",
     10: "3× bonus",
@@ -174,7 +174,7 @@ async def top_results_handler(message: Message, state: FSMContext):
             if not bonus_line:
                 next_tier = min(BONUS_TIERS.keys())
                 left = max(0, next_tier - confirmed)
-                bonus_line = f"⏳ {left} more invites to unlock {BONUS_TIERS[next_tier]}"
+                bonus_line = f"🎁 {left} more invites to unlock {BONUS_TIERS[next_tier]}"
 
         text = (
             f"{medal} <code>{uid}</code> — <b>{name}</b>\n"
