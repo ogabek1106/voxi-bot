@@ -43,7 +43,7 @@ async def referral_screen(message: Message, bot: Bot):
     text = (
         "🤝 <b>Do'stingizni taklif qiling</b>\n\n"
         "🔗 <b>Sizning shaxsiy havolangiz</b>\n"
-        "_(Copy and send to your friends)_\n\n"
+        "<i>(Copy and send to your friends)</i>\n\n"
         f"{ref_link}\n\n"
         "👥 <b>Your progress</b>\n"
         f"• You invited: <b>{stats['invited']}</b>\n"
@@ -56,7 +56,12 @@ async def referral_screen(message: Message, bot: Bot):
         "🏆 <b>These invites count toward your MMT bonus.</b>"
     )
 
-    await message.answer(text, reply_markup=invite_keyboard(ref_link), parse_mode="HTML")
+    await message.answer(
+        text,
+        reply_markup=invite_keyboard(ref_link),
+        parse_mode="HTML",
+        disable_web_page_preview=True
+    )
 
 
 # ---------- /start with referral ----------
