@@ -2,7 +2,8 @@
 from aiogram import Router, Bot
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command, CommandStart
-
+from aiogram.types import CallbackQuery
+from features.sub_check import is_subscribed
 from database import (
     add_user_if_new,
     add_referral,
@@ -26,7 +27,7 @@ def invite_keyboard(ref_link: str) -> InlineKeyboardMarkup:
         "Sizni Voxi AI botiga taklif qilamiz.\n\n"
         "📚 <b>Bepul testlar</b>\n"
         "🤖 <b>AI yordamchi</b>\n"
-        "🏆 <b>Har oy sovrunli MMT testi</b>\n\n"
+        "🏆 <b>Har oy sovrinli MMT testi</b>\n\n"
         "<b>Boshlash uchun shu yerga bosing</b> 👇\n"
         f"{ref_link}"
     )
@@ -90,14 +91,53 @@ async def start_with_referral(message: Message, bot: Bot):
 
         if inviter_id and inviter_id != user_id:
             add_referral(inviter_id, user_id)
-            await message.answer(
-                "🎉 You joined via a referral link!\n\n"
-                "To be counted as confirmed:\n"
-                "• just press /start\n"
-                "• join the channel"
+
+            text = (
+                "🎉 Siz taklifnoma orqali kirdingiz!\n\n"
+                "Tasdiqlangan (confirmed) bo‘lish uchun:\n"
+                "1️⃣ Kanalga obuna bo‘ling\n"
+                "2️⃣ So‘ng <b>Statusni tekshirish</b> tugmasini bosing\n\n"
+                "✅ Shundan keyin siz taklif qilgan do‘stingiz hisoblanasiz."
             )
 
-    # mark as confirmed (basic version: confirmed when user starts bot)
-    mark_referral_confirmed(user_id)
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text="📢 Kanalga obuna bo‘lish",
+                        url="https://t.me/IELTSforeverybody"
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        text="🔄 Statusni tekshirish",
+                        callback_data="check_referral_sub"
+                    )
+                ]
+            ])
+
+            await message.answer(text, reply_markup=keyboard, parse_mode="HTML")
 
     await message.answer("👋 Welcome to Voxi!")
+
+@router.callback_query(lambda c: c.data == "check_referral_sub")
+async def check_referral_subscription(callback: CallbackQuery):
+    user = callback.from_user
+    if not user:
+        await callback.answer()
+        return
+
+    if not await is_subscribed(callback.bot, user.id):
+        await callback.answer("❌ Hali kanalga obuna bo‘linmagan", show_alert=True)
+        await callback.message.answer("📢 Avval kanalga obuna bo‘ling.")
+        return
+
+    ok = mark_referral_confirmed(user.id)
+
+    if ok:
+        await callback.answer("✅ Tasdiqlandi!")
+        await callback.message.answer(
+            "🎉 Ajoyib! Sizning taklifingiz tasdiqlandi.\n\n"
+            "Endi bu taklif sizni taklif qilgan do‘stingiz hisobiga yozildi."
+        )
+    else:
+        await callback.answer("ℹ️ Allaqachon tasdiqlangan", show_alert=True)
