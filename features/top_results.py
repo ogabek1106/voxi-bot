@@ -29,7 +29,7 @@ router = Router()
 
 DB_PATH = os.getenv("DB_PATH", os.getenv("SQLITE_PATH", "/data/data.db"))
 SQLITE_TIMEOUT = 5
-SHOW_REFERRAL_BONUS = False  # 🔴 turn OFF bonus display for simple tests
+SHOW_REFERRAL_BONUS = True  # 🔴 turn OFF bonus display for simple tests
 BONUS_TIERS = {
     5: "2× bonus",
     10: "3× bonus",
