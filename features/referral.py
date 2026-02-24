@@ -97,7 +97,7 @@ async def start_with_referral(message: Message, bot: Bot):
                 "Tasdiqlangan (confirmed) bo‘lish uchun:\n"
                 "1️⃣ Kanalga obuna bo‘ling\n"
                 "2️⃣ So‘ng <b>Statusni tekshirish</b> tugmasini bosing\n\n"
-                "✅ Shundan keyin siz taklif qilgan do‘stingiz hisoblanasiz."
+                "✅ Shundan keyin sizni taklif qilgan do‘stingiz hisobiga yozilasiz."
             )
 
             keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -116,7 +116,9 @@ async def start_with_referral(message: Message, bot: Bot):
             ])
 
             await message.answer(text, reply_markup=keyboard, parse_mode="HTML")
+            return  # ✅ STOP here so generic welcome is NOT sent
 
+    # fallback only for non-referral or old users
     await message.answer("👋 Welcome to Voxi!")
 
 @router.callback_query(lambda c: c.data == "check_referral_sub")
@@ -136,8 +138,8 @@ async def check_referral_subscription(callback: CallbackQuery):
     if ok:
         await callback.answer("✅ Tasdiqlandi!")
         await callback.message.answer(
-            "🎉 Ajoyib! Sizning taklifingiz tasdiqlandi.\n\n"
-            "Endi bu taklif sizni taklif qilgan do‘stingiz hisobiga yozildi."
+            "🎉 Ajoyib! Sizning statusingiz tasdiqlandi.\n\n"
+            "Endi bu status sizni taklif qilgan do‘stingiz hisobiga yozildi."
         )
     else:
         await callback.answer("ℹ️ Allaqachon tasdiqlangan", show_alert=True)
