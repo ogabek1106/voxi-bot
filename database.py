@@ -1731,6 +1731,116 @@ def get_last_ai_usage_time(user_id: int, feature: str) -> Optional[int]:
         if conn:
             conn.close()
 
+
+# ---------- REFERRALS ----------
+
+def ensure_referrals_table():
+    """
+    Stores referral relationships.
+    invited_id is UNIQUE to prevent double counting.
+    confirmed = 1 when invited user joined channel + started bot.
+    """
+    conn = None
+    try:
+        conn = _connect()
+        with conn:
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS referrals (
+                    inviter_id INTEGER NOT NULL,
+                    invited_id INTEGER PRIMARY KEY,
+                    confirmed INTEGER DEFAULT 0,
+                    created_at INTEGER
+                );
+                """
+            )
+    except Exception as e:
+        logger.exception("ensure_referrals_table failed: %s", e)
+    finally:
+        if conn:
+            conn.close()
+
+
+def add_referral(inviter_id: int, invited_id: int) -> bool:
+    ensure_referrals_table()
+    conn = None
+    try:
+        conn = _connect()
+        with conn:
+            cur = conn.execute(
+                """
+                INSERT OR IGNORE INTO referrals
+                (inviter_id, invited_id, confirmed, created_at)
+                VALUES (?, ?, 0, ?);
+                """,
+                (int(inviter_id), int(invited_id), int(time.time())),
+            )
+            return cur.rowcount == 1
+    except Exception as e:
+        logger.exception("add_referral failed: %s", e)
+        return False
+    finally:
+        if conn:
+            conn.close()
+
+
+def mark_referral_confirmed(invited_id: int) -> bool:
+    ensure_referrals_table()
+    conn = None
+    try:
+        conn = _connect()
+        with conn:
+            cur = conn.execute(
+                """
+                UPDATE referrals
+                SET confirmed = 1
+                WHERE invited_id = ?;
+                """,
+                (int(invited_id),),
+            )
+            return cur.rowcount > 0
+    except Exception as e:
+        logger.exception("mark_referral_confirmed failed: %s", e)
+        return False
+    finally:
+        if conn:
+            conn.close()
+
+
+def get_referral_stats(inviter_id: int) -> dict:
+    ensure_referrals_table()
+    conn = None
+    try:
+        conn = _connect()
+        cur = conn.execute(
+            """
+            SELECT
+                COUNT(*) as invited,
+                SUM(CASE WHEN confirmed = 1 THEN 1 ELSE 0 END) as confirmed,
+                SUM(CASE WHEN confirmed = 0 THEN 1 ELSE 0 END) as not_confirmed
+            FROM referrals
+            WHERE inviter_id = ?;
+            """,
+            (int(inviter_id),),
+        )
+        row = cur.fetchone() or (0, 0, 0)
+        return {
+            "invited": int(row[0] or 0),
+            "confirmed": int(row[1] or 0),
+            "not_confirmed": int(row[2] or 0),
+        }
+    except Exception as e:
+        logger.exception("get_referral_stats failed: %s", e)
+        return {"invited": 0, "confirmed": 0, "not_confirmed": 0}
+    finally:
+        if conn:
+            conn.close()
+
+
+# ensure referrals table on import (best-effort)
+ensure_referrals_table()
+
+
 # ensure DB quickly on import (best-effort)
 ensure_db()
 # ensure tests table on import (best-effort)
