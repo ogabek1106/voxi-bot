@@ -29,6 +29,7 @@ from database import (
     end_test_program,
     clear_test_program_state,
     get_test_score,
+    get_referral_stats,
 )
 
 import sqlite3
@@ -39,7 +40,11 @@ router = Router()
 
 DB_PATH = os.getenv("DB_PATH", os.getenv("SQLITE_PATH", "/data/data.db"))
 SQLITE_TIMEOUT = 5
-
+SHOW_REFERRAL_BONUS = True  # 🔴 OFF for simple tests (turn ON for MMT)
+BONUS_TIERS = {
+    5: "2× bonus",
+    10: "3× bonus",
+}
 MAX_TELEGRAM_LEN = 4000  # keep margin for HTML tags
 
 def _split_text_for_telegram(text: str, limit: int = MAX_TELEGRAM_LEN):
@@ -254,6 +259,20 @@ async def result_handler(message: Message, state: FSMContext):
         f"🎯 Score: <b>{score} / {max_score}</b>"
         f"{time_text}"
     )
+    # ---- Bonus progress (optional) ----
+    if SHOW_REFERRAL_BONUS:
+        stats = get_referral_stats(target_user_id) or {}
+        confirmed = int(stats.get("confirmed", 0) or 0)
+
+        if confirmed >= 10:
+            bonus_line = "🏆 3× bonus unlocked"
+        elif confirmed >= 5:
+            bonus_line = "✨ 2× bonus unlocked"
+        else:
+            left = max(0, 5 - confirmed)
+            bonus_line = f"🎁 Bonus progress: <b>{left}</b> invites left for 2×"
+
+        text += f"\n{bonus_line}"
 
     if is_test_program_ended():
         text += _build_detailed_review(token, test_id)
