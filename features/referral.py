@@ -21,10 +21,14 @@ async def get_referral_link(bot: Bot, user_id: int) -> str:
 
 def invite_keyboard(ref_link: str) -> InlineKeyboardMarkup:
     text = (
+        "\n"
         "🌿 Assalomu alaykum!\n"
         "Sizni Voxi botiga taklif qilamiz.\n\n"
-        "Bu yerda bepul testlar, AI yordamchi va har oy yutuqli test o'tkaziladi.\n\n"
-        f"Boshlash uchun shu yerga bosing 👇\n{ref_link}"
+        "📚 Bepul testlar\n"
+        "🤖 AI yordamchi\n"
+        "🏆 Har oy MMT\n\n"
+        "Boshlash uchun shu yerga bosing 👇\n"
+        f"{ref_link}"
     )
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📩 Taklifnoma yuborish", switch_inline_query=text)]
