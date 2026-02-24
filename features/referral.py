@@ -22,8 +22,8 @@ async def get_referral_link(bot: Bot, user_id: int) -> str:
 def invite_keyboard(ref_link: str) -> InlineKeyboardMarkup:
     text = (
         "🌿 Assalomu alaykum!\n"
-        "Do‘sting sizni Voxi — IELTS tayyorgarlik botiga taklif qildi.\n\n"
-        "Bu yerda bepul testlar, AI yordamchi va har oy MMT bor.\n\n"
+        "Sizni Voxi botiga taklif qilamiz.\n\n"
+        "Bu yerda bepul testlar, AI yordamchi va har oy yutuqli test o'tkaziladi.\n\n"
         f"Boshlash uchun shu yerga bosing 👇\n{ref_link}"
     )
     return InlineKeyboardMarkup(inline_keyboard=[
@@ -41,19 +41,19 @@ async def referral_screen(message: Message, bot: Bot):
     stats = get_referral_stats(user_id)
 
     text = (
-        "🤝 <b>Invite a friend</b>\n\n"
-        "🔗 <b>Your personal referral link</b>\n"
-        "(Copy and send to your friends)\n\n"
+        "🤝 <b>Do'stingizni taklif qiling</b>\n\n"
+        "🔗 <b>Sizning shaxsiy havolangiz</b>\n"
+        "_(Copy and send to your friends)_\n\n"
         f"{ref_link}\n\n"
         "👥 <b>Your progress</b>\n"
         f"• You invited: <b>{stats['invited']}</b>\n"
-        f"• Confirmed: <b>{stats['confirmed']}</b> ✅\n"
-        f"• Not confirmed: <b>{stats['not_confirmed']}</b> ⏳\n\n"
+        f"✅ Confirmed: <b>{stats['confirmed']}</b>\n"
+        f"⏳ Not confirmed: <b>{stats['not_confirmed']}</b>\n\n"
         "ℹ️ <b>What does “confirmed” mean?</b>\n"
         "A friend is confirmed when they:\n"
         "– start the bot\n"
-        "– (and later: join the channel)\n\n"
-        "🏆 These invites count toward your MMT bonus."
+        "– join the channel\n\n"
+        "🏆 <b>These invites count toward your MMT bonus.</b>"
     )
 
     await message.answer(text, reply_markup=invite_keyboard(ref_link), parse_mode="HTML")
@@ -84,8 +84,8 @@ async def start_with_referral(message: Message, bot: Bot):
             await message.answer(
                 "🎉 You joined via a referral link!\n\n"
                 "To be counted as confirmed:\n"
-                "• just use the bot normally\n"
-                "• (channel join check will be added later)"
+                "• just press /start\n"
+                "• join the channel"
             )
 
     # mark as confirmed (basic version: confirmed when user starts bot)
