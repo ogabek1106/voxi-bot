@@ -22,14 +22,17 @@ from aiogram.types import Message
 from aiogram.fsm.context import FSMContext
 
 import admins
-from database import get_active_test, get_user_name, get_checker_mode
+from database import get_active_test, get_user_name, get_checker_mode, get_referral_stats
 
 logger = logging.getLogger(__name__)
 router = Router()
 
 DB_PATH = os.getenv("DB_PATH", os.getenv("SQLITE_PATH", "/data/data.db"))
 SQLITE_TIMEOUT = 5
-
+BONUS_TIERS = {
+    5: "2× bonus",
+    10: "3× bonus",
+}
 
 # ─────────────────────────────
 # Helpers
@@ -153,9 +156,26 @@ async def top_results_handler(message: Message, state: FSMContext):
         name = get_user_name(uid) or "—"
         medal = medals[i - 1] if i <= 3 else f"#{i}"
         time_spent = total_seconds - (time_left or 0)
+
+        stats = get_referral_stats(uid) or {}
+        confirmed = int(stats.get("confirmed", 0) or 0)
+
+        # Determine bonus tier (based on BONUS_TIERS)
+        bonus_line = None
+        for threshold in sorted(BONUS_TIERS.keys(), reverse=True):
+            if confirmed >= threshold:
+                bonus_line = f"🎉 {BONUS_TIERS[threshold]} unlocked ({threshold}+ referrals)"
+                break
+
+        if not bonus_line:
+            next_tier = min(BONUS_TIERS.keys())
+            left = max(0, next_tier - confirmed)
+            bonus_line = f"⏳ {left} more invites to unlock {BONUS_TIERS[next_tier]}"
+
         lines.append(
             f"{medal} <code>{uid}</code> — <b>{name}</b>\n"
             f"Score: <b>{score}</b> | Time: <b>{_format_seconds(time_spent)}</b>\n"
+            f"{bonus_line}\n"
         )
 
     await message.answer("\n".join(lines), parse_mode="HTML")
