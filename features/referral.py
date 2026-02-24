@@ -83,7 +83,7 @@ async def start_with_referral(message: Message, bot: Bot):
         username=message.from_user.username,
     )
 
-    if ref_code and ref_code.startswith("ref_") and is_new:
+    if ref_code and ref_code.startswith("ref_"):
         try:
             inviter_id = int(ref_code.replace("ref_", ""))
         except Exception:
