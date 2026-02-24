@@ -31,7 +31,8 @@ def main_user_keyboard():
     return ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text="🧠 IELTS Check Up")],
-            [KeyboardButton(text="🤖 AI Detector")],  
+            [KeyboardButton(text="🤖 AI Detector")],
+            [KeyboardButton(text="🤝 Invite your friends")],
         ],
         resize_keyboard=True
     )
@@ -243,6 +244,11 @@ async def route_listening(message: Message, state: FSMContext):
 
     from features.ai.check_listening import start_check
     await start_check(message, state)
+    
+@router.message(F.text == "🤝 Invite your friends")
+async def route_referral(message: Message):
+    # UI ONLY → forward to real command handler
+    await message.answer("/referral")
 
 @router.message(F.text == "🤖 AI Detector")
 async def route_ai_detector(message: Message, state: FSMContext):
@@ -258,4 +264,5 @@ async def route_ai_detector(message: Message, state: FSMContext):
     
     from features.ai.ai_detection import start_ai_detect
     await start_ai_detect(message, state)
+
 
