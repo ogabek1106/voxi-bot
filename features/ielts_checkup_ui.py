@@ -246,10 +246,13 @@ async def route_listening(message: Message, state: FSMContext):
     await start_check(message, state)
     
 @router.message(F.text == "🤝 Invite your friends")
-async def route_referral(message: Message, bot: Bot):
-    # Call the real command handler directly
+async def route_referral(message: Message, state: FSMContext):
+    uid = message.from_user.id
+    if not ui_owner(uid):
+        return
+
     from features.referral import referral_screen
-    await referral_screen(message, bot)
+    await referral_screen(message, message.bot)
 
 @router.message(F.text == "🤖 AI Detector")
 async def route_ai_detector(message: Message, state: FSMContext):
@@ -265,6 +268,7 @@ async def route_ai_detector(message: Message, state: FSMContext):
     
     from features.ai.ai_detection import start_ai_detect
     await start_ai_detect(message, state)
+
 
 
 
