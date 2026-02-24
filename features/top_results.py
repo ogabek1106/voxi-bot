@@ -29,6 +29,7 @@ router = Router()
 
 DB_PATH = os.getenv("DB_PATH", os.getenv("SQLITE_PATH", "/data/data.db"))
 SQLITE_TIMEOUT = 5
+SHOW_REFERRAL_BONUS = False  # 🔴 turn OFF bonus display for simple tests
 BONUS_TIERS = {
     5: "2× bonus",
     10: "3× bonus",
@@ -157,25 +158,32 @@ async def top_results_handler(message: Message, state: FSMContext):
         medal = medals[i - 1] if i <= 3 else f"#{i}"
         time_spent = total_seconds - (time_left or 0)
 
-        stats = get_referral_stats(uid) or {}
-        confirmed = int(stats.get("confirmed", 0) or 0)
+        bonus_line = ""
 
-        # Determine bonus tier (based on BONUS_TIERS)
-        bonus_line = None
-        for threshold in sorted(BONUS_TIERS.keys(), reverse=True):
-            if confirmed >= threshold:
-                bonus_line = f"🎉 {BONUS_TIERS[threshold]} unlocked ({threshold}+ referrals)"
-                break
+        if SHOW_REFERRAL_BONUS:
+            stats = get_referral_stats(uid) or {}
+            confirmed = int(stats.get("confirmed", 0) or 0)
 
-        if not bonus_line:
-            next_tier = min(BONUS_TIERS.keys())
-            left = max(0, next_tier - confirmed)
-            bonus_line = f"⏳ {left} more invites to unlock {BONUS_TIERS[next_tier]}"
+            # Determine bonus tier (based on BONUS_TIERS)
+            bonus_line = None
+            for threshold in sorted(BONUS_TIERS.keys(), reverse=True):
+                if confirmed >= threshold:
+                    bonus_line = f"🎉 {BONUS_TIERS[threshold]} unlocked ({threshold}+ referrals)"
+                    break
 
-        lines.append(
+            if not bonus_line:
+                next_tier = min(BONUS_TIERS.keys())
+                left = max(0, next_tier - confirmed)
+                bonus_line = f"⏳ {left} more invites to unlock {BONUS_TIERS[next_tier]}"
+
+        text = (
             f"{medal} <code>{uid}</code> — <b>{name}</b>\n"
             f"Score: <b>{score}</b> | Time: <b>{_format_seconds(time_spent)}</b>\n"
-            f"{bonus_line}\n"
         )
+
+        if SHOW_REFERRAL_BONUS:
+            text += f"{bonus_line}\n"
+
+        lines.append(text)
 
     await message.answer("\n".join(lines), parse_mode="HTML")
