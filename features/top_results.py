@@ -20,9 +20,15 @@ from aiogram import Router
 from aiogram.filters import Command
 from aiogram.types import Message
 from aiogram.fsm.context import FSMContext
-
+from features.sub_check import is_subscribed
 import admins
-from database import get_active_test, get_user_name, get_checker_mode, get_referral_stats
+from database import (
+    get_active_test,
+    get_user_name,
+    get_checker_mode,
+    get_referral_stats,
+    recheck_all_referrals,   
+)
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -61,7 +67,8 @@ def _format_seconds(seconds: float) -> str:
 @router.message(Command("top_results"))
 async def top_results_handler(message: Message, state: FSMContext):
     user_id = message.from_user.id
-
+    # 🔁 LIVE referral recheck for admin (keeps bonus truthful)
+    await recheck_all_referrals(message.bot, user_id, is_subscribed)
     # 🚫 FSM guard
     if get_checker_mode(user_id) is not None:
         await message.answer("⚠️ Finish current operation before using /top_results.")
