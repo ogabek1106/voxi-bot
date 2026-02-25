@@ -9,6 +9,7 @@ from database import (
     add_referral,
     get_referral_stats,
     mark_referral_confirmed,
+    recheck_all_referrals, 
 )
 
 router = Router()
@@ -42,9 +43,12 @@ def invite_keyboard(ref_link: str) -> InlineKeyboardMarkup:
 async def referral_screen(message: Message, bot: Bot):
     user_id = message.from_user.id
 
+    # 🔁 LIVE referral recheck (confirmed + not confirmed)
+    await recheck_all_referrals(bot, user_id, is_subscribed)
+
     ref_link = await get_referral_link(bot, user_id)
     stats = get_referral_stats(user_id)
-
+    
     text = (
         "🤝 <b>Do'stingizni taklif qiling</b>\n\n"
         "🔗 <b>Sizning shaxsiy havolangiz</b>\n"
