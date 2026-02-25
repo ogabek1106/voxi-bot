@@ -1760,6 +1760,31 @@ def ensure_referrals_table():
         if conn:
             conn.close()
 
+# ---------- REFERRAL META (cooldown / recheck state) ----------
+
+def ensure_referral_meta_table():
+    """
+    Stores last referral recheck timestamp per inviter.
+    Used to prevent Telegram API spam.
+    """
+    conn = None
+    try:
+        conn = _connect()
+        with conn:
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS referral_meta (
+                    user_id INTEGER PRIMARY KEY,
+                    last_ref_check INTEGER
+                );
+                """
+            )
+    except Exception as e:
+        logger.exception("ensure_referral_meta_table failed: %s", e)
+    finally:
+        if conn:
+            conn.close()
+
 
 def add_referral(inviter_id: int, invited_id: int) -> bool:
     ensure_referrals_table()
@@ -1836,10 +1861,66 @@ def get_referral_stats(inviter_id: int) -> dict:
         if conn:
             conn.close()
 
+def get_last_referral_recheck(user_id: int) -> int:
+    ensure_referral_meta_table()
+    conn = None
+    try:
+        conn = _connect()
+        cur = conn.execute(
+            "SELECT last_ref_check FROM referral_meta WHERE user_id = ? LIMIT 1;",
+            (int(user_id),),
+        )
+        row = cur.fetchone()
+        return int(row[0]) if row and row[0] else 0
+    except Exception as e:
+        logger.exception("get_last_referral_recheck failed: %s", e)
+        return 0
+    finally:
+        if conn:
+            conn.close()
 
+
+def set_last_referral_recheck(user_id: int) -> bool:
+    ensure_referral_meta_table()
+    conn = None
+    try:
+        conn = _connect()
+        with conn:
+            conn.execute(
+                """
+                INSERT INTO referral_meta (user_id, last_ref_check)
+                VALUES (?, ?)
+                ON CONFLICT(user_id) DO UPDATE SET last_ref_check = excluded.last_ref_check;
+                """,
+                (int(user_id), int(time.time())),
+            )
+        return True
+    except Exception as e:
+        logger.exception("set_last_referral_recheck failed: %s", e)
+        return False
+    finally:
+        if conn:
+            conn.close()
+
+def get_invited_users(inviter_id: int) -> list:
+    ensure_referrals_table()
+    conn = None
+    try:
+        conn = _connect()
+        cur = conn.execute(
+            "SELECT invited_id FROM referrals WHERE inviter_id = ?;",
+            (int(inviter_id),),
+        )
+        return [int(r[0]) for r in cur.fetchall()]
+    except Exception as e:
+        logger.exception("get_invited_users failed: %s", e)
+        return []
+    finally:
+        if conn:
+            conn.close()
 # ensure referrals table on import (best-effort)
 ensure_referrals_table()
-
+ensure_referral_meta_table()
 
 # ensure DB quickly on import (best-effort)
 ensure_db()
