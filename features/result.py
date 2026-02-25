@@ -20,7 +20,7 @@ from aiogram import Router
 from aiogram.filters import Command
 from aiogram.types import Message
 from aiogram.fsm.context import FSMContext
-
+from features.sub_check import is_subscribed
 import admins
 from database import (
     get_active_test,
@@ -30,6 +30,7 @@ from database import (
     clear_test_program_state,
     get_test_score,
     get_referral_stats,
+    recheck_all_referrals,
 )
 
 import sqlite3
@@ -194,7 +195,9 @@ def _build_detailed_review(token: str, test_id: str) -> str:
 @router.message(Command("result"))
 async def result_handler(message: Message, state: FSMContext):
     user_id = message.from_user.id
-
+    # 🔁 LIVE referral recheck (confirmed + not confirmed)
+    await recheck_all_referrals(message.bot, user_id, is_subscribed)
+    
     # FSM guard
     if get_checker_mode(user_id) is not None:
         await message.answer("⚠️ Finish current operation before using /result.")
