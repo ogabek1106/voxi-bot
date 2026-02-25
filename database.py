@@ -1861,6 +1861,57 @@ def get_referral_stats(inviter_id: int) -> dict:
         if conn:
             conn.close()
 
+# ---------- LIVE REFERRAL RECHECK ENGINE ----------
+
+REFERRAL_RECHECK_COOLDOWN = 90  # seconds
+
+async def recheck_all_referrals(bot, inviter_id: int, is_subscribed_func) -> bool:
+    """
+    Re-check ALL invited users (confirmed + not confirmed).
+    Returns True if recheck was performed, False if skipped by cooldown.
+    """
+
+    last = get_last_referral_recheck(inviter_id)
+    now = int(time.time())
+
+    # ⏱ Cooldown protection
+    if now - last < REFERRAL_RECHECK_COOLDOWN:
+        return False
+
+    invited_users = get_invited_users(inviter_id)
+
+    if not invited_users:
+        set_last_referral_recheck(inviter_id)
+        return True
+
+    for invited_id in invited_users:
+        try:
+            ok = await is_subscribed_func(bot, invited_id)
+        except Exception as e:
+            logger.warning("Referral recheck failed for invited_id=%s: %s", invited_id, e)
+            continue  # keep old status on API failure
+
+        conn = None
+        try:
+            conn = _connect()
+            with conn:
+                conn.execute(
+                    """
+                    UPDATE referrals
+                    SET confirmed = ?
+                    WHERE inviter_id = ? AND invited_id = ?;
+                    """,
+                    (1 if ok else 0, int(inviter_id), int(invited_id)),
+                )
+        except Exception as e:
+            logger.exception("Failed to update referral confirmed state: %s", e)
+        finally:
+            if conn:
+                conn.close()
+
+    set_last_referral_recheck(inviter_id)
+    return True
+
 def get_last_referral_recheck(user_id: int) -> int:
     ensure_referral_meta_table()
     conn = None
@@ -1921,7 +1972,6 @@ def get_invited_users(inviter_id: int) -> list:
 # ensure referrals table on import (best-effort)
 ensure_referrals_table()
 ensure_referral_meta_table()
-
 # ensure DB quickly on import (best-effort)
 ensure_db()
 # ensure tests table on import (best-effort)
