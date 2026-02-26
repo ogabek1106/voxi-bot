@@ -11,6 +11,7 @@ from database import (
     mark_referral_confirmed,
     recheck_all_referrals, 
 )
+from aiogram.filters import CommandStart, Filter
 
 router = Router()
 
@@ -74,60 +75,57 @@ async def referral_screen(message: Message, bot: Bot):
 
 
 # ---------- /start with referral ----------
+class RefDeepLink(Filter):
+    async def __call__(self, message: Message) -> bool:
+        parts = message.text.split(maxsplit=1)
+        return len(parts) > 1 and parts[1].startswith("ref_")
 
-@router.message(CommandStart(deep_link=True))
+@router.message(CommandStart(deep_link=True), RefDeepLink())
 async def start_with_referral(message: Message, bot: Bot):
     user_id = message.from_user.id
     payload = message.text.split(maxsplit=1)
-    ref_code = payload[1] if len(payload) > 1 else None
+    ref_code = payload[1]
 
-    # ❌ NOT a referral deep link → ignore and let other /start handlers process it
-    if not ref_code or not ref_code.startswith("ref_"):
-        return
-    
-    is_new = add_user_if_new(
+    add_user_if_new(
         user_id,
         first_name=message.from_user.first_name,
         username=message.from_user.username,
     )
 
-    if ref_code and ref_code.startswith("ref_"):
-        try:
-            inviter_id = int(ref_code.replace("ref_", ""))
-        except Exception:
-            inviter_id = None
+    try:
+        inviter_id = int(ref_code.replace("ref_", ""))
+    except Exception:
+        return
 
-        if inviter_id and inviter_id != user_id:
-            add_referral(inviter_id, user_id)
+    if inviter_id == user_id:
+        return
 
-            text = (
-                "🎉 Siz taklifnoma orqali kirdingiz!\n\n"
-                "Tasdiqlangan (confirmed) bo‘lish uchun:\n"
-                "1️⃣ Kanalga obuna bo‘ling\n"
-                "2️⃣ So‘ng <b>Statusni tekshirish</b> tugmasini bosing\n\n"
-                "✅ Shundan keyin sizni taklif qilgan do‘stingiz hisobiga yozilasiz."
+    add_referral(inviter_id, user_id)
+
+    text = (
+        "🎉 Siz taklifnoma orqali kirdingiz!\n\n"
+        "Tasdiqlangan (confirmed) bo‘lish uchun:\n"
+        "1️⃣ Kanalga obuna bo‘ling\n"
+        "2️⃣ So‘ng <b>Statusni tekshirish</b> tugmasini bosing\n\n"
+        "✅ Shundan keyin sizni taklif qilgan do‘stingiz hisobiga yozilasiz."
+    )
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(
+                text="📢 Kanalga obuna bo‘lish",
+                url="https://t.me/IELTSforeverybody"
             )
+        ],
+        [
+            InlineKeyboardButton(
+                text="🔄 Statusni tekshirish",
+                callback_data="check_referral_sub"
+            )
+        ]
+    ])
 
-            keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                [
-                    InlineKeyboardButton(
-                        text="📢 Kanalga obuna bo‘lish",
-                        url="https://t.me/IELTSforeverybody"
-                    )
-                ],
-                [
-                    InlineKeyboardButton(
-                        text="🔄 Statusni tekshirish",
-                        callback_data="check_referral_sub"
-                    )
-                ]
-            ])
-
-            await message.answer(text, reply_markup=keyboard, parse_mode="HTML")
-            return  # ✅ STOP here so generic welcome is NOT sent
-
-    # fallback only for non-referral or old users
-    #await message.answer("👋 Welcome to Voxi!")
+    await message.answer(text, reply_markup=keyboard, parse_mode="HTML")
 
 @router.callback_query(lambda c: c.data == "check_referral_sub")
 async def check_referral_subscription(callback: CallbackQuery):
