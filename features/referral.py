@@ -81,6 +81,10 @@ async def start_with_referral(message: Message, bot: Bot):
     payload = message.text.split(maxsplit=1)
     ref_code = payload[1] if len(payload) > 1 else None
 
+    # ❌ NOT a referral deep link → ignore and let other /start handlers process it
+    if not ref_code or not ref_code.startswith("ref_"):
+        return
+    
     is_new = add_user_if_new(
         user_id,
         first_name=message.from_user.first_name,
@@ -123,7 +127,7 @@ async def start_with_referral(message: Message, bot: Bot):
             return  # ✅ STOP here so generic welcome is NOT sent
 
     # fallback only for non-referral or old users
-    await message.answer("👋 Welcome to Voxi!")
+    #await message.answer("👋 Welcome to Voxi!")
 
 @router.callback_query(lambda c: c.data == "check_referral_sub")
 async def check_referral_subscription(callback: CallbackQuery):
