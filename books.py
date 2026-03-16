@@ -252,8 +252,8 @@ else:
         },
         "49": {
             "file_id": "BQACAgIAAxkBAAEBOotplrP_-FpAMvMjf5f7smAXs1uf-QACMJQAAswxuUgRr977sRB3OjoE",
-            "filename": "📗 Cambridge English Mindset for IELTS with 🎧 Listening Audio.pdf",
-            "caption": "📗 *Cambridge English Mindset for IELTS with 🎧 Listening Audio.pdf*\n\n⏰ File will be deleted in 15 minutes.\n\nMore 👉 @IELTSforeverybody"
+            "filename": "📗 Cambridge English Mindset for IELTS Student's Book 1.pdf + with Listening Audios 🎧",
+            "caption": "📗 *Cambridge English Mindset for IELTS Student's Book 1.pdf*\n*+ with Listening Audios 🎧*\n\n⏰ File will be deleted in 15 minutes.\n\nMore 👉 @IELTSforeverybody"
         },
         "50": {
             "file_id": "BQACAgIAAxkBAAEBXAJpoDLgdBMK4f9AEK0AAWCht2hpQ0wAAqqOAAK9MQFJnVuGKl-CXGE6BA",
@@ -269,6 +269,11 @@ else:
             "file_id": "BQACAgIAAxkBAAEBc2lpssBU3aOIfPX-816nYVmv6j-AlgACwY8AAh9pmEk9nLrmGGuCpzoE",
             "filename": "📕 4000 Essential English words 2.pdf",
             "caption": "📕 *4000 Essential English words 2.pdf*\n\n⏰ File will be deleted in 15 minutes.\n\nMore 👉 @IELTSforeverybody"
+        },
+        "53": {
+            "file_id": "BQACAgIAAxkBAAEBjDppt9hG8REYB29Wx5o81OMIKgR1EAACJ5oAAnxFwUlSGLkrhbTbJzoE",
+            "filename": "📘 Cambridge English Mindset for IELTS Student's Book 2.pdf + with Listening Audios 🎧",
+            "caption": "📘 *Cambridge English Mindset for IELTS Student's Book 2.pdf*\n*+ with Listening Audios 🎧*\n\n⏰ File will be deleted in 15 minutes.\n\nMore 👉 @IELTSforeverybody"
         }
     }
 
