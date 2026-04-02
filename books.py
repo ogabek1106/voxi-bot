@@ -324,6 +324,11 @@ else:
             "file_id": "BQACAgIAAxkBAAEByuZpxTcv8mct9H5WBWLcu9EbQkWAdgAClJAAAosRKUoHR2riSZnZVjoE",
             "filename": "📕 IELTS Advantage - Reading Skills.pdf",
             "caption": "📕 *IELTS Advantage - Reading Skills.pdf*\n\n⏰ File will be deleted in 15 minutes.\n\nMore 👉 @IELTSforeverybody"
+        },
+        "64": {
+            "file_id": "BQACAgIAAxkBAAEB6JBpzhFT5aJiuEX-EwNDZ4EvXbiBoAACdqQAAmZscUoewTEidDfqtDoE",
+            "filename": "📕 4000 Essential English words 4.pdf",
+            "caption": "📕 4000 *Essential English words 4.pdf*\n\n⏰ File will be deleted in 15 minutes.\n\nMore 👉 @IELTSforeverybody"
         }
     }
 
