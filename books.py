@@ -344,6 +344,11 @@ else:
             "file_id": "BQACAgIAAxkBAAECDR9p2mEgnUj-UJsoLple_tLDrVe9twACopgAAuPM2UrYrgbImEU3LTsE",
             "filename": "📗 Q - Skills for Success Listening & Speaking 3.pdf",
             "caption": "📗 *Q - Skills for Success Listening & Speaking 3.pdf*\n*+ with Listening Audios 🎧*\n\n⏰ File will be deleted in 15 minutes.\n\nMore 👉 @IELTSforeverybody"
+        },
+        "68": {
+            "file_id": "BQACAgIAAxkBAAECDR9p2mEgnUj-UJsoLple_tLDrVe9twACopgAAuPM2UrYrgbImEU3LTsE",
+            "filename": "📘 IELTS Advantage - Writing Skills.pdf",
+            "caption": "📘 *IELTS Advantage - Writing Skills.pdf*\n\n⏰ File will be deleted in 15 minutes.\n\nMore 👉 @IELTSforeverybody"
         }
     }
 
