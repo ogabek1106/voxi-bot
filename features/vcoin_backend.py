@@ -10,16 +10,21 @@ logger = logging.getLogger(__name__)
 
 
 class VCoinBackendError(Exception):
-    pass
+    def __init__(self, message: str, status: Optional[int] = None, data: Optional[Dict[str, Any]] = None):
+        super().__init__(message)
+        self.status = status
+        self.data = data or {}
 
 
 def backend_enabled() -> bool:
-    return bool(BACKEND_URL)
+    return bool(BACKEND_URL and BACKEND_TOKEN)
 
 
 async def _request(method: str, path: str, payload: Optional[Dict[str, Any]] = None):
     if not BACKEND_URL:
         raise VCoinBackendError("V-Coin backend is not configured.")
+    if not BACKEND_TOKEN:
+        raise VCoinBackendError("V-Coin backend token is not configured.")
 
     headers = {"Content-Type": "application/json"}
     if BACKEND_TOKEN:
@@ -28,18 +33,25 @@ async def _request(method: str, path: str, payload: Optional[Dict[str, Any]] = N
     url = f"{BACKEND_URL}{path}"
     timeout = aiohttp.ClientTimeout(total=20)
 
-    async with aiohttp.ClientSession(timeout=timeout) as session:
-        async with session.request(method, url, json=payload, headers=headers) as resp:
-            try:
-                data = await resp.json()
-            except Exception:
-                data = {"text": await resp.text()}
+    try:
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.request(method, url, json=payload, headers=headers) as resp:
+                try:
+                    data = await resp.json()
+                except Exception:
+                    data = {"text": await resp.text()}
 
-            if resp.status >= 400:
-                logger.warning("V-Coin backend error %s %s: %s", resp.status, path, data)
-                raise VCoinBackendError(str(data))
+                if resp.status >= 400:
+                    logger.warning("V-Coin backend error %s %s: %s", resp.status, path, data)
+                    message = data.get("message") or data.get("error") or str(data)
+                    raise VCoinBackendError(message, status=resp.status, data=data)
 
-            return data
+                return data
+    except VCoinBackendError:
+        raise
+    except (aiohttp.ClientError, TimeoutError) as exc:
+        logger.warning("V-Coin backend unavailable %s %s: %s", method, path, exc)
+        raise VCoinBackendError("V-Coin backend is temporarily unavailable.") from exc
 
 
 async def get_balance(telegram_id: int):
