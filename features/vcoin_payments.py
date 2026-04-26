@@ -20,6 +20,7 @@ from features.vcoin_config import (
     FULL_MOCK_COST,
     PAYMENT_CARD_TEXT,
     SEPARATE_BLOCK_COST,
+    build_vcoin_packages_text,
     get_package,
     get_packages,
 )
@@ -77,10 +78,9 @@ async def vcoin_balance(message: Message):
 @router.message(F.text.in_({"💳 Buy V-Coin", "Buy V-Coin", "V-Coin", "Buy VCoin"}))
 async def buy_vcoin(message: Message, state: FSMContext):
     await state.clear()
+    text = build_vcoin_packages_text()
     await message.answer(
-        "Choose a V-Coin package:\n\n"
-        f"Full Mock costs {FULL_MOCK_COST} V-Coins.\n"
-        f"One separate block costs {SEPARATE_BLOCK_COST} V-Coins.",
+        text,
         reply_markup=_packages_keyboard(),
     )
 
