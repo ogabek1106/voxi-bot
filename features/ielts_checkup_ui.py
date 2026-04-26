@@ -32,6 +32,7 @@ def main_user_keyboard():
         keyboard=[
             [KeyboardButton(text="🧠 IELTS Check Up")],
             [KeyboardButton(text="🤖 AI Detector")],
+            [KeyboardButton(text="💳 Buy V-Coin")],
             [KeyboardButton(text="🤝 Invite your friends")],
         ],
         resize_keyboard=True

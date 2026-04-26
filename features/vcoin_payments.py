@@ -74,7 +74,7 @@ async def vcoin_balance(message: Message):
 
 
 @router.message(Command("buy_vcoin"))
-@router.message(F.text.in_({"Buy V-Coin", "V-Coin", "Buy VCoin"}))
+@router.message(F.text.in_({"💳 Buy V-Coin", "Buy V-Coin", "V-Coin", "Buy VCoin"}))
 async def buy_vcoin(message: Message, state: FSMContext):
     await state.clear()
     await message.answer(
