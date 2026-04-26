@@ -18,8 +18,8 @@ from features.vcoin_backend import (
 )
 from features.vcoin_config import (
     FULL_MOCK_COST,
-    PAYMENT_CARD_TEXT,
     SEPARATE_BLOCK_COST,
+    build_payment_details_text,
     build_vcoin_packages_text,
     get_package,
     get_packages,
@@ -82,6 +82,7 @@ async def buy_vcoin(message: Message, state: FSMContext):
     await message.answer(
         text,
         reply_markup=_packages_keyboard(),
+        parse_mode="HTML",
     )
 
 
@@ -99,11 +100,8 @@ async def choose_package(cb: CallbackQuery, state: FSMContext):
     await state.update_data(package=package)
 
     await cb.message.answer(
-        "Payment details\n\n"
-        f'Package: {package["coins"]} V-Coin\n'
-        f'Price: {package["price"]}\n\n'
-        f"{PAYMENT_CARD_TEXT}\n\n"
-        "After payment, send the receipt/check screenshot here."
+        build_payment_details_text(package),
+        parse_mode="HTML",
     )
 
 
