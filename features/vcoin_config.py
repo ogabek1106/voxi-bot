@@ -10,14 +10,21 @@ BACKEND_TOKEN = os.getenv("VCOIN_BACKEND_TOKEN", "")
 
 PAYMENT_CARD_TEXT = os.getenv(
     "VCOIN_PAYMENT_CARD_TEXT",
-    "Payment card details are not configured yet. Please contact admin.",
+    """💳 Payment details
+
+UzCard/Humo: 9860 1678 4915 6408
+Visa: 4231 2000 1025 4109
+Name: OGABEK RAYIMOV
+Bank: Hamkor Bank
+
+After payment, send the receipt screenshot here.""",
 )
 
 
 DEFAULT_PACKAGES = [
-    {"code": "p10", "coins": 10, "price": "price not configured"},
-    {"code": "p30", "coins": 30, "price": "price not configured"},
-    {"code": "p50", "coins": 50, "price": "price not configured"},
+    {"code": "p10", "coins": 10, "price": "50 000 sums | $4"},
+    {"code": "p30", "coins": 30, "price": "90 000 sums | $7"},
+    {"code": "p50", "coins": 50, "price": "120 000 sums | $10"},
 ]
 
 
