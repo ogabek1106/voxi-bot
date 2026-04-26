@@ -10,21 +10,26 @@ BACKEND_TOKEN = os.getenv("VCOIN_BACKEND_TOKEN", "")
 
 PAYMENT_CARD_TEXT = os.getenv(
     "VCOIN_PAYMENT_CARD_TEXT",
-    """💳 Payment details
+    """💳 PAYMENT DETAILS
 
-UzCard/Humo: 9860 1678 4915 6408
-Visa: 4231 2000 1025 4109
-Name: OGABEK RAYIMOV
-Bank: Hamkor Bank
+UzCard / Humo: 9860 1678 4915 6408
+Visa (USD): 4231 2000 1025 4109
 
-After payment, send the receipt screenshot here.""",
+👤 Name: OGABEK RAYIMOV
+🏦 Bank: Hamkor Bank
+
+━━━━━━━━━━━━━━━
+
+📸 After payment:
+Send your receipt screenshot here
+
+⏱️ You will be credited within a few minutes""",
 )
 
-
 DEFAULT_PACKAGES = [
-    {"code": "p10", "coins": 10, "price": "50 000 sums | $4"},
-    {"code": "p30", "coins": 30, "price": "90 000 sums | $7"},
-    {"code": "p50", "coins": 50, "price": "120 000 sums | $10"},
+    {"code": "p10", "coins": 10, "price": "50,000 so'm ($4)", "label": "1 Full Mock"},
+    {"code": "p20", "coins": 20, "price": "90,000 so'm ($7)", "label": "2 Full Mocks ⭐ MOST POPULAR"},
+    {"code": "p30", "coins": 30, "price": "120,000 so'm ($10)", "label": "3 Full Mocks 🔥 BEST VALUE"},
 ]
 
 
@@ -54,3 +59,36 @@ def get_package(code: str):
         if package["code"] == code:
             return package
     return None
+
+def build_vcoin_packages_text():
+    packages = get_packages()
+
+    lines = [
+        "🎯 Practice IELTS in REAL exam conditions",
+        "",
+        f"Full Mock = {FULL_MOCK_COST} V-Coins",
+        f"Single block = {SEPARATE_BLOCK_COST} V-Coins",
+        "",
+        "━━━━━━━━━━━━━━━",
+        "",
+        "💰 Choose your package:",
+        "",
+    ]
+
+    for package in packages:
+        coins = package["coins"]
+        price = package["price"]
+        label = package.get("label", "")
+
+        lines.append(f"{coins} V-Coins — {price}")
+        if label:
+            lines.append(f"→ {label}")
+        lines.append("")
+
+    lines.extend([
+        "━━━━━━━━━━━━━━━",
+        "",
+        PAYMENT_CARD_TEXT,
+    ])
+
+    return "\n".join(lines)
