@@ -131,6 +131,13 @@ def _backend_unavailable_text():
     )
 
 
+def _backend_config_missing_text():
+    return (
+        "Payment system is not fully configured yet. "
+        "Please contact admin."
+    )
+
+
 def _admin_payment_text(payment_id, user, package, receipt, status, submitted_at, backend_message="", duplicate=False):
     lines = [
         "<b>V-Coin payment request</b>",
@@ -314,7 +321,7 @@ async def receive_receipt(message: Message, state: FSMContext):
         return
 
     if not backend_enabled():
-        await _exit_buy_mode(message, state, _backend_unavailable_text())
+        await _exit_buy_mode(message, state, _backend_config_missing_text())
         return
 
     submitted_at = datetime.now(timezone.utc).isoformat()

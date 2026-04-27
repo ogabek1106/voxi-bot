@@ -7,7 +7,10 @@ import re
 FULL_MOCK_COST = 10
 SEPARATE_BLOCK_COST = 3
 
-BACKEND_URL = os.getenv("VCOIN_BACKEND_URL", "").rstrip("/")
+BACKEND_URL = os.getenv(
+    "VCOIN_BACKEND_URL",
+    "https://voxi-miniapp-production.up.railway.app",
+).rstrip("/")
 BACKEND_TOKEN = os.getenv("VCOIN_BACKEND_TOKEN", "")
 
 PAYMENT_CARD_TEXT = os.getenv(
