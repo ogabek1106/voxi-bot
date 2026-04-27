@@ -1,12 +1,13 @@
 import html
 import logging
+import time
 from datetime import datetime, timezone
 
 from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, Message, ReplyKeyboardMarkup
 
 from admins import ADMIN_IDS
 from features.vcoin_backend import (
@@ -32,7 +33,40 @@ router = Router()
 
 
 class VCoinBuyState(StatesGroup):
+    choose_package = State()
     receipt = State()
+
+
+BUY_MODE_TIMEOUT_SECONDS = 30 * 60
+CANCEL_TEXT = "❌ Cancel"
+
+
+def _cancel_keyboard():
+    return ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text=CANCEL_TEXT)]],
+        resize_keyboard=True,
+    )
+
+
+def _main_menu_keyboard():
+    # Lazy import keeps this module decoupled at import time.
+    from features.ielts_checkup_ui import main_user_keyboard
+    return main_user_keyboard()
+
+
+def _now_ts() -> int:
+    return int(time.time())
+
+
+def _is_mode_expired(started_at: int | None) -> bool:
+    if not started_at:
+        return False
+    return (_now_ts() - int(started_at)) > BUY_MODE_TIMEOUT_SECONDS
+
+
+async def _exit_buy_mode(message: Message, state: FSMContext, text: str):
+    await state.clear()
+    await message.answer(text, reply_markup=_main_menu_keyboard())
 
 
 def _packages_keyboard():
@@ -205,7 +239,16 @@ async def vcoin_balance(message: Message):
 @router.message(F.text.in_({"💳 Buy V-Coin", "Buy V-Coin", "V-Coin", "Buy VCoin"}))
 async def buy_vcoin(message: Message, state: FSMContext):
     await state.clear()
+    await state.set_state(VCoinBuyState.choose_package)
+    await state.update_data(
+        buy_started_at=_now_ts(),
+        package=None,
+    )
     text = build_vcoin_packages_text()
+    await message.answer(
+        "Buy V-Coin mode started.\nPress ❌ Cancel anytime.",
+        reply_markup=_cancel_keyboard(),
+    )
     await message.answer(
         text,
         reply_markup=_packages_keyboard(),
@@ -216,6 +259,14 @@ async def buy_vcoin(message: Message, state: FSMContext):
 @router.callback_query(F.data.startswith("vcoin_pkg:"))
 async def choose_package(cb: CallbackQuery, state: FSMContext):
     await cb.answer()
+    data = await state.get_data()
+    if _is_mode_expired(data.get("buy_started_at")):
+        await state.clear()
+        await cb.message.answer(
+            "Buy V-Coin mode expired after 30 minutes. Please press 💳 Buy V-Coin again.",
+            reply_markup=_main_menu_keyboard(),
+        )
+        return
 
     code = cb.data.split(":", 1)[1]
     package = get_package(code)
@@ -224,10 +275,14 @@ async def choose_package(cb: CallbackQuery, state: FSMContext):
         return
 
     await state.set_state(VCoinBuyState.receipt)
-    await state.update_data(package=package)
+    await state.update_data(
+        package=package,
+        receipt_started_at=_now_ts(),
+    )
 
     await cb.message.answer(
         build_payment_details_text(package),
+        reply_markup=_cancel_keyboard(),
         parse_mode="HTML",
     )
 
@@ -235,10 +290,22 @@ async def choose_package(cb: CallbackQuery, state: FSMContext):
 @router.message(VCoinBuyState.receipt, F.photo | F.document)
 async def receive_receipt(message: Message, state: FSMContext):
     data = await state.get_data()
+    started_at = data.get("receipt_started_at") or data.get("buy_started_at")
+    if _is_mode_expired(started_at):
+        await _exit_buy_mode(
+            message,
+            state,
+            "Buy V-Coin mode expired after 30 minutes. Please press 💳 Buy V-Coin again.",
+        )
+        return
+
     package = data.get("package")
     if not package:
-        await state.clear()
-        await message.answer("Please choose a V-Coin package again with /buy_vcoin.")
+        await _exit_buy_mode(
+            message,
+            state,
+            "Please choose a V-Coin package again with /buy_vcoin.",
+        )
         return
 
     receipt = _receipt_from_message(message)
@@ -247,7 +314,7 @@ async def receive_receipt(message: Message, state: FSMContext):
         return
 
     if not backend_enabled():
-        await message.answer(_backend_unavailable_text())
+        await _exit_buy_mode(message, state, _backend_unavailable_text())
         return
 
     submitted_at = datetime.now(timezone.utc).isoformat()
@@ -274,7 +341,7 @@ async def receive_receipt(message: Message, state: FSMContext):
         created = await create_payment_request(payload)
     except VCoinBackendError as exc:
         logger.warning("V-Coin receipt submission failed: %s", exc)
-        await message.answer(_backend_unavailable_text())
+        await _exit_buy_mode(message, state, _backend_unavailable_text())
         return
 
     payment_id = str(created.get("payment_id") or created.get("id") or "")
@@ -282,8 +349,9 @@ async def receive_receipt(message: Message, state: FSMContext):
     backend_message = created.get("message", "")
     duplicate = bool(created.get("duplicate") or created.get("duplicate_suspected") or status == "duplicate_suspected")
 
-    await state.clear()
-    await message.answer(
+    await _exit_buy_mode(
+        message,
+        state,
         "Receipt received. We are checking your payment.\n\n"
         f"Status: {status}"
     )
@@ -300,9 +368,48 @@ async def receive_receipt(message: Message, state: FSMContext):
     )
 
 
-@router.message(VCoinBuyState.receipt)
-async def receipt_must_be_photo(message: Message):
+@router.message(VCoinBuyState.receipt, ~F.text.in_({CANCEL_TEXT}), ~F.text.startswith("/"))
+async def receipt_must_be_photo(message: Message, state: FSMContext):
+    data = await state.get_data()
+    started_at = data.get("receipt_started_at") or data.get("buy_started_at")
+    if _is_mode_expired(started_at):
+        await _exit_buy_mode(
+            message,
+            state,
+            "Buy V-Coin mode expired after 30 minutes. Please press 💳 Buy V-Coin again.",
+        )
+        return
     await message.answer("Please send the receipt/check as a screenshot photo or document.")
+
+
+@router.message(VCoinBuyState.choose_package, ~F.text.in_({CANCEL_TEXT}), ~F.text.startswith("/"))
+async def choose_package_text_fallback(message: Message, state: FSMContext):
+    data = await state.get_data()
+    if _is_mode_expired(data.get("buy_started_at")):
+        await _exit_buy_mode(
+            message,
+            state,
+            "Buy V-Coin mode expired after 30 minutes. Please press 💳 Buy V-Coin again.",
+        )
+        return
+    await message.answer("Please choose a V-Coin package below or press ❌ Cancel.")
+
+
+@router.message(F.text == CANCEL_TEXT, VCoinBuyState.choose_package)
+@router.message(F.text == CANCEL_TEXT, VCoinBuyState.receipt)
+@router.message(Command("cancel"), VCoinBuyState.choose_package)
+@router.message(Command("cancel"), VCoinBuyState.receipt)
+async def cancel_vcoin_buy(message: Message, state: FSMContext):
+    await _exit_buy_mode(message, state, "Buy V-Coin cancelled.")
+
+
+@router.message(VCoinBuyState.receipt, F.text.startswith("/"))
+async def receipt_mode_command_escape(message: Message, state: FSMContext):
+    await _exit_buy_mode(
+        message,
+        state,
+        "Buy V-Coin cancelled. Send your command again now.",
+    )
 
 
 @router.message(F.photo | F.document)
