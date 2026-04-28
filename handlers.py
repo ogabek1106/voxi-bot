@@ -160,6 +160,11 @@ async def start_handler(message: Message, state: FSMContext):
         return
     
     # 🔹 Deep-link: BOOK by code
+    if payload == "buy_vcoin":
+        from features.vcoin_payments import buy_vcoin
+        await buy_vcoin(message, state)
+        return
+
     if payload.isdigit():
         ok = await send_book_by_code(message, payload)
         if not ok:
