@@ -16,15 +16,14 @@ from features.vcoin_backend import (
     confirm_payment,
     create_payment_request,
     get_balance,
+    get_payment_intent,
     reject_payment,
 )
 from features.vcoin_config import (
     FULL_MOCK_COST,
     SEPARATE_BLOCK_COST,
+    WEBSITE_WALLET_URL,
     build_payment_details_text,
-    build_vcoin_packages_text,
-    get_package,
-    get_packages,
 )
 
 
@@ -33,12 +32,11 @@ router = Router()
 
 
 class VCoinBuyState(StatesGroup):
-    choose_package = State()
     receipt = State()
 
 
 BUY_MODE_TIMEOUT_SECONDS = 30 * 60
-CANCEL_TEXT = "❌ Cancel"
+CANCEL_TEXT = "Cancel"
 
 
 def _cancel_keyboard():
@@ -49,7 +47,6 @@ def _cancel_keyboard():
 
 
 def _main_menu_keyboard():
-    # Lazy import keeps this module decoupled at import time.
     from features.ielts_checkup_ui import main_user_keyboard
     return main_user_keyboard()
 
@@ -69,24 +66,6 @@ async def _exit_buy_mode(message: Message, state: FSMContext, text: str):
     await message.answer(text, reply_markup=_main_menu_keyboard())
 
 
-def _packages_keyboard():
-    rows = []
-    for package in get_packages():
-        suffix = ""
-        if package["code"] == "p20":
-            suffix = " ⭐"
-        elif package["code"] == "p30":
-            suffix = " 🔥"
-
-        rows.append([
-            InlineKeyboardButton(
-                text=f'{package["coins"]} V-Coins{suffix}',
-                callback_data=f'vcoin_pkg:{package["code"]}',
-            )
-        ])
-    return InlineKeyboardMarkup(inline_keyboard=rows)
-
-
 def _admin_keyboard(payment_id: str):
     return InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(text="Confirm", callback_data=f"vcoin_admin:confirm:{payment_id}"),
@@ -99,6 +78,7 @@ def _is_already_finalized(result) -> bool:
     return bool(result.get("already_finalized")) or status in {
         "already_finalized",
         "payment_already_finalized",
+        "expired",
     }
 
 
@@ -132,23 +112,63 @@ def _backend_unavailable_text():
 
 
 def _backend_config_missing_text():
-    return (
-        "Payment system is not fully configured yet. "
-        "Please contact admin."
-    )
+    return "Payment system is not fully configured yet. Please contact admin."
 
 
-def _admin_payment_text(payment_id, user, package, receipt, status, submitted_at, backend_message="", duplicate=False):
+def _money(amount) -> str:
+    try:
+        return f"{int(amount):,}".replace(",", " ")
+    except (TypeError, ValueError):
+        return str(amount or "0")
+
+
+def _normalize_payment_token(value: str) -> str:
+    token = str(value or "").strip().upper()
+    if token.startswith("PAY_"):
+        token = token[4:]
+    return token
+
+
+def _payment_from_response(data):
+    return data.get("payment") if isinstance(data, dict) else None
+
+
+def _payment_status(payment) -> str:
+    return str((payment or {}).get("status") or "").lower()
+
+
+def _payment_is_open(payment) -> bool:
+    return _payment_status(payment) in {"pending", "duplicate_suspected"}
+
+
+def _payment_owner_id(payment):
+    try:
+        return int((payment or {}).get("telegram_id") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _admin_payment_text(payment_id, user, payment, receipt, status, submitted_at, backend_message="", duplicate=False):
+    token = payment.get("payment_token") or "-"
+    coins = payment.get("coins_to_add") or "-"
+    subtotal = _money(payment.get("subtotal_amount"))
+    discount = _money(payment.get("discount_amount"))
+    final_amount = _money(payment.get("final_amount") or payment.get("expected_price") or 0)
+    promo = payment.get("promo_code") or "-"
+
     lines = [
         "<b>V-Coin payment request</b>",
         "",
         f"<b>Payment ID:</b> <code>{html.escape(payment_id or 'unknown')}</code>",
+        f"<b>Payment token:</b> <code>{html.escape(str(token))}</code>",
         f"<b>User telegram_id:</b> <code>{user.id}</code>",
         f"<b>Name:</b> {html.escape(user.full_name or '-')}",
         f"<b>Username:</b> @{html.escape(user.username or '-')}",
-        f"<b>Package:</b> {html.escape(package['code'])}",
-        f"<b>Coins:</b> {package['coins']} V-Coin",
-        f"<b>Price:</b> {html.escape(str(package['price']))}",
+        f"<b>Coins:</b> {html.escape(str(coins))} V-Coin",
+        f"<b>Subtotal:</b> {html.escape(subtotal)} UZS",
+        f"<b>Promo:</b> {html.escape(str(promo))}",
+        f"<b>Discount:</b> {html.escape(discount)} UZS",
+        f"<b>Expected amount:</b> {html.escape(final_amount)} UZS",
         f"<b>Backend status:</b> {html.escape(str(status))}",
         f"<b>Duplicate flag:</b> {'yes' if duplicate else 'no'}",
         f"<b>Receipt file_id:</b> <code>{html.escape(receipt['file_id'])}</code>",
@@ -163,7 +183,7 @@ def _admin_payment_text(payment_id, user, package, receipt, status, submitted_at
 async def _send_admin_receipt(
     message: Message,
     payment_id,
-    package,
+    payment,
     receipt,
     status,
     submitted_at,
@@ -173,7 +193,7 @@ async def _send_admin_receipt(
     admin_text = _admin_payment_text(
         payment_id=payment_id,
         user=message.from_user,
-        package=package,
+        payment=payment,
         receipt=receipt,
         status=status,
         submitted_at=submitted_at,
@@ -243,52 +263,61 @@ async def vcoin_balance(message: Message):
 
 
 @router.message(Command("buy_vcoin"))
-@router.message(F.text.in_({"💳 Buy V-Coin", "Buy V-Coin", "V-Coin", "Buy VCoin"}))
+@router.message(F.text.in_({"Buy V-Coin", "V-Coin", "Buy VCoin", "💳 Buy V-Coin"}))
 async def buy_vcoin(message: Message, state: FSMContext):
     await state.clear()
-    await state.set_state(VCoinBuyState.choose_package)
-    await state.update_data(
-        buy_started_at=_now_ts(),
-        package=None,
-    )
-    text = build_vcoin_packages_text()
     await message.answer(
-        "Buy V-Coin mode started.\nPress ❌ Cancel anytime.",
-        reply_markup=_cancel_keyboard(),
-    )
-    await message.answer(
-        text,
-        reply_markup=_packages_keyboard(),
+        "<b>Buy V-Coin on the website</b>\n\n"
+        "Choose any V-Coin amount, apply promo codes, and then return here with the payment link.\n\n"
+        f"<a href=\"{html.escape(WEBSITE_WALLET_URL)}\">Open EBAI Academy wallet</a>",
         parse_mode="HTML",
     )
 
 
-@router.callback_query(F.data.startswith("vcoin_pkg:"))
-async def choose_package(cb: CallbackQuery, state: FSMContext):
-    await cb.answer()
-    data = await state.get_data()
-    if _is_mode_expired(data.get("buy_started_at")):
-        await state.clear()
-        await cb.message.answer(
-            "Buy V-Coin mode expired after 30 minutes. Please press 💳 Buy V-Coin again.",
-            reply_markup=_main_menu_keyboard(),
+async def start_payment_token(message: Message, state: FSMContext, payment_token: str):
+    token = _normalize_payment_token(payment_token)
+    if not token:
+        await message.answer("Payment link is invalid. Please create a new payment from the website wallet.")
+        return
+
+    if not backend_enabled():
+        await message.answer(_backend_config_missing_text())
+        return
+
+    try:
+        response = await get_payment_intent(token)
+        payment = _payment_from_response(response)
+    except VCoinBackendError as exc:
+        logger.warning("Could not fetch V-Coin payment intent %s: %s", token, exc)
+        await message.answer("Payment request was not found or has expired. Please create a new payment from the website wallet.")
+        return
+
+    if not payment:
+        await message.answer("Payment request could not be loaded. Please create a new payment from the website wallet.")
+        return
+
+    if _payment_owner_id(payment) != int(message.from_user.id):
+        await message.answer("This payment link belongs to another Telegram account.")
+        return
+
+    if not _payment_is_open(payment):
+        await message.answer(
+            "This payment request is no longer active.\n\n"
+            f"Status: {_payment_status(payment) or 'unknown'}"
         )
         return
 
-    code = cb.data.split(":", 1)[1]
-    package = get_package(code)
-    if not package:
-        await cb.message.answer("This V-Coin package is not available anymore.")
-        return
-
+    await state.clear()
     await state.set_state(VCoinBuyState.receipt)
     await state.update_data(
-        package=package,
+        buy_started_at=_now_ts(),
         receipt_started_at=_now_ts(),
+        payment_token=token,
+        payment=payment,
     )
 
-    await cb.message.answer(
-        build_payment_details_text(package),
+    await message.answer(
+        build_payment_details_text(payment),
         reply_markup=_cancel_keyboard(),
         parse_mode="HTML",
     )
@@ -302,16 +331,17 @@ async def receive_receipt(message: Message, state: FSMContext):
         await _exit_buy_mode(
             message,
             state,
-            "Buy V-Coin mode expired after 30 minutes. Please press 💳 Buy V-Coin again.",
+            "Buy V-Coin mode expired after 30 minutes. Please create a new payment from the website wallet.",
         )
         return
 
-    package = data.get("package")
-    if not package:
+    payment_token = data.get("payment_token")
+    payment = data.get("payment") or {}
+    if not payment_token or not payment:
         await _exit_buy_mode(
             message,
             state,
-            "Please choose a V-Coin package again with /buy_vcoin.",
+            "Payment context is missing. Please create a new payment from the website wallet.",
         )
         return
 
@@ -327,21 +357,17 @@ async def receive_receipt(message: Message, state: FSMContext):
     submitted_at = datetime.now(timezone.utc).isoformat()
     payload = {
         "telegram_id": message.from_user.id,
+        "payment_token": payment_token,
         "username": message.from_user.username,
         "first_name": message.from_user.first_name,
         "full_name": message.from_user.full_name,
-        "package_code": package["code"],
-        "coins": package["coins"],
-        "price": package["price"],
-        "expected_amount": package["price"],
-        "coins_to_add": package["coins"],
         "receipt_file_type": receipt["file_type"],
         "receipt_file_id": receipt["file_id"],
         "receipt_image_hash": receipt.get("file_unique_id"),
         "receipt_mime_type": receipt.get("mime_type"),
         "receipt_file_name": receipt.get("file_name"),
         "submitted_at": submitted_at,
-        "source": "telegram_bot",
+        "source": "telegram_bot_payment_token",
     }
 
     try:
@@ -366,7 +392,7 @@ async def receive_receipt(message: Message, state: FSMContext):
     await _send_admin_receipt(
         message=message,
         payment_id=payment_id,
-        package=package,
+        payment=payment,
         receipt=receipt,
         status=status,
         submitted_at=submitted_at,
@@ -383,28 +409,13 @@ async def receipt_must_be_photo(message: Message, state: FSMContext):
         await _exit_buy_mode(
             message,
             state,
-            "Buy V-Coin mode expired after 30 minutes. Please press 💳 Buy V-Coin again.",
+            "Buy V-Coin mode expired after 30 minutes. Please create a new payment from the website wallet.",
         )
         return
     await message.answer("Please send the receipt/check as a screenshot photo or document.")
 
 
-@router.message(VCoinBuyState.choose_package, ~F.text.in_({CANCEL_TEXT}), ~F.text.startswith("/"))
-async def choose_package_text_fallback(message: Message, state: FSMContext):
-    data = await state.get_data()
-    if _is_mode_expired(data.get("buy_started_at")):
-        await _exit_buy_mode(
-            message,
-            state,
-            "Buy V-Coin mode expired after 30 minutes. Please press 💳 Buy V-Coin again.",
-        )
-        return
-    await message.answer("Please choose a V-Coin package below or press ❌ Cancel.")
-
-
-@router.message(F.text == CANCEL_TEXT, VCoinBuyState.choose_package)
 @router.message(F.text == CANCEL_TEXT, VCoinBuyState.receipt)
-@router.message(Command("cancel"), VCoinBuyState.choose_package)
 @router.message(Command("cancel"), VCoinBuyState.receipt)
 async def cancel_vcoin_buy(message: Message, state: FSMContext):
     await _exit_buy_mode(message, state, "Buy V-Coin cancelled.")
@@ -421,7 +432,7 @@ async def receipt_mode_command_escape(message: Message, state: FSMContext):
 
 @router.message(F.photo | F.document)
 async def receipt_without_package(message: Message):
-    await message.answer("Please choose a V-Coin package first with /buy_vcoin.")
+    await message.answer("Please create a V-Coin payment from the website wallet first.")
 
 
 @router.callback_query(F.data.startswith("vcoin_confirm:"))

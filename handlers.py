@@ -165,6 +165,11 @@ async def start_handler(message: Message, state: FSMContext):
         await buy_vcoin(message, state)
         return
 
+    if payload.startswith("pay_"):
+        from features.vcoin_payments import start_payment_token
+        await start_payment_token(message, state, payload)
+        return
+
     if payload.isdigit():
         ok = await send_book_by_code(message, payload)
         if not ok:

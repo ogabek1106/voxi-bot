@@ -58,6 +58,11 @@ async def get_balance(telegram_id: int):
     return await _request("GET", f"/vcoins/balance/{telegram_id}")
 
 
+async def get_payment_intent(payment_token: str):
+    token = str(payment_token or "").strip().upper()
+    return await _request("GET", f"/vcoins/payment-intents/{token}")
+
+
 async def create_payment_request(payload: Dict[str, Any]):
     return await _request("POST", "/vcoins/payment-requests", payload)
 

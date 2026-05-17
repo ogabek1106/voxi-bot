@@ -9,9 +9,10 @@ SEPARATE_BLOCK_COST = 3
 
 BACKEND_URL = os.getenv(
     "VCOIN_BACKEND_URL",
-    "https://voxi-miniapp-production.up.railway.app",
+    "https://api.ebaiacademy.com",
 ).rstrip("/")
 BACKEND_TOKEN = os.getenv("VCOIN_BACKEND_TOKEN", "")
+WEBSITE_WALLET_URL = os.getenv("VCOIN_WEBSITE_WALLET_URL", "https://www.ebaiacademy.com")
 
 PAYMENT_CARD_TEXT = os.getenv(
     "VCOIN_PAYMENT_CARD_TEXT",
@@ -87,15 +88,32 @@ def _format_card_numbers(text: str) -> str:
     return re.sub(r"(?<!\d)(?:\d[ -]?){12,19}(?!\d)", repl, escaped)
 
 
-def build_payment_details_text(package):
-    coins = _html(package["coins"])
-    price = _html(package["price"])
+def _money(amount) -> str:
+    try:
+        return f"{int(amount):,}".replace(",", " ")
+    except (TypeError, ValueError):
+        return str(amount or "0")
+
+
+def build_payment_details_text(payment):
+    coins = _html(payment.get("coins_to_add") or payment.get("coins") or "-")
+    token = _html(payment.get("payment_token") or "-")
+    rate = _html(_money(payment.get("exchange_rate_uzs")))
+    subtotal = _html(_money(payment.get("subtotal_amount")))
+    discount = _html(_money(payment.get("discount_amount")))
+    final_amount = _html(_money(payment.get("final_amount") or payment.get("expected_price") or 0))
+    promo = _html(payment.get("promo_code") or "-")
 
     return "\n".join([
         "<b>💳 Payment details</b>",
         "",
-        f"<b>Package:</b> {coins} V-Coin",
-        f"<b>Price:</b> <i>{price}</i>",
+        f"<b>Payment ID:</b> <code>{token}</code>",
+        f"<b>V-Coins:</b> {coins}",
+        f"<b>Rate:</b> 1 V-Coin = <code>{rate}</code> UZS",
+        f"<b>Subtotal:</b> <code>{subtotal}</code> UZS",
+        f"<b>Promo:</b> {promo}",
+        f"<b>Discount:</b> <code>{discount}</code> UZS",
+        f"<b>Total to pay:</b> <code>{final_amount}</code> UZS",
         "",
         _format_card_numbers(PAYMENT_CARD_TEXT),
         "",
