@@ -76,7 +76,8 @@ def _html(text) -> str:
 
 
 def _format_card_numbers(text: str) -> str:
-    escaped = _html(text)
+    cleaned = re.sub(r"`((?:\d[ -]?){12,19})`", r"\1", str(text or ""))
+    escaped = _html(cleaned)
 
     def repl(match):
         value = match.group(0)
@@ -116,8 +117,6 @@ def build_payment_details_text(payment):
         f"<b>Total to pay:</b> <code>{final_amount}</code> UZS",
         "",
         _format_card_numbers(PAYMENT_CARD_TEXT),
-        "",
-        "<i>After payment, send the receipt/check screenshot here.</i>",
     ])
 
 
