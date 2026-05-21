@@ -34,15 +34,15 @@ Send your receipt screenshot here
 
 PREMIERE_PAYMENT_CARD_TEXT = os.getenv(
     "PREMIERE_PAYMENT_CARD_TEXT",
-    """PAYMENT DETAILS
+    """📌 PAYMENT DETAILS
 
 Humo: `9860 1678 4915 6408`
 Visa (USD): `4231 2000 1025 4109`
 
-Name: OGABEK RAYIMOV
-Bank: Hamkor Bank
+👤Name: OGABEK RAYIMOV
+🏦Bank: Hamkor Bank
 
-After payment:
+❗️After payment:
 Send your receipt screenshot here
 
 Premiere access will be unlocked after confirmation""",
@@ -143,7 +143,7 @@ def build_premiere_payment_details_text(payment):
     final_amount = _html(_money(payment.get("final_amount") or payment.get("expected_price") or 0))
 
     return "\n".join([
-        "<b>✨ Premiere Mock access</b>",
+        "<b>🔥 Premiere Mock access</b>",
         "",
         "You are unlocking a limited Premiere IELTS Mock. This purchase grants access to the Premiere mock only.",
         "",
@@ -152,7 +152,18 @@ def build_premiere_payment_details_text(payment):
         f"<b>Mock ID:</b> <code>{mock_id}</code>",
         f"<b>Total to pay:</b> <code>{final_amount}</code> UZS",
         "",
-        _format_card_numbers(PREMIERE_PAYMENT_CARD_TEXT),
+        "<b>📌 PAYMENT DETAILS</b>",
+        "",
+        "<b>Humo:</b> <code>9860 1678 4915 6408</code>",
+        "<b>Visa (USD):</b> <code>4231 2000 1025 4109</code>",
+        "",
+        "<b>👤Name:</b> OGABEK RAYIMOV",
+        "<b>🏦Bank:</b> Hamkor Bank",
+        "",
+        "<b>❗️After payment:</b>",
+        "Send your receipt screenshot here",
+        "",
+        "<i>Premiere access will be unlocked after confirmation</i>",
     ])
 
 

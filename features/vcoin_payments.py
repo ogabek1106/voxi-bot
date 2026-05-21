@@ -557,7 +557,7 @@ async def _admin_payment_action(cb: CallbackQuery, payment_id: str, action: str)
         try:
             if action == "confirm":
                 if result.get("premiere_access"):
-                    text = "Payment confirmed. Your Premiere Mock access has been unlocked."
+                    text = "🔓Payment confirmed. Your Premiere Mock access has been unlocked."
                 else:
                     text = "Payment confirmed. Your V-Coins have been added."
                 await cb.bot.send_message(
