@@ -32,6 +32,22 @@ Send your receipt screenshot here
 ⏱️ You will be credited within a few minutes""",
 )
 
+PREMIERE_PAYMENT_CARD_TEXT = os.getenv(
+    "PREMIERE_PAYMENT_CARD_TEXT",
+    """PAYMENT DETAILS
+
+Humo: `9860 1678 4915 6408`
+Visa (USD): `4231 2000 1025 4109`
+
+Name: OGABEK RAYIMOV
+Bank: Hamkor Bank
+
+After payment:
+Send your receipt screenshot here
+
+Premiere access will be unlocked after confirmation""",
+)
+
 DEFAULT_PACKAGES = [
     {"code": "p10", "coins": 10, "price": "50,000 so'm ($4)", "label": "1 Full Mock"},
     {"code": "p20", "coins": 20, "price": "90,000 so'm ($7)", "label": "2 Full Mocks ⭐ MOST POPULAR"},
@@ -117,6 +133,26 @@ def build_payment_details_text(payment):
         f"<b>Total to pay:</b> <code>{final_amount}</code> UZS",
         "",
         _format_card_numbers(PAYMENT_CARD_TEXT),
+    ])
+
+
+def build_premiere_payment_details_text(payment):
+    token = _html(payment.get("payment_token") or "-")
+    title = _html(payment.get("mock_title") or "Premiere Mock")
+    mock_id = _html(payment.get("mock_pack_id") or "-")
+    final_amount = _html(_money(payment.get("final_amount") or payment.get("expected_price") or 0))
+
+    return "\n".join([
+        "<b>✨ Premiere Mock access</b>",
+        "",
+        "You are unlocking a limited Premiere IELTS Mock. This purchase grants access to the Premiere mock only.",
+        "",
+        f"<b>Payment ID:</b> <code>{token}</code>",
+        f"<b>Mock:</b> {title}",
+        f"<b>Mock ID:</b> <code>{mock_id}</code>",
+        f"<b>Total to pay:</b> <code>{final_amount}</code> UZS",
+        "",
+        _format_card_numbers(PREMIERE_PAYMENT_CARD_TEXT),
     ])
 
 

@@ -24,6 +24,7 @@ from features.vcoin_config import (
     SEPARATE_BLOCK_COST,
     WEBSITE_WALLET_URL,
     build_payment_details_text,
+    build_premiere_payment_details_text,
 )
 
 
@@ -148,33 +149,73 @@ def _payment_owner_id(payment):
         return 0
 
 
+def _is_premiere_payment(payment) -> bool:
+    kind = str((payment or {}).get("payment_kind") or "").lower()
+    package_code = str((payment or {}).get("package_code") or "").lower()
+    return bool(
+        kind == "premiere_access"
+        or package_code == "premiere_access"
+        or (payment or {}).get("mock_pack_id")
+    )
+
+
+def _payment_context_name(payment) -> str:
+    return "Premiere" if _is_premiere_payment(payment) else "V-Coin"
+
+
+def _payment_details_text(payment) -> str:
+    if _is_premiere_payment(payment):
+        return build_premiere_payment_details_text(payment)
+    return build_payment_details_text(payment)
+
+
+def _start_payload(message: Message) -> str:
+    text = str(message.text or "").strip()
+    parts = text.split(maxsplit=1)
+    if not parts or not parts[0].startswith("/start") or len(parts) < 2:
+        return ""
+    return parts[1].strip()
+
+
 def _admin_payment_text(payment_id, user, payment, receipt, status, submitted_at, backend_message="", duplicate=False):
     token = payment.get("payment_token") or "-"
     coins = payment.get("coins_to_add") or "-"
+    is_premiere = _is_premiere_payment(payment)
+    title = "Premiere access payment request" if is_premiere else "V-Coin payment request"
     subtotal = _money(payment.get("subtotal_amount"))
     discount = _money(payment.get("discount_amount"))
     final_amount = _money(payment.get("final_amount") or payment.get("expected_price") or 0)
     promo = payment.get("promo_code") or "-"
 
     lines = [
-        "<b>V-Coin payment request</b>",
+        f"<b>{title}</b>",
         "",
         f"<b>Payment ID:</b> <code>{html.escape(payment_id or 'unknown')}</code>",
         f"<b>Payment token:</b> <code>{html.escape(str(token))}</code>",
         f"<b>User telegram_id:</b> <code>{user.id}</code>",
         f"<b>Name:</b> {html.escape(user.full_name or '-')}",
         f"<b>Username:</b> @{html.escape(user.username or '-')}",
-        f"<b>Coins:</b> {html.escape(str(coins))} V-Coin",
-        f"<b>Subtotal:</b> {html.escape(subtotal)} UZS",
-        f"<b>Promo:</b> {html.escape(str(promo))}",
-        f"<b>Discount:</b> {html.escape(discount)} UZS",
+    ]
+    if is_premiere:
+        lines.extend([
+            f"<b>Mock:</b> {html.escape(str(payment.get('mock_title') or 'Premiere Mock'))}",
+            f"<b>Mock ID:</b> <code>{html.escape(str(payment.get('mock_pack_id') or '-'))}</code>",
+        ])
+    else:
+        lines.extend([
+            f"<b>Coins:</b> {html.escape(str(coins))} V-Coin",
+            f"<b>Subtotal:</b> {html.escape(subtotal)} UZS",
+            f"<b>Promo:</b> {html.escape(str(promo))}",
+            f"<b>Discount:</b> {html.escape(discount)} UZS",
+        ])
+    lines.extend([
         f"<b>Expected amount:</b> {html.escape(final_amount)} UZS",
         f"<b>Backend status:</b> {html.escape(str(status))}",
         f"<b>Duplicate flag:</b> {'yes' if duplicate else 'no'}",
         f"<b>Receipt file_id:</b> <code>{html.escape(receipt['file_id'])}</code>",
         f"<b>Receipt hash:</b> <code>{html.escape(receipt.get('file_unique_id') or '-')}</code>",
         f"<b>Submitted at:</b> <code>{html.escape(submitted_at)}</code>",
-    ]
+    ])
     if backend_message:
         lines.append(f"<b>Message:</b> {html.escape(str(backend_message))}")
     return "\n".join(lines)
@@ -296,8 +337,12 @@ async def start_payment_token(message: Message, state: FSMContext, payment_token
         await message.answer("Payment request could not be loaded. Please create a new payment from the website wallet.")
         return
 
-    if _payment_owner_id(payment) != int(message.from_user.id):
+    owner_id = _payment_owner_id(payment)
+    if owner_id and owner_id != int(message.from_user.id):
         await message.answer("This payment link belongs to another Telegram account.")
+        return
+    if not owner_id and not _is_premiere_payment(payment):
+        await message.answer("This payment link is missing Telegram account information. Please create a new payment from the website wallet.")
         return
 
     if not _payment_is_open(payment):
@@ -317,7 +362,7 @@ async def start_payment_token(message: Message, state: FSMContext, payment_token
     )
 
     await message.answer(
-        build_payment_details_text(payment),
+        _payment_details_text(payment),
         reply_markup=_cancel_keyboard(),
         parse_mode="HTML",
     )
@@ -328,10 +373,11 @@ async def receive_receipt(message: Message, state: FSMContext):
     data = await state.get_data()
     started_at = data.get("receipt_started_at") or data.get("buy_started_at")
     if _is_mode_expired(started_at):
+        context = _payment_context_name(data.get("payment") or {})
         await _exit_buy_mode(
             message,
             state,
-            "Buy V-Coin mode expired after 30 minutes. Please create a new payment from the website wallet.",
+            f"{context} payment mode expired after 30 minutes. Please reopen the payment from the website.",
         )
         return
 
@@ -341,7 +387,7 @@ async def receive_receipt(message: Message, state: FSMContext):
         await _exit_buy_mode(
             message,
             state,
-            "Payment context is missing. Please create a new payment from the website wallet.",
+            "Payment context is missing. Please reopen the payment from the website.",
         )
         return
 
@@ -367,7 +413,7 @@ async def receive_receipt(message: Message, state: FSMContext):
         "receipt_mime_type": receipt.get("mime_type"),
         "receipt_file_name": receipt.get("file_name"),
         "submitted_at": submitted_at,
-        "source": "telegram_bot_payment_token",
+        "source": "telegram_bot_premiere_payment_token" if _is_premiere_payment(payment) else "telegram_bot_payment_token",
     }
 
     try:
@@ -385,7 +431,7 @@ async def receive_receipt(message: Message, state: FSMContext):
     await _exit_buy_mode(
         message,
         state,
-        "Receipt received. We are checking your payment.\n\n"
+        f"{_payment_context_name(payment)} receipt received. We are checking your payment.\n\n"
         f"Status: {status}"
     )
 
@@ -406,10 +452,11 @@ async def receipt_must_be_photo(message: Message, state: FSMContext):
     data = await state.get_data()
     started_at = data.get("receipt_started_at") or data.get("buy_started_at")
     if _is_mode_expired(started_at):
+        context = _payment_context_name(data.get("payment") or {})
         await _exit_buy_mode(
             message,
             state,
-            "Buy V-Coin mode expired after 30 minutes. Please create a new payment from the website wallet.",
+            f"{context} payment mode expired after 30 minutes. Please reopen the payment from the website.",
         )
         return
     await message.answer("Please send the receipt/check as a screenshot photo or document.")
@@ -418,15 +465,21 @@ async def receipt_must_be_photo(message: Message, state: FSMContext):
 @router.message(F.text == CANCEL_TEXT, VCoinBuyState.receipt)
 @router.message(Command("cancel"), VCoinBuyState.receipt)
 async def cancel_vcoin_buy(message: Message, state: FSMContext):
-    await _exit_buy_mode(message, state, "Buy V-Coin cancelled.")
+    data = await state.get_data()
+    context = _payment_context_name(data.get("payment") or {})
+    await _exit_buy_mode(message, state, f"{context} payment cancelled.")
 
 
 @router.message(VCoinBuyState.receipt, F.text.startswith("/"))
 async def receipt_mode_command_escape(message: Message, state: FSMContext):
+    payload = _start_payload(message)
+    if payload.startswith("pay_"):
+        await start_payment_token(message, state, payload)
+        return
     await _exit_buy_mode(
         message,
         state,
-        "Buy V-Coin cancelled. Send your command again now.",
+        "Payment flow cancelled. Send your command again now.",
     )
 
 
@@ -485,9 +538,11 @@ async def _admin_payment_action(cb: CallbackQuery, payment_id: str, action: str)
         await cb.answer(f"{action.title()} sent.")
 
     if action == "confirm":
+        access_text = "Premiere access granted" if result.get("premiere_access") else "V-Coins added"
         await _mark_admin_message(
             cb,
             f"<b>Status:</b> confirmed signal sent for <code>{html.escape(payment_id)}</code>\n"
+            f"<b>Result:</b> {html.escape(access_text)}\n"
             f"<b>Backend:</b> {html.escape(str(status))}",
         )
     else:
@@ -501,9 +556,13 @@ async def _admin_payment_action(cb: CallbackQuery, payment_id: str, action: str)
     if user_id:
         try:
             if action == "confirm":
+                if result.get("premiere_access"):
+                    text = "Payment confirmed. Your Premiere Mock access has been unlocked."
+                else:
+                    text = "Payment confirmed. Your V-Coins have been added."
                 await cb.bot.send_message(
                     chat_id=user_id,
-                    text="Payment confirmed. Your V-Coins have been added.",
+                    text=text,
                 )
             else:
                 await cb.bot.send_message(
