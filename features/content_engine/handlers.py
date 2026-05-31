@@ -17,7 +17,7 @@ from aiogram.types import CallbackQuery, KeyboardButton, Message, ReplyKeyboardM
 from admins import ADMIN_IDS
 from database import DB_PATH
 
-from . import ai, resource_processor, scheduler, storage
+from . import ai, book_resources, resource_processor, scheduler, storage
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -350,6 +350,67 @@ async def resource_status(message: Message):
         line = f"- {row['title']}\n  Status: {status}\n  Ideas: {row.get('idea_count') or 0}"
         if status == "failed" and row.get("processing_error"):
             line += f"\n  Error: {row['processing_error'][:180]}"
+        lines.append(line)
+    await message.answer("\n\n".join(lines), parse_mode=None)
+
+
+@router.message(Command("import_book_resource"))
+async def import_book_resource(message: Message):
+    if not is_admin(message.from_user.id if message.from_user else None):
+        await message.answer("Admins only.")
+        return
+    parts = (message.text or "").split(maxsplit=1)
+    if len(parts) != 2 or not parts[1].strip():
+        await message.answer("Usage: /import_book_resource <book_code>")
+        return
+
+    book_code = parts[1].strip()
+    resource_id, created, note = book_resources.import_book_record(book_code)
+    if not resource_id:
+        await message.answer(note)
+        return
+    book_resources.start_book_processing(resource_id, message.bot)
+    await message.answer(
+        f"{note}\n"
+        f"Book code: {book_code}\n"
+        f"Resource #{resource_id}\n"
+        "Processing will continue in background."
+    )
+
+
+@router.message(Command("import_all_books_resources"))
+async def import_all_books_resources(message: Message):
+    if not is_admin(message.from_user.id if message.from_user else None):
+        await message.answer("Admins only.")
+        return
+    imported, reused = book_resources.start_all_books_import(message.bot)
+    await message.answer(
+        "Existing books import started.\n"
+        f"New resources: {imported}\n"
+        f"Already imported: {reused}\n"
+        "Downloads and idea-card processing will continue gradually in background."
+    )
+
+
+@router.message(Command("book_resources_status"))
+async def book_resources_status(message: Message):
+    if not is_admin(message.from_user.id if message.from_user else None):
+        await message.answer("Admins only.")
+        return
+    rows = storage.list_existing_book_resources_with_idea_counts(100)
+    if not rows:
+        await message.answer("No existing books have been imported as content resources yet.")
+        return
+
+    lines = ["Imported book resources:"]
+    for row in rows:
+        line = (
+            f"#{row['id']} | code {row.get('book_code') or '-'} | "
+            f"{row.get('file_name') or row.get('title') or 'Untitled'}\n"
+            f"Status: {row.get('status') or 'uploaded'} | Ideas: {row.get('idea_count') or 0}"
+        )
+        if row.get("processing_error"):
+            line += f"\nError: {str(row['processing_error'])[:180]}"
         lines.append(line)
     await message.answer("\n\n".join(lines), parse_mode=None)
 

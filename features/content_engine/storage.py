@@ -179,6 +179,9 @@ def ensure_content_engine_tables() -> None:
                     "status": "TEXT DEFAULT 'uploaded'",
                     "processed_at": "INTEGER",
                     "processing_error": "TEXT",
+                    "source_type": "TEXT",
+                    "book_code": "TEXT",
+                    "source_caption": "TEXT",
                 },
             )
             _ensure_columns(
@@ -509,6 +512,9 @@ def add_resource(
     mime_type: str,
     local_path: str,
     extracted_text: str = "",
+    source_type: str = "",
+    book_code: str = "",
+    source_caption: str = "",
 ) -> Optional[int]:
     ensure_content_engine_tables()
     conn = None
@@ -519,8 +525,9 @@ def add_resource(
                 """
                 INSERT INTO content_engine_resources
                 (title, category, file_id, file_unique_id, file_name, mime_type,
-                 local_path, extracted_text, status, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'uploaded', ?);
+                 local_path, extracted_text, status, source_type, book_code,
+                 source_caption, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'uploaded', ?, ?, ?, ?);
                 """,
                 (
                     title,
@@ -531,6 +538,9 @@ def add_resource(
                     mime_type,
                     local_path,
                     extracted_text,
+                    source_type,
+                    book_code,
+                    source_caption,
                     _now_ts(),
                 ),
             )
@@ -559,6 +569,87 @@ def list_resources(limit: int = 20) -> List[Dict[str, Any]]:
         return [_row_to_dict(row) for row in cur.fetchall()]
     except Exception:
         logger.exception("list_resources failed")
+        return []
+    finally:
+        if conn:
+            conn.close()
+
+
+def get_existing_book_resource(book_code: str) -> Optional[Dict[str, Any]]:
+    ensure_content_engine_tables()
+    conn = None
+    try:
+        conn = _connect_rows()
+        cur = conn.execute(
+            """
+            SELECT *
+            FROM content_engine_resources
+            WHERE source_type = 'existing_book' AND book_code = ?
+            LIMIT 1;
+            """,
+            (str(book_code),),
+        )
+        row = cur.fetchone()
+        return _row_to_dict(row) if row else None
+    except Exception:
+        logger.exception("get_existing_book_resource failed")
+        return None
+    finally:
+        if conn:
+            conn.close()
+
+
+def update_resource_file(
+    resource_id: int,
+    local_path: str,
+    mime_type: str = "",
+    file_name: str = "",
+) -> bool:
+    ensure_content_engine_tables()
+    conn = None
+    try:
+        conn = _connect()
+        with conn:
+            cur = conn.execute(
+                """
+                UPDATE content_engine_resources
+                SET local_path = ?,
+                    mime_type = COALESCE(NULLIF(?, ''), mime_type),
+                    file_name = COALESCE(NULLIF(?, ''), file_name),
+                    processing_error = NULL
+                WHERE id = ?;
+                """,
+                (local_path, mime_type, file_name, int(resource_id)),
+            )
+        return cur.rowcount > 0
+    except Exception:
+        logger.exception("update_resource_file failed")
+        return False
+    finally:
+        if conn:
+            conn.close()
+
+
+def list_existing_book_resources_with_idea_counts(limit: int = 100) -> List[Dict[str, Any]]:
+    ensure_content_engine_tables()
+    conn = None
+    try:
+        conn = _connect_rows()
+        cur = conn.execute(
+            """
+            SELECT r.*, COUNT(i.id) AS idea_count
+            FROM content_engine_resources r
+            LEFT JOIN content_engine_resource_ideas i ON i.resource_id = r.id
+            WHERE r.source_type = 'existing_book'
+            GROUP BY r.id
+            ORDER BY CAST(r.book_code AS INTEGER), r.book_code
+            LIMIT ?;
+            """,
+            (int(limit),),
+        )
+        return [_row_to_dict(row) for row in cur.fetchall()]
+    except Exception:
+        logger.exception("list_existing_book_resources_with_idea_counts failed")
         return []
     finally:
         if conn:

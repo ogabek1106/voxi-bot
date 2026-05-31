@@ -27,6 +27,8 @@ def start_processing(resource_id: int) -> None:
 
 def start_pending_processing() -> None:
     for resource in storage.list_resources_by_status(["uploaded", "processing"], 25):
+        if resource.get("source_type") == "existing_book" and not resource.get("local_path"):
+            continue
         start_processing(int(resource["id"]))
 
 
