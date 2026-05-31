@@ -12,6 +12,7 @@ from features.user_tracker import setup_middleware
 
 from handlers import router as core_router
 # from features.sub_check import router as sub_check_router
+from features.content_engine.api_server import start_api_server
 from features.content_engine.resource_processor import start_pending_processing
 from features.content_engine.scheduler import start_scheduler
 
@@ -51,6 +52,18 @@ async def _start_content_engine_background(bot: Bot):
     await asyncio.sleep(CONTENT_ENGINE_BACKGROUND_START_DELAY)
     start_scheduler(bot)
     start_pending_processing()
+
+
+async def _start_content_engine_api():
+    runner = None
+    try:
+        runner = await start_api_server()
+        await asyncio.Event().wait()
+    except Exception as e:
+        logger.exception("Content Engine API server failed to start: %s", e)
+    finally:
+        if runner:
+            await runner.cleanup()
 
 
 # ─────────────────────────────
@@ -110,6 +123,7 @@ async def main():
         logger.warning("Could not set bot commands during startup: %s", e)
 
     asyncio.create_task(_start_content_engine_background(bot))
+    asyncio.create_task(_start_content_engine_api())
 
     while True:
         try:

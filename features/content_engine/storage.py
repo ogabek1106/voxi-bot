@@ -668,6 +668,31 @@ def reset_failed_book_resource(resource_id: int, clear_local_path: bool = False)
             conn.close()
 
 
+def reset_failed_resource(resource_id: int) -> bool:
+    ensure_content_engine_tables()
+    conn = None
+    try:
+        conn = _connect()
+        with conn:
+            cur = conn.execute(
+                """
+                UPDATE content_engine_resources
+                SET status = 'uploaded',
+                    processing_error = NULL,
+                    processed_at = NULL
+                WHERE id = ? AND status = 'failed';
+                """,
+                (int(resource_id),),
+            )
+        return cur.rowcount > 0
+    except Exception:
+        logger.exception("reset_failed_resource failed")
+        return False
+    finally:
+        if conn:
+            conn.close()
+
+
 def list_existing_book_resources_with_idea_counts(limit: int = 100) -> List[Dict[str, Any]]:
     ensure_content_engine_tables()
     conn = None
