@@ -11,6 +11,7 @@ from features.user_tracker import setup_middleware
 
 from handlers import router as core_router
 # from features.sub_check import router as sub_check_router
+from features.content_engine.scheduler import start_scheduler
 
 try:
     from features import register_all_features
@@ -71,9 +72,18 @@ async def main():
         await bot.set_my_commands([
             BotCommand(command="start", description="Botni ishga tushirish"),
             BotCommand(command="all_books", description="Mavjud kitoblar ro'yxati"),
+            BotCommand(command="content_status", description="Content Engine status"),
+            BotCommand(command="generate_content_now", description="Generate one content draft"),
+            BotCommand(command="content_queue", description="Pending content drafts"),
+            BotCommand(command="pause_content", description="Pause content drafts"),
+            BotCommand(command="resume_content", description="Resume content drafts"),
+            BotCommand(command="upload_resource", description="Upload content resource"),
+            BotCommand(command="resources", description="List content resources"),
         ])
     except Exception:
         pass
+
+    start_scheduler(bot)
 
     logger.info("Bot starting polling...")
     await dp.start_polling(bot)
