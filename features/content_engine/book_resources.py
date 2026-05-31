@@ -76,6 +76,29 @@ def import_book_record(book_code: str) -> tuple[Optional[int], bool, str]:
     return int(resource_id), True, "Book resource imported."
 
 
+def retry_failed_book_resource(book_code: str, bot: Bot) -> tuple[bool, str]:
+    code = str(book_code).strip()
+    resource = storage.get_existing_book_resource(code)
+    if not resource:
+        return False, "Imported book resource was not found. Use /import_book_resource first."
+
+    status = str(resource.get("status") or "uploaded").lower()
+    if status == "ready":
+        return False, f"Book resource {code} is already ready. No retry needed."
+    if status in {"processing", "downloading"}:
+        return False, f"Book resource {code} is already processing."
+    if status != "failed":
+        return False, f"Book resource {code} is not failed. Current status: {status}."
+
+    local_path = str(resource.get("local_path") or "")
+    clear_local_path = bool(local_path and not Path(local_path).exists())
+    if not storage.reset_failed_book_resource(int(resource["id"]), clear_local_path=clear_local_path):
+        return False, "Could not reset this failed book resource."
+
+    start_book_processing(int(resource["id"]), bot)
+    return True, f"Retry started for book resource {code}."
+
+
 def start_book_processing(resource_id: int, bot: Bot) -> None:
     if resource_id in _tasks and not _tasks[resource_id].done():
         return

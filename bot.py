@@ -98,6 +98,7 @@ async def main():
                 BotCommand(command="resource_status", description="Show resource processing status"),
                 BotCommand(command="import_book_resource", description="Import one existing book"),
                 BotCommand(command="import_all_books_resources", description="Import all existing books"),
+                BotCommand(command="retry_book_resource", description="Retry failed book resource"),
                 BotCommand(command="book_resources_status", description="Imported book resource status"),
                 BotCommand(command="learn_post", description="Save a post style example"),
                 BotCommand(command="style_examples", description="List saved style examples"),

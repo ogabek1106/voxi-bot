@@ -425,6 +425,12 @@ async def import_book_resource(message: Message):
     if not resource_id:
         await message.answer(note)
         return
+    existing = storage.get_resource(resource_id)
+    if not created and str((existing or {}).get("status") or "").lower() == "failed":
+        await message.answer(
+            f"This resource exists but failed. Use /retry_book_resource {book_code}."
+        )
+        return
     book_resources.start_book_processing(resource_id, message.bot)
     await message.answer(
         f"{note}\n"
@@ -432,6 +438,19 @@ async def import_book_resource(message: Message):
         f"Resource #{resource_id}\n"
         "Processing will continue in background."
     )
+
+
+@router.message(Command("retry_book_resource"))
+async def retry_book_resource(message: Message):
+    if not is_admin(message.from_user.id if message.from_user else None):
+        await message.answer("Admins only.")
+        return
+    parts = (message.text or "").split(maxsplit=1)
+    if len(parts) != 2 or not parts[1].strip():
+        await message.answer("Usage: /retry_book_resource <book_code>")
+        return
+    ok, response = book_resources.retry_failed_book_resource(parts[1].strip(), message.bot)
+    await message.answer(response)
 
 
 @router.message(Command("import_all_books_resources"))
