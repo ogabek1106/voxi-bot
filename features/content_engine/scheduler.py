@@ -65,10 +65,13 @@ def review_keyboard(draft_id: int) -> InlineKeyboardMarkup:
         inline_keyboard=[
             [
                 InlineKeyboardButton(text="✅ Approve", callback_data=f"vc:approve:{draft_id}"),
-                InlineKeyboardButton(text="🔁 Regenerate", callback_data=f"vc:regen:{draft_id}"),
+                InlineKeyboardButton(text="✏️ Edit", callback_data=f"vc:edit:{draft_id}"),
             ],
             [
+                InlineKeyboardButton(text="🔁 Regenerate", callback_data=f"vc:regen:{draft_id}"),
                 InlineKeyboardButton(text="❌ Reject", callback_data=f"vc:reject:{draft_id}"),
+            ],
+            [
                 InlineKeyboardButton(text="📌 Mark as Posted/Used", callback_data=f"vc:posted:{draft_id}"),
             ],
         ]
@@ -109,6 +112,10 @@ async def generate_one_draft(bot: Bot, slot: str = "manual", notify: bool = True
         source_title=source.get("title") if source else None,
         used_topic=result.get("topic"),
         used_vocabulary=[result.get("vocabulary")] if result.get("vocabulary") else [],
+        topic=result.get("topic"),
+        generation_prompt=result.get("generation_prompt"),
+        style_examples_used=result.get("style_examples_used") or [],
+        hashtags_used=result.get("hashtags_used") or [],
     )
     if not draft_id:
         return None
@@ -116,6 +123,35 @@ async def generate_one_draft(bot: Bot, slot: str = "manual", notify: bool = True
         storage.mark_resource_used(int(source["id"]))
     if notify:
         await send_draft_to_admins(bot, draft_id, result["text"])
+    return draft_id
+
+
+async def regenerate_existing_draft(bot: Bot, draft: dict, notify: bool = True) -> Optional[int]:
+    now = local_now()
+    source = None
+    if draft.get("source_resource_id"):
+        source = storage.get_resource(int(draft["source_resource_id"]))
+    result = await ai.regenerate_draft_text(draft, source)
+    draft_id = storage.create_draft(
+        draft_text=str(result["text"]),
+        generated_date=now.date().isoformat(),
+        weekday=draft.get("weekday") or ai.weekday_name(now.weekday()),
+        slot=draft.get("slot") or "manual",
+        content_category=draft.get("content_category") or ai.category_for_weekday(now.weekday()),
+        source_resource_id=draft.get("source_resource_id"),
+        source_title=draft.get("source_title"),
+        used_topic=result.get("topic") or draft.get("used_topic"),
+        used_vocabulary=[],
+        topic=result.get("topic") or draft.get("topic"),
+        source_chunk_id=draft.get("source_chunk_id"),
+        generation_prompt=result.get("generation_prompt"),
+        style_examples_used=result.get("style_examples_used") or [],
+        hashtags_used=result.get("hashtags_used") or [],
+    )
+    if not draft_id:
+        return None
+    if notify:
+        await send_draft_to_admins(bot, draft_id, str(result["text"]))
     return draft_id
 
 

@@ -7,6 +7,8 @@ from typing import Any, Dict, Iterable, List, Optional
 
 from database import _connect
 
+from .style_analysis import analyze_style
+
 logger = logging.getLogger(__name__)
 
 
@@ -22,6 +24,25 @@ def _connect_rows():
     conn = _connect()
     conn.row_factory = sqlite3.Row
     return conn
+
+
+def _table_columns(conn: sqlite3.Connection, table: str) -> List[str]:
+    try:
+        cur = conn.execute(f"PRAGMA table_info({table});")
+        return [row[1] for row in cur.fetchall()]
+    except Exception:
+        logger.exception("Could not read columns for %s", table)
+        return []
+
+
+def _ensure_columns(conn: sqlite3.Connection, table: str, columns: Dict[str, str]) -> None:
+    existing = set(_table_columns(conn, table))
+    for name, ddl in columns.items():
+        if name not in existing:
+            try:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {ddl};")
+            except Exception:
+                logger.exception("Could not add column %s.%s", table, name)
 
 
 def ensure_content_engine_tables() -> None:
@@ -110,6 +131,41 @@ def ensure_content_engine_tables() -> None:
                     created_at INTEGER NOT NULL
                 );
                 """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS content_engine_hashtags (
+                    category TEXT NOT NULL,
+                    hashtag TEXT NOT NULL,
+                    source TEXT NOT NULL,
+                    use_count INTEGER NOT NULL DEFAULT 1,
+                    updated_at INTEGER NOT NULL,
+                    PRIMARY KEY (category, hashtag)
+                );
+                """
+            )
+            _ensure_columns(
+                conn,
+                "content_engine_drafts",
+                {
+                    "topic": "TEXT",
+                    "source_chunk_id": "TEXT",
+                    "generation_prompt": "TEXT",
+                    "style_examples_used": "TEXT",
+                    "hashtags_used": "TEXT",
+                },
+            )
+            _ensure_columns(
+                conn,
+                "content_engine_style_examples",
+                {
+                    "original_draft": "TEXT",
+                    "hashtags": "TEXT",
+                    "emoji_count": "INTEGER DEFAULT 0",
+                    "footer_pattern": "TEXT",
+                    "cta_pattern": "TEXT",
+                    "language_ratio": "TEXT",
+                },
             )
     except Exception as e:
         logger.exception("ensure_content_engine_tables failed: %s", e)
@@ -252,11 +308,18 @@ def create_draft(
     source_title: Optional[str] = None,
     used_topic: Optional[str] = None,
     used_vocabulary: Optional[Iterable[str]] = None,
+    topic: Optional[str] = None,
+    source_chunk_id: Optional[str] = None,
+    generation_prompt: Optional[str] = None,
+    style_examples_used: Optional[Iterable[int]] = None,
+    hashtags_used: Optional[Iterable[str]] = None,
 ) -> Optional[int]:
     ensure_content_engine_tables()
     conn = None
     now = _now_ts()
     vocab = json.dumps(list(used_vocabulary or []), ensure_ascii=False)
+    style_ids = json.dumps(list(style_examples_used or []), ensure_ascii=False)
+    hashtags = json.dumps(list(hashtags_used or []), ensure_ascii=False)
     try:
         conn = _connect()
         with conn:
@@ -265,8 +328,9 @@ def create_draft(
                 INSERT INTO content_engine_drafts
                 (draft_text, generated_date, weekday, slot, content_category,
                  source_resource_id, source_title, status, used_topic,
-                 used_vocabulary, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, 'pending_review', ?, ?, ?, ?);
+                 used_vocabulary, topic, source_chunk_id, generation_prompt,
+                 style_examples_used, hashtags_used, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 'pending_review', ?, ?, ?, ?, ?, ?, ?, ?, ?);
                 """,
                 (
                     draft_text,
@@ -278,6 +342,11 @@ def create_draft(
                     source_title,
                     used_topic,
                     vocab,
+                    topic or used_topic,
+                    source_chunk_id,
+                    generation_prompt,
+                    style_ids,
+                    hashtags,
                     now,
                     now,
                 ),
@@ -327,6 +396,25 @@ def get_draft(draft_id: int) -> Optional[Dict[str, Any]]:
         return _row_to_dict(row) if row else None
     except Exception:
         logger.exception("get_draft failed")
+        return None
+    finally:
+        if conn:
+            conn.close()
+
+
+def get_resource(resource_id: int) -> Optional[Dict[str, Any]]:
+    ensure_content_engine_tables()
+    conn = None
+    try:
+        conn = _connect_rows()
+        cur = conn.execute(
+            "SELECT * FROM content_engine_resources WHERE id = ? LIMIT 1;",
+            (int(resource_id),),
+        )
+        row = cur.fetchone()
+        return _row_to_dict(row) if row else None
+    except Exception:
+        logger.exception("get_resource failed")
         return None
     finally:
         if conn:
@@ -487,6 +575,66 @@ def mark_resource_used(resource_id: int) -> None:
             conn.close()
 
 
+def _learn_hashtags(category: str, hashtags: Iterable[str], source: str) -> None:
+    tags = list(hashtags or [])
+    if not tags:
+        return
+    conn = None
+    try:
+        conn = _connect()
+        now = _now_ts()
+        with conn:
+            for tag in tags:
+                conn.execute(
+                    """
+                    INSERT INTO content_engine_hashtags
+                    (category, hashtag, source, use_count, updated_at)
+                    VALUES (?, ?, ?, 1, ?)
+                    ON CONFLICT(category, hashtag) DO UPDATE SET
+                        use_count = content_engine_hashtags.use_count + 1,
+                        updated_at = excluded.updated_at;
+                    """,
+                    (category or "General", tag, source, now),
+                )
+    except Exception:
+        logger.exception("_learn_hashtags failed")
+    finally:
+        if conn:
+            conn.close()
+
+
+def get_learned_hashtags(category: str, limit: int = 12) -> List[str]:
+    ensure_content_engine_tables()
+    conn = None
+    try:
+        conn = _connect()
+        tags = []
+        for wanted in (category or "General", "General"):
+            if len(tags) >= limit:
+                break
+            cur = conn.execute(
+                """
+                SELECT hashtag
+                FROM content_engine_hashtags
+                WHERE lower(category) = lower(?)
+                ORDER BY use_count DESC, updated_at DESC
+                LIMIT ?;
+                """,
+                (wanted, int(limit - len(tags))),
+            )
+            for row in cur.fetchall():
+                tag = row[0]
+                if tag not in tags:
+                    tags.append(tag)
+        return tags[:limit]
+    except Exception:
+        logger.exception("get_learned_hashtags failed")
+        return []
+    finally:
+        if conn:
+            conn.close()
+
+
 def save_channel_post(chat_id: int, message_id: int, text: str) -> bool:
     ensure_content_engine_tables()
     if not text:
@@ -495,13 +643,19 @@ def save_channel_post(chat_id: int, message_id: int, text: str) -> bool:
     try:
         conn = _connect()
         with conn:
-            conn.execute(
+            cur = conn.execute(
                 """
                 INSERT OR IGNORE INTO content_engine_channel_posts
                 (chat_id, message_id, text, received_at)
                 VALUES (?, ?, ?, ?);
                 """,
                 (int(chat_id), int(message_id), text[:4000], _now_ts()),
+            )
+        if cur.rowcount:
+            add_style_example(
+                text=text,
+                category="General",
+                source="captured_channel_post",
             )
         return True
     except Exception:
@@ -534,23 +688,44 @@ def recent_channel_examples(limit: int = 5) -> List[str]:
             conn.close()
 
 
-def add_style_example(text: str, category: str = "General") -> Optional[int]:
+def add_style_example(
+    text: str,
+    category: str = "General",
+    source: str = "manual_admin_example",
+    original_draft: Optional[str] = None,
+) -> Optional[int]:
     ensure_content_engine_tables()
     if not text or not text.strip():
         return None
     conn = None
+    metadata = analyze_style(text)
+    hashtags = metadata["hashtags"]
     try:
         conn = _connect()
         with conn:
             cur = conn.execute(
                 """
                 INSERT INTO content_engine_style_examples
-                (text, category, source, created_at)
-                VALUES (?, ?, 'manual_admin_example', ?);
+                (text, category, source, created_at, original_draft,
+                 hashtags, emoji_count, footer_pattern, cta_pattern, language_ratio)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
                 """,
-                (text.strip()[:4000], category or "General", _now_ts()),
+                (
+                    text.strip()[:4000],
+                    category or "General",
+                    source,
+                    _now_ts(),
+                    original_draft,
+                    json.dumps(hashtags, ensure_ascii=False),
+                    int(metadata["emoji_count"]),
+                    metadata["footer_pattern"],
+                    metadata["cta_pattern"],
+                    metadata["language_ratio"],
+                ),
             )
-            return int(cur.lastrowid)
+            example_id = int(cur.lastrowid)
+        _learn_hashtags(category or "General", hashtags, source)
+        return example_id
     except Exception:
         logger.exception("add_style_example failed")
         return None
@@ -566,7 +741,9 @@ def list_style_examples(limit: int = 20) -> List[Dict[str, Any]]:
         conn = _connect_rows()
         cur = conn.execute(
             """
-            SELECT id, text, category, source, created_at
+            SELECT id, text, category, source, created_at, hashtags,
+                   emoji_count, footer_pattern, cta_pattern, language_ratio,
+                   original_draft
             FROM content_engine_style_examples
             ORDER BY created_at DESC
             LIMIT ?;
@@ -592,10 +769,41 @@ def delete_style_example(example_id: int) -> bool:
                 "DELETE FROM content_engine_style_examples WHERE id = ?;",
                 (int(example_id),),
             )
-        return cur.rowcount > 0
+        deleted = cur.rowcount > 0
+        if deleted:
+            rebuild_learned_hashtags()
+        return deleted
     except Exception:
         logger.exception("delete_style_example failed")
         return False
+    finally:
+        if conn:
+            conn.close()
+
+
+def rebuild_learned_hashtags() -> None:
+    ensure_content_engine_tables()
+    conn = None
+    try:
+        conn = _connect_rows()
+        cur = conn.execute(
+            """
+            SELECT category, source, hashtags
+            FROM content_engine_style_examples
+            WHERE hashtags IS NOT NULL AND hashtags != '';
+            """
+        )
+        rows = [_row_to_dict(row) for row in cur.fetchall()]
+        with conn:
+            conn.execute("DELETE FROM content_engine_hashtags;")
+        for row in rows:
+            try:
+                hashtags = json.loads(row.get("hashtags") or "[]")
+            except Exception:
+                hashtags = []
+            _learn_hashtags(row.get("category") or "General", hashtags, row.get("source") or "unknown")
+    except Exception:
+        logger.exception("rebuild_learned_hashtags failed")
     finally:
         if conn:
             conn.close()
@@ -607,31 +815,41 @@ def choose_style_examples(category: str, limit: int = 5) -> List[Dict[str, Any]]
     conn = None
     try:
         conn = _connect_rows()
-        rows = []
-        cur = conn.execute(
-            """
-            SELECT id, text, category, source, created_at
-            FROM content_engine_style_examples
-            WHERE lower(category) = lower(?)
-            ORDER BY created_at DESC
-            LIMIT ?;
-            """,
-            (wanted, int(limit)),
-        )
-        rows.extend(_row_to_dict(row) for row in cur.fetchall())
-        if len(rows) < limit:
+        rows: List[Dict[str, Any]] = []
+        seen = set()
+        for wanted_category in (wanted, "General"):
+            if len(rows) >= limit:
+                break
             cur = conn.execute(
                 """
                 SELECT id, text, category, source, created_at
+                , hashtags, emoji_count, footer_pattern, cta_pattern, language_ratio
                 FROM content_engine_style_examples
-                WHERE lower(category) = 'general'
-                  AND id NOT IN ({})
+                WHERE lower(category) = lower(?)
                 ORDER BY created_at DESC
                 LIMIT ?;
-                """.format(",".join("?" for _ in rows) or "0"),
-                [*(row["id"] for row in rows), int(limit - len(rows))],
+                """,
+                (wanted_category, int(limit * 3)),
             )
-            rows.extend(_row_to_dict(row) for row in cur.fetchall())
+            candidates = [_row_to_dict(row) for row in cur.fetchall()]
+            source_rank = {
+                "admin_edited_post": 0,
+                "manual_admin_example": 1,
+                "captured_channel_post": 2,
+            }
+            candidates.sort(
+                key=lambda row: (
+                    source_rank.get(row.get("source"), 9),
+                    -int(row.get("created_at") or 0),
+                )
+            )
+            for row in candidates:
+                if row["id"] in seen:
+                    continue
+                seen.add(row["id"])
+                rows.append(row)
+                if len(rows) >= limit:
+                    break
         return rows[:limit]
     except Exception:
         logger.exception("choose_style_examples failed")

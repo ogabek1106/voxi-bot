@@ -28,6 +28,10 @@ class StyleExampleState(StatesGroup):
     waiting_category = State()
 
 
+class DraftEditState(StatesGroup):
+    waiting_corrected = State()
+
+
 STYLE_CATEGORIES = [
     "Word of the Day",
     "Phrase",
@@ -258,11 +262,12 @@ async def delete_style_example(message: Message):
 
 @router.message(Command("cancel"), StyleExampleState.waiting_post)
 @router.message(Command("cancel"), StyleExampleState.waiting_category)
+@router.message(Command("cancel"), DraftEditState.waiting_corrected)
 async def cancel_style_example(message: Message, state: FSMContext):
     if not is_admin(message.from_user.id if message.from_user else None):
         return
     await state.clear()
-    await message.answer("Style learning cancelled.", reply_markup=ReplyKeyboardRemove())
+    await message.answer("Cancelled.", reply_markup=ReplyKeyboardRemove())
 
 
 @router.message(StyleExampleState.waiting_post, F.text)
@@ -305,6 +310,45 @@ async def receive_style_example_category(message: Message, state: FSMContext):
         )
     else:
         await message.answer("Failed to save style example.", reply_markup=ReplyKeyboardRemove())
+
+
+@router.message(DraftEditState.waiting_corrected, F.text)
+async def receive_corrected_draft(message: Message, state: FSMContext):
+    if not is_admin(message.from_user.id if message.from_user else None):
+        return
+    corrected = (message.text or "").strip()
+    if len(corrected) < 20:
+        await message.answer("Please send the full corrected version, or /cancel.")
+        return
+
+    data = await state.get_data()
+    draft_id = data.get("edit_draft_id")
+    draft = storage.get_draft(int(draft_id)) if draft_id else None
+    if not draft:
+        await state.clear()
+        await message.answer("Draft not found. Please start again.", reply_markup=ReplyKeyboardRemove())
+        return
+
+    style_category = ai.style_category_for_plan(draft.get("content_category") or "General")
+    example_id = storage.add_style_example(
+        text=corrected,
+        category=style_category,
+        source="admin_edited_post",
+        original_draft=draft.get("draft_text"),
+    )
+    storage.update_draft_status(int(draft["id"]), "approved")
+    await state.clear()
+    if example_id:
+        await message.answer(
+            f"Corrected draft saved as premium style example #{example_id}.\n"
+            f"Draft #{draft['id']} marked approved.",
+            reply_markup=ReplyKeyboardRemove(),
+        )
+    else:
+        await message.answer(
+            "Corrected version received, but saving style example failed.",
+            reply_markup=ReplyKeyboardRemove(),
+        )
 
 
 @router.message(Command("upload_resource"))
@@ -380,7 +424,7 @@ async def receive_resource_title(message: Message, state: FSMContext):
 
 
 @router.callback_query(F.data.startswith("vc:"))
-async def content_callback(callback: CallbackQuery):
+async def content_callback(callback: CallbackQuery, state: FSMContext):
     if not is_admin(callback.from_user.id if callback.from_user else None):
         await callback.answer("Admins only.", show_alert=True)
         return
@@ -413,11 +457,20 @@ async def content_callback(callback: CallbackQuery):
             await callback.message.answer(f"Draft #{draft_id} status: {status_map[action]}", parse_mode=None)
         return
 
+    if action == "edit":
+        await state.clear()
+        await state.set_state(DraftEditState.waiting_corrected)
+        await state.update_data(edit_draft_id=draft_id)
+        await callback.answer("Edit mode started.")
+        if callback.message:
+            await callback.message.answer("Send the corrected version.\nSend /cancel to abort.", parse_mode=None)
+        return
+
     if action == "regen":
         if scheduler.quiet_hours():
             await callback.answer("Quiet hours after 19:00.", show_alert=True)
             return
-        new_id = await scheduler.generate_one_draft(callback.bot, slot=draft.get("slot") or "manual", notify=True)
+        new_id = await scheduler.regenerate_existing_draft(callback.bot, draft, notify=True)
         if new_id:
             storage.update_draft_status(draft_id, "regenerated")
         await callback.answer("Regenerated." if new_id else "Regeneration failed.", show_alert=not bool(new_id))

@@ -1,11 +1,13 @@
 import logging
 import os
+import re
 from typing import Dict, List, Optional
 
 import openai
 
 from . import storage
 from .html_format import normalize_ai_output_html
+from .style_analysis import extract_hashtags
 
 logger = logging.getLogger(__name__)
 
@@ -84,6 +86,80 @@ def _clip(text: str, limit: int = 1600) -> str:
     return text[:limit]
 
 
+def _strip_html(text: str) -> str:
+    return re.sub(r"<[^>]+>", "", text or "")
+
+
+def _infer_topic(text: str, fallback: str) -> str:
+    for line in _strip_html(text).splitlines():
+        clean = re.sub(r"^[^\w#]+", "", line.strip())
+        if clean and not clean.lower().startswith(("draft id", "voxi content engine")):
+            return clean[:120]
+    return fallback
+
+
+def _style_block(examples: List[Dict]) -> str:
+    if not examples:
+        return "No style examples yet."
+    parts = []
+    for example in examples:
+        meta = []
+        if example.get("hashtags"):
+            meta.append(f"hashtags={example['hashtags']}")
+        if example.get("emoji_count") is not None:
+            meta.append(f"emoji_count={example['emoji_count']}")
+        if example.get("language_ratio"):
+            meta.append(f"language_ratio={example['language_ratio']}")
+        if example.get("cta_pattern"):
+            meta.append(f"cta={_clip(example['cta_pattern'], 180)}")
+        if example.get("footer_pattern"):
+            meta.append(f"footer={_clip(example['footer_pattern'], 220)}")
+        parts.append(
+            f"Example #{example['id']} | source={example.get('source')} | "
+            f"category={example.get('category')}\n"
+            f"Style metadata: {'; '.join(meta) if meta else 'none'}\n"
+            f"{_clip(example.get('text') or '', 1200)}"
+        )
+    return "\n\n---\n\n".join(parts)
+
+
+def _allowed_hashtag_block(style_category: str) -> tuple[str, List[str]]:
+    allowed = storage.get_learned_hashtags(style_category, 12)
+    if not allowed:
+        return (
+            "No approved hashtags exist for this category or General. Do not include any hashtags.",
+            [],
+        )
+    return (
+        "Only these learned hashtags are approved. Use a natural subset if needed, "
+        "and do not invent any other hashtags:\n" + " ".join(allowed),
+        allowed,
+    )
+
+
+def _remove_unapproved_hashtags(text: str, allowed: List[str]) -> str:
+    allowed_lower = {tag.lower() for tag in allowed}
+    if not allowed_lower:
+        return re.sub(r"(?<![\w])#[A-Za-z0-9_]+", "", text or "")
+
+    def replace(match):
+        tag = match.group(0)
+        return tag if tag.lower() in allowed_lower else ""
+
+    return re.sub(r"(?<![\w])#[A-Za-z0-9_]+", replace, text or "")
+
+
+def _normalize_result(raw_text: str, allowed_hashtags: List[str]) -> tuple[str, List[str]]:
+    text = normalize_ai_output_html(raw_text.strip())
+    text = _remove_unapproved_hashtags(text, allowed_hashtags)
+    used_hashtags = [
+        tag
+        for tag in extract_hashtags(text)
+        if tag.lower() in {allowed.lower() for allowed in allowed_hashtags}
+    ]
+    return text.strip(), used_hashtags
+
+
 async def generate_draft_text(
     weekday_index: int,
     slot: str,
@@ -96,21 +172,20 @@ async def generate_draft_text(
         for row in recent
         if row.get("status") in {"approved", "posted_used", "pending_review"}
     ][:20]
-    channel_examples = storage.recent_channel_examples(3)
-    approved_examples = [
-        row.get("draft_text", "")
-        for row in recent
-        if row.get("status") == "approved"
-    ][:3]
     style_category = style_category_for_plan(category)
     style_examples = storage.choose_style_examples(style_category, 5)
+    hashtag_rule, allowed_hashtags = _allowed_hashtag_block(style_category)
 
     if not openai.api_key:
         logger.warning("OPENAI_API_KEY missing; using content engine fallback draft")
+        text, used_hashtags = _normalize_result(_fallback_draft(category, source, used_topics), allowed_hashtags)
         return {
-            "text": _fallback_draft(category, source, used_topics),
+            "text": text,
             "topic": category,
             "vocabulary": "",
+            "generation_prompt": "fallback",
+            "style_examples_used": [],
+            "hashtags_used": used_hashtags,
         }
 
     source_block = "No uploaded resource selected. Generate from the weekly plan only."
@@ -123,21 +198,12 @@ async def generate_draft_text(
             f"Source text excerpt: {extracted or '[File is saved, but no extractable text is available.]'}"
         )
 
-    style_block_items = []
-    for example in style_examples:
-        style_block_items.append(
-            f"Example #{example['id']} ({example['category']}):\n{_clip(example['text'], 1200)}"
-        )
-    if not style_block_items:
-        for x in (channel_examples + approved_examples):
-            if x:
-                style_block_items.append(_clip(x, 700))
-    style_block = "\n\n---\n\n".join(style_block_items) or "No style examples yet."
+    style_block = _style_block(style_examples)
 
     prompt = f"""
 Create ONE Telegram channel post draft for Uzbek IELTS/English learners.
 
-Weekly content category:
+STRICT weekly content category for this draft:
 {category}
 
 Draft slot:
@@ -152,16 +218,23 @@ Recent/used ideas to avoid:
 FORMAT EXAMPLES:
 {style_block}
 
+HASHTAG RULE:
+{hashtag_rule}
+
 Requirements:
 - Short enough for Telegram.
 - Practical, concrete, and not generic.
-- Use Uzbek explanations with useful English examples.
+- Enforce the STRICT weekly content category. Do not switch to another content type.
+- Language ratio target: about 80% English and 20% Uzbek.
+- English should carry the title, phrase/word, explanation, examples, synonyms, CTA, and most structure.
+- Uzbek should be limited to translation and short clarification only.
 - Sound like a real channel post ready for admin review.
 - Use Telegram-safe HTML formatting only: <b>, <i>, <u>, <s>, <code>, <pre>, and valid <a href="https://..."> links.
 - Do NOT use Markdown formatting. Never use **bold**, __underline__, or [text](url).
-- Follow the structure, tone, branding, hook style, hashtags, CTA, separator, and footer pattern from FORMAT EXAMPLES when present.
+- Strongly follow the structure, tone, emoji rhythm, branding, hook style, CTA, separator, and footer pattern from FORMAT EXAMPLES when present.
 - Do NOT copy the exact example wording. Generate fresh content.
 - If examples include branding/footer links such as Telegram | Vocabulary | Voxi | Web-Site, include a similar footer.
+- Use only approved hashtags from HASHTAG RULE. If none are approved, include no hashtags.
 - Do not say it was posted.
 - Do not generate images.
 - Do not mix multiple books/resources or unrelated ideas.
@@ -187,8 +260,108 @@ Return only the draft post text. No JSON. No commentary.
         max_tokens=750,
         temperature=0.85,
     )
-    text = normalize_ai_output_html(response["choices"][0]["message"]["content"].strip())
-    topic = f"{category} / {slot}"
+    text, used_hashtags = _normalize_result(
+        response["choices"][0]["message"]["content"],
+        allowed_hashtags,
+    )
+    topic = _infer_topic(text, f"{category} / {slot}")
+    return {
+        "text": text,
+        "topic": topic,
+        "vocabulary": "",
+        "generation_prompt": prompt,
+        "style_examples_used": [int(row["id"]) for row in style_examples],
+        "hashtags_used": used_hashtags,
+    }
+
+
+async def regenerate_draft_text(draft: Dict, source: Optional[Dict] = None) -> Dict[str, object]:
+    category = draft.get("content_category") or "General"
+    style_category = style_category_for_plan(category)
+    style_examples = storage.choose_style_examples(style_category, 5)
+    hashtag_rule, allowed_hashtags = _allowed_hashtag_block(style_category)
+    topic = draft.get("topic") or draft.get("used_topic") or category
+    source_block = "No source resource was used for this draft."
     if source:
-        topic = f"{category} / {source.get('title')}"
-    return {"text": text, "topic": topic, "vocabulary": ""}
+        source_block = (
+            f"Use the same single source as the original draft.\n"
+            f"Source title: {source.get('title')}\n"
+            f"Source category: {source.get('category') or 'uncategorized'}\n"
+            f"Source text excerpt: {_clip(source.get('extracted_text') or '')}"
+        )
+
+    if not openai.api_key:
+        text, used_hashtags = _normalize_result(draft.get("draft_text") or "", allowed_hashtags)
+        return {
+            "text": text,
+            "topic": topic,
+            "generation_prompt": "fallback_regenerate",
+            "style_examples_used": [],
+            "hashtags_used": used_hashtags,
+        }
+
+    prompt = f"""
+Improve this existing Telegram post draft without changing its idea.
+
+KEEP EXACTLY:
+- category: {category}
+- style category: {style_category}
+- weekday: {draft.get('weekday') or ''}
+- slot: {draft.get('slot') or ''}
+- topic/idea: {topic}
+- source/resource context, if any
+- content type
+
+CHANGE ONLY:
+- wording
+- examples
+- structure details
+- quality and channel fit
+
+Original draft:
+{draft.get('draft_text') or ''}
+
+Source rule:
+{source_block}
+
+FORMAT EXAMPLES:
+{_style_block(style_examples)}
+
+HASHTAG RULE:
+{hashtag_rule}
+
+Requirements:
+- Do not replace the topic/idea with a new one.
+- If the original topic is a phrase/word, keep the same phrase/word.
+- Enforce the same weekly category: {category}.
+- Language ratio target: about 80% English and 20% Uzbek.
+- Uzbek only for translation and short clarification.
+- Strongly follow learned tone, emoji rhythm, CTA, footer, and formatting patterns.
+- Use Telegram-safe HTML only.
+- Use only approved hashtags from HASHTAG RULE. If none are approved, include no hashtags.
+- Return only the improved draft text.
+""".strip()
+
+    response = await openai.ChatCompletion.acreate(
+        model=MODEL,
+        messages=[
+            {
+                "role": "system",
+                "content": "You improve Voxi Telegram drafts while preserving the exact idea.",
+            },
+            {"role": "user", "content": prompt},
+        ],
+        max_tokens=750,
+        temperature=0.65,
+    )
+    text, used_hashtags = _normalize_result(
+        response["choices"][0]["message"]["content"],
+        allowed_hashtags,
+    )
+    return {
+        "text": text,
+        "topic": topic,
+        "generation_prompt": prompt,
+        "style_examples_used": [int(row["id"]) for row in style_examples],
+        "hashtags_used": used_hashtags,
+    }
