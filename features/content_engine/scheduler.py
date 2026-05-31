@@ -98,21 +98,24 @@ async def send_draft_to_admins(bot: Bot, draft_id: int, draft_text: str) -> None
 
 async def generate_one_draft(bot: Bot, slot: str = "manual", notify: bool = True) -> Optional[int]:
     now = local_now()
-    source = storage.choose_resource()
     weekday = ai.weekday_name(now.weekday())
     category = ai.category_for_weekday(now.weekday())
-    result = await ai.generate_draft_text(now.weekday(), slot, source)
+    style_category = ai.style_category_for_plan(category)
+    idea_card = storage.choose_resource_idea(style_category)
+    source = None if idea_card else storage.choose_resource()
+    result = await ai.generate_draft_text(now.weekday(), slot, source, idea_card)
     draft_id = storage.create_draft(
         draft_text=result["text"],
         generated_date=now.date().isoformat(),
         weekday=weekday,
         slot=slot,
         content_category=category,
-        source_resource_id=source.get("id") if source else None,
-        source_title=source.get("title") if source else None,
+        source_resource_id=(idea_card.get("resource_id") if idea_card else source.get("id") if source else None),
+        source_title=(idea_card.get("resource_title") if idea_card else source.get("title") if source else None),
         used_topic=result.get("topic"),
         used_vocabulary=[result.get("vocabulary")] if result.get("vocabulary") else [],
         topic=result.get("topic"),
+        source_chunk_id=str(idea_card.get("id")) if idea_card else None,
         generation_prompt=result.get("generation_prompt"),
         style_examples_used=result.get("style_examples_used") or [],
         hashtags_used=result.get("hashtags_used") or [],
@@ -121,6 +124,8 @@ async def generate_one_draft(bot: Bot, slot: str = "manual", notify: bool = True
         return None
     if source:
         storage.mark_resource_used(int(source["id"]))
+    if idea_card:
+        storage.mark_resource_idea_used(int(idea_card["id"]))
     if notify:
         await send_draft_to_admins(bot, draft_id, result["text"])
     return draft_id

@@ -12,7 +12,7 @@ from aiogram.types import CallbackQuery, KeyboardButton, Message, ReplyKeyboardM
 from admins import ADMIN_IDS
 from database import DB_PATH
 
-from . import ai, scheduler, storage
+from . import ai, resource_processor, scheduler, storage
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -223,17 +223,36 @@ async def resources(message: Message):
     if not is_admin(message.from_user.id if message.from_user else None):
         await message.answer("Admins only.")
         return
-    rows = storage.list_resources(20)
+    rows = storage.list_resources_with_idea_counts(20)
     if not rows:
         await message.answer("No uploaded resources yet. Use /upload_resource.")
         return
     lines = ["Uploaded resources:"]
     for row in rows:
         lines.append(
-            f"#{row['id']} | {row['title']} | {row.get('category') or 'uncategorized'} | "
-            f"{row.get('file_name') or 'file'}"
+            f"#{row['id']} | {row['title']} | {row.get('status') or 'uploaded'} | "
+            f"ideas: {row.get('idea_count') or 0}"
         )
     await message.answer("\n".join(lines), parse_mode=None)
+
+
+@router.message(Command("resource_status"))
+async def resource_status(message: Message):
+    if not is_admin(message.from_user.id if message.from_user else None):
+        await message.answer("Admins only.")
+        return
+    rows = storage.list_resources_with_idea_counts(30)
+    if not rows:
+        await message.answer("No uploaded resources yet. Use /upload_resource.")
+        return
+    lines = ["Resource processing status:"]
+    for row in rows:
+        status = row.get("status") or "uploaded"
+        line = f"- {row['title']}\n  Status: {status}\n  Ideas: {row.get('idea_count') or 0}"
+        if status == "failed" and row.get("processing_error"):
+            line += f"\n  Error: {row['processing_error'][:180]}"
+        lines.append(line)
+    await message.answer("\n\n".join(lines), parse_mode=None)
 
 
 @router.message(Command("learn_post"))
@@ -435,7 +454,11 @@ async def receive_resource_title(message: Message, state: FSMContext):
     )
     await state.clear()
     if resource_id:
-        await message.answer(f"Resource #{resource_id} saved: {title}")
+        resource_processor.start_processing(int(resource_id))
+        await message.answer(
+            f"Resource #{resource_id} saved: {title}\n"
+            "Processing will continue in background."
+        )
     else:
         await message.answer("Failed to save resource metadata.")
 

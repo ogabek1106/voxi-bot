@@ -194,6 +194,7 @@ async def generate_draft_text(
     weekday_index: int,
     slot: str,
     source: Optional[Dict] = None,
+    idea_card: Optional[Dict] = None,
 ) -> Dict[str, str]:
     category = category_for_weekday(weekday_index)
     recent = storage.get_recent_drafts(30)
@@ -218,8 +219,19 @@ async def generate_draft_text(
             "hashtags_used": used_hashtags,
         }
 
-    source_block = "No uploaded resource selected. Generate from the weekly plan only."
-    if source:
+    source_block = "No uploaded resource idea selected. Generate from the weekly plan only."
+    if idea_card:
+        source_block = (
+            "Use exactly this one idea card as the source. Do not mix it with other resources.\n"
+            f"Idea card ID: {idea_card.get('id')}\n"
+            f"Idea type: {idea_card.get('idea_type')}\n"
+            f"Idea title: {idea_card.get('title')}\n"
+            f"Idea content: {idea_card.get('content')}\n"
+            f"Source resource: {idea_card.get('resource_title')}\n"
+            f"Source pages: {idea_card.get('page_start') or ''}-{idea_card.get('page_end') or ''}\n"
+            f"Source excerpt: {idea_card.get('source_excerpt') or ''}"
+        )
+    elif source:
         extracted = _clip(source.get("extracted_text") or "")
         source_block = (
             f"Use exactly one source for this draft.\n"
@@ -271,6 +283,7 @@ Requirements:
 - Do not say it was posted.
 - Do not generate images.
 - Do not mix multiple books/resources or unrelated ideas.
+- If an idea card is provided, base the whole post on that one idea card only.
 - Avoid repeating any used idea/topic above.
 - Include 5 items when the weekly plan asks for 5 items.
 - Fallback channel pattern if examples are weak: emoji header, clear title, English word/phrase with transcription when relevant, Uzbek meaning, usage explanation, examples, synonyms, IELTS band note, question/CTA, separator line, hashtags, "Sharing is caring ⭐", and Telegram | Vocabulary | Voxi | Web-Site footer links.

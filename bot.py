@@ -4,6 +4,7 @@ import logging
 import os
 
 from aiogram import Bot, Dispatcher
+from aiogram.exceptions import TelegramNetworkError
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import BotCommand
 #from features.global_cancel import router as global_cancel_router
@@ -11,6 +12,7 @@ from features.user_tracker import setup_middleware
 
 from handlers import router as core_router
 # from features.sub_check import router as sub_check_router
+from features.content_engine.resource_processor import start_pending_processing
 from features.content_engine.scheduler import start_scheduler
 
 try:
@@ -38,6 +40,17 @@ TOKEN = os.getenv("BOT_TOKEN")
 if not TOKEN:
     logger.error("BOT_TOKEN env var is not set. Exiting.")
     raise SystemExit("BOT_TOKEN missing")
+
+POLLING_RETRY_SECONDS = int(os.getenv("POLLING_RETRY_SECONDS", "15"))
+CONTENT_ENGINE_BACKGROUND_START_DELAY = int(
+    os.getenv("CONTENT_ENGINE_BACKGROUND_START_DELAY", "20")
+)
+
+
+async def _start_content_engine_background(bot: Bot):
+    await asyncio.sleep(CONTENT_ENGINE_BACKGROUND_START_DELAY)
+    start_scheduler(bot)
+    start_pending_processing()
 
 
 # ─────────────────────────────
@@ -69,27 +82,43 @@ async def main():
     #dp.include_router(global_cancel_router)
 
     try:
-        await bot.set_my_commands([
-            BotCommand(command="start", description="Botni ishga tushirish"),
-            BotCommand(command="all_books", description="Mavjud kitoblar ro'yxati"),
-            BotCommand(command="content_status", description="Content Engine status"),
-            BotCommand(command="generate_content_now", description="Generate one content draft"),
-            BotCommand(command="content_queue", description="Pending content drafts"),
-            BotCommand(command="pause_content", description="Pause content drafts"),
-            BotCommand(command="resume_content", description="Resume content drafts"),
-            BotCommand(command="upload_resource", description="Upload content resource"),
-            BotCommand(command="resources", description="List content resources"),
-            BotCommand(command="learn_post", description="Save a post style example"),
-            BotCommand(command="style_examples", description="List saved style examples"),
-            BotCommand(command="delete_style_example", description="Delete a style example"),
-        ])
-    except Exception:
-        pass
+        await asyncio.wait_for(
+            bot.set_my_commands([
+                BotCommand(command="start", description="Botni ishga tushirish"),
+                BotCommand(command="all_books", description="Mavjud kitoblar ro'yxati"),
+                BotCommand(command="content_status", description="Content Engine status"),
+                BotCommand(command="generate_content_now", description="Generate one content draft"),
+                BotCommand(command="content_queue", description="Pending content drafts"),
+                BotCommand(command="pause_content", description="Pause content drafts"),
+                BotCommand(command="resume_content", description="Resume content drafts"),
+                BotCommand(command="upload_resource", description="Upload content resource"),
+                BotCommand(command="resources", description="List content resources"),
+                BotCommand(command="resource_status", description="Show resource processing status"),
+                BotCommand(command="learn_post", description="Save a post style example"),
+                BotCommand(command="style_examples", description="List saved style examples"),
+                BotCommand(command="delete_style_example", description="Delete a style example"),
+            ]),
+            timeout=10,
+        )
+    except Exception as e:
+        logger.warning("Could not set bot commands during startup: %s", e)
 
-    start_scheduler(bot)
+    asyncio.create_task(_start_content_engine_background(bot))
 
-    logger.info("Bot starting polling...")
-    await dp.start_polling(bot)
+    while True:
+        try:
+            logger.info("Bot starting polling...")
+            await dp.start_polling(bot)
+            return
+        except TelegramNetworkError as e:
+            logger.warning(
+                "Telegram network error during polling: %s. Retrying in %s seconds.",
+                e,
+                POLLING_RETRY_SECONDS,
+            )
+            await asyncio.sleep(POLLING_RETRY_SECONDS)
+        except asyncio.CancelledError:
+            raise
 
 
 if __name__ == "__main__":

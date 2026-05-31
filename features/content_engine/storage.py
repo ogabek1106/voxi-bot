@@ -123,6 +123,23 @@ def ensure_content_engine_tables() -> None:
             )
             conn.execute(
                 """
+                CREATE TABLE IF NOT EXISTS content_engine_resource_ideas (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    resource_id INTEGER NOT NULL,
+                    idea_type TEXT,
+                    title TEXT NOT NULL,
+                    content TEXT,
+                    source_excerpt TEXT,
+                    page_start INTEGER,
+                    page_end INTEGER,
+                    used_count INTEGER NOT NULL DEFAULT 0,
+                    last_used INTEGER,
+                    created_at INTEGER NOT NULL
+                );
+                """
+            )
+            conn.execute(
+                """
                 CREATE TABLE IF NOT EXISTS content_engine_style_examples (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     text TEXT NOT NULL,
@@ -153,6 +170,15 @@ def ensure_content_engine_tables() -> None:
                     "generation_prompt": "TEXT",
                     "style_examples_used": "TEXT",
                     "hashtags_used": "TEXT",
+                },
+            )
+            _ensure_columns(
+                conn,
+                "content_engine_resources",
+                {
+                    "status": "TEXT DEFAULT 'uploaded'",
+                    "processed_at": "INTEGER",
+                    "processing_error": "TEXT",
                 },
             )
             _ensure_columns(
@@ -493,8 +519,8 @@ def add_resource(
                 """
                 INSERT INTO content_engine_resources
                 (title, category, file_id, file_unique_id, file_name, mime_type,
-                 local_path, extracted_text, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+                 local_path, extracted_text, status, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'uploaded', ?);
                 """,
                 (
                     title,
@@ -539,6 +565,58 @@ def list_resources(limit: int = 20) -> List[Dict[str, Any]]:
             conn.close()
 
 
+def list_resources_with_idea_counts(limit: int = 20) -> List[Dict[str, Any]]:
+    ensure_content_engine_tables()
+    conn = None
+    try:
+        conn = _connect_rows()
+        cur = conn.execute(
+            """
+            SELECT r.*, COUNT(i.id) AS idea_count
+            FROM content_engine_resources r
+            LEFT JOIN content_engine_resource_ideas i ON i.resource_id = r.id
+            GROUP BY r.id
+            ORDER BY r.created_at DESC
+            LIMIT ?;
+            """,
+            (int(limit),),
+        )
+        return [_row_to_dict(row) for row in cur.fetchall()]
+    except Exception:
+        logger.exception("list_resources_with_idea_counts failed")
+        return []
+    finally:
+        if conn:
+            conn.close()
+
+
+def list_resources_by_status(statuses: List[str], limit: int = 50) -> List[Dict[str, Any]]:
+    ensure_content_engine_tables()
+    if not statuses:
+        return []
+    placeholders = ",".join("?" for _ in statuses)
+    conn = None
+    try:
+        conn = _connect_rows()
+        cur = conn.execute(
+            f"""
+            SELECT *
+            FROM content_engine_resources
+            WHERE status IN ({placeholders})
+            ORDER BY created_at ASC
+            LIMIT ?;
+            """,
+            [*statuses, int(limit)],
+        )
+        return [_row_to_dict(row) for row in cur.fetchall()]
+    except Exception:
+        logger.exception("list_resources_by_status failed")
+        return []
+    finally:
+        if conn:
+            conn.close()
+
+
 def choose_resource() -> Optional[Dict[str, Any]]:
     ensure_content_engine_tables()
     conn = None
@@ -561,6 +639,32 @@ def choose_resource() -> Optional[Dict[str, Any]]:
             conn.close()
 
 
+def update_resource_status(resource_id: int, status: str, error: Optional[str] = None) -> bool:
+    ensure_content_engine_tables()
+    conn = None
+    try:
+        conn = _connect()
+        processed_at = _now_ts() if status in {"ready", "failed"} else None
+        with conn:
+            cur = conn.execute(
+                """
+                UPDATE content_engine_resources
+                SET status = ?,
+                    processed_at = COALESCE(?, processed_at),
+                    processing_error = ?
+                WHERE id = ?;
+                """,
+                (status, processed_at, error, int(resource_id)),
+            )
+        return cur.rowcount > 0
+    except Exception:
+        logger.exception("update_resource_status failed")
+        return False
+    finally:
+        if conn:
+            conn.close()
+
+
 def mark_resource_used(resource_id: int) -> None:
     ensure_content_engine_tables()
     conn = None
@@ -573,6 +677,147 @@ def mark_resource_used(resource_id: int) -> None:
             )
     except Exception:
         logger.exception("mark_resource_used failed")
+    finally:
+        if conn:
+            conn.close()
+
+
+def add_resource_idea(
+    resource_id: int,
+    idea_type: str,
+    title: str,
+    content: str,
+    source_excerpt: str,
+    page_start: Optional[int] = None,
+    page_end: Optional[int] = None,
+) -> Optional[int]:
+    ensure_content_engine_tables()
+    if not title:
+        return None
+    conn = None
+    try:
+        conn = _connect()
+        with conn:
+            cur = conn.execute(
+                """
+                INSERT INTO content_engine_resource_ideas
+                (resource_id, idea_type, title, content, source_excerpt,
+                 page_start, page_end, used_count, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?);
+                """,
+                (
+                    int(resource_id),
+                    idea_type or "resource_tip",
+                    title[:240],
+                    (content or "")[:3000],
+                    (source_excerpt or "")[:2000],
+                    page_start,
+                    page_end,
+                    _now_ts(),
+                ),
+            )
+            return int(cur.lastrowid)
+    except Exception:
+        logger.exception("add_resource_idea failed")
+        return None
+    finally:
+        if conn:
+            conn.close()
+
+
+def count_resource_ideas(resource_id: int) -> int:
+    ensure_content_engine_tables()
+    conn = None
+    try:
+        conn = _connect()
+        cur = conn.execute(
+            "SELECT COUNT(*) FROM content_engine_resource_ideas WHERE resource_id = ?;",
+            (int(resource_id),),
+        )
+        row = cur.fetchone()
+        return int(row[0] or 0) if row else 0
+    except Exception:
+        logger.exception("count_resource_ideas failed")
+        return 0
+    finally:
+        if conn:
+            conn.close()
+
+
+def choose_resource_idea(style_category: str = "General") -> Optional[Dict[str, Any]]:
+    ensure_content_engine_tables()
+    type_map = {
+        "Word of the Day": ["word"],
+        "Phrase": ["phrase", "phrasal_verb", "academic_phrase"],
+        "Grammar Tip": ["grammar_tip", "common_mistake"],
+        "Collocations": ["collocation"],
+        "Resource": ["resource_tip", "ielts_verb"],
+        "Quiz/Poll": ["common_mistake", "resource_tip"],
+        "Quote/Music": ["quote"],
+        "Mistakes": ["common_mistake"],
+    }
+    wanted = type_map.get(style_category, [])
+    conn = None
+    try:
+        conn = _connect_rows()
+        params = []
+        where = "r.status = 'ready'"
+        if wanted:
+            placeholders = ",".join("?" for _ in wanted)
+            where += f" AND i.idea_type IN ({placeholders})"
+            params.extend(wanted)
+        cur = conn.execute(
+            f"""
+            SELECT i.*, r.title AS resource_title, r.category AS resource_category
+            FROM content_engine_resource_ideas i
+            JOIN content_engine_resources r ON r.id = i.resource_id
+            WHERE {where}
+            ORDER BY i.used_count ASC, COALESCE(i.last_used, 0) ASC, i.created_at ASC
+            LIMIT 1;
+            """,
+            params,
+        )
+        row = cur.fetchone()
+        if row:
+            return _row_to_dict(row)
+        if wanted:
+            cur = conn.execute(
+                """
+                SELECT i.*, r.title AS resource_title, r.category AS resource_category
+                FROM content_engine_resource_ideas i
+                JOIN content_engine_resources r ON r.id = i.resource_id
+                WHERE r.status = 'ready'
+                ORDER BY i.used_count ASC, COALESCE(i.last_used, 0) ASC, i.created_at ASC
+                LIMIT 1;
+                """
+            )
+            row = cur.fetchone()
+            return _row_to_dict(row) if row else None
+        return None
+    except Exception:
+        logger.exception("choose_resource_idea failed")
+        return None
+    finally:
+        if conn:
+            conn.close()
+
+
+def mark_resource_idea_used(idea_id: int) -> None:
+    ensure_content_engine_tables()
+    conn = None
+    try:
+        conn = _connect()
+        with conn:
+            conn.execute(
+                """
+                UPDATE content_engine_resource_ideas
+                SET used_count = used_count + 1, last_used = ?
+                WHERE id = ?;
+                """,
+                (_now_ts(), int(idea_id)),
+            )
+    except Exception:
+        logger.exception("mark_resource_idea_used failed")
     finally:
         if conn:
             conn.close()
