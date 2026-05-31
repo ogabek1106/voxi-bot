@@ -93,6 +93,7 @@ async def main():
                 BotCommand(command="resume_content", description="Resume content drafts"),
                 BotCommand(command="upload_resource", description="Upload content resource"),
                 BotCommand(command="upload_resource_link", description="Upload resource by URL"),
+                BotCommand(command="upload_resource_local", description="Upload local resource"),
                 BotCommand(command="resources", description="List content resources"),
                 BotCommand(command="resource_status", description="Show resource processing status"),
                 BotCommand(command="import_book_resource", description="Import one existing book"),

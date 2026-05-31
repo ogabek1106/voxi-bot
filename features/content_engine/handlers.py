@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import shutil
 from pathlib import Path
 from typing import Optional
 from urllib.parse import unquote, urlparse
@@ -26,6 +27,7 @@ router = Router()
 class ResourceUploadState(StatesGroup):
     waiting_file = State()
     waiting_link = State()
+    waiting_local_file = State()
     waiting_title = State()
 
 
@@ -92,6 +94,13 @@ def _file_name_from_url(url: str) -> str:
     parsed = urlparse(url)
     name = unquote(Path(parsed.path).name or "")
     return _safe_file_name(name or f"resource_{uuid4().hex}.bin")
+
+
+def _server_local_root() -> Optional[Path]:
+    raw = os.getenv("CONTENT_RESOURCE_LOCAL_IMPORT_DIR", "").strip()
+    if not raw:
+        return None
+    return Path(raw).expanduser().resolve()
 
 
 def _style_category_keyboard() -> ReplyKeyboardMarkup:
@@ -224,6 +233,53 @@ async def _download_resource_link(url: str, state: FSMContext) -> tuple[bool, st
         extracted_text=extracted_text,
     )
     return True, ""
+
+
+def _copy_local_resource_path(raw_path: str) -> tuple[bool, str, dict]:
+    value = (raw_path or "").strip().strip('"')
+    if value.startswith("file://"):
+        value = value[7:]
+    if not value:
+        return False, "Please send a local server file path.", {}
+
+    source = Path(value).expanduser().resolve()
+    allowed_root = _server_local_root()
+    if allowed_root:
+        try:
+            source.relative_to(allowed_root)
+        except ValueError:
+            return False, f"Local imports are restricted to {allowed_root}.", {}
+
+    if not source.exists() or not source.is_file():
+        return False, "Local file was not found on the server.", {}
+
+    max_bytes = _max_resource_bytes()
+    size = source.stat().st_size
+    if size > max_bytes:
+        return False, f"This file is larger than the configured limit ({max_bytes // 1024 // 1024} MB).", {}
+
+    safe_name = _safe_file_name(source.name)
+    unique_id = f"local_{uuid4().hex}"
+    local_path = _resource_dir() / f"{unique_id}_{safe_name}"
+    tmp_path = local_path.with_suffix(local_path.suffix + ".tmp")
+    try:
+        with source.open("rb") as src, tmp_path.open("wb") as dst:
+            shutil.copyfileobj(src, dst, length=1024 * 1024)
+        tmp_path.replace(local_path)
+    except Exception:
+        tmp_path.unlink(missing_ok=True)
+        logger.exception("Local resource copy failed")
+        return False, "Failed to copy this local resource file.", {}
+
+    mime = "application/pdf" if safe_name.lower().endswith(".pdf") else ""
+    return True, "", {
+        "file_id": "",
+        "file_unique_id": unique_id,
+        "file_name": safe_name,
+        "mime_type": mime,
+        "local_path": str(local_path),
+        "extracted_text": _read_text_preview(local_path, safe_name, mime),
+    }
 
 
 @router.message(Command("content_status"))
@@ -574,8 +630,26 @@ async def upload_resource_link(message: Message, state: FSMContext):
     )
 
 
+@router.message(Command("upload_resource_local"))
+async def upload_resource_local(message: Message, state: FSMContext):
+    if not is_admin(message.from_user.id if message.from_user else None):
+        await message.answer("Admins only.")
+        return
+    await state.clear()
+    await state.set_state(ResourceUploadState.waiting_local_file)
+    local_root = _server_local_root()
+    root_note = f"\nAllowed local folder: {local_root}" if local_root else ""
+    await message.answer(
+        "Send a PDF/document for local content-engine storage, or send a local server file path.\n"
+        "Server file paths bypass Telegram Bot API download limits."
+        f"{root_note}\n"
+        "Send /cancel to abort."
+    )
+
+
 @router.message(Command("cancel"), ResourceUploadState.waiting_file)
 @router.message(Command("cancel"), ResourceUploadState.waiting_link)
+@router.message(Command("cancel"), ResourceUploadState.waiting_local_file)
 @router.message(Command("cancel"), ResourceUploadState.waiting_title)
 async def cancel_resource_upload(message: Message, state: FSMContext):
     if not is_admin(message.from_user.id if message.from_user else None):
@@ -645,6 +719,64 @@ async def receive_resource_wrong_link(message: Message):
     if not is_admin(message.from_user.id if message.from_user else None):
         return
     await message.answer("Please send a direct download URL, or /cancel.")
+
+
+@router.message(ResourceUploadState.waiting_local_file, F.document)
+async def receive_resource_local_document(message: Message, state: FSMContext):
+    if not is_admin(message.from_user.id if message.from_user else None):
+        return
+    try:
+        ok = await _save_document(message, state)
+    except TelegramBadRequest as exc:
+        if "file is too big" in str(exc).lower():
+            await message.answer(
+                "Telegram cannot provide this file through the normal Bot API because it is too large.\n\n"
+                "Reliable options:\n"
+                "/upload_resource_link with a direct download URL\n"
+                "/upload_resource_local with a file path that already exists on the server"
+            )
+            return
+        logger.exception("Local resource Telegram document save failed")
+        await message.answer("Failed to save this resource file.")
+        return
+    except Exception:
+        logger.exception("Local resource Telegram document save failed")
+        await message.answer("Failed to save this resource file.")
+        return
+    if not ok:
+        await message.answer("Please send a document/PDF/text file, a server file path, or /cancel.")
+        return
+    await state.set_state(ResourceUploadState.waiting_title)
+    await message.answer(
+        "File saved locally. Send the resource title.\n"
+        "Optional format: Title | category"
+    )
+
+
+@router.message(ResourceUploadState.waiting_local_file, F.text)
+async def receive_resource_local_path(message: Message, state: FSMContext):
+    if not is_admin(message.from_user.id if message.from_user else None):
+        return
+    ok, error, data = await asyncio.to_thread(
+        _copy_local_resource_path,
+        message.text or "",
+    )
+    if not ok:
+        await message.answer(f"{error}\n\nSend another local server file path, a document, or /cancel.")
+        return
+    await state.update_data(**data)
+    await state.set_state(ResourceUploadState.waiting_title)
+    await message.answer(
+        "Local file copied. Send the resource title.\n"
+        "Optional format: Title | category"
+    )
+
+
+@router.message(ResourceUploadState.waiting_local_file)
+async def receive_resource_wrong_local(message: Message):
+    if not is_admin(message.from_user.id if message.from_user else None):
+        return
+    await message.answer("Please send a document/PDF/text file, a local server file path, or /cancel.")
 
 
 @router.message(ResourceUploadState.waiting_title, F.text)
