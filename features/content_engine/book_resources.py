@@ -104,7 +104,10 @@ def start_all_books_import(bot: Bot) -> tuple[int, int]:
 
 async def _process_many(resource_ids: list[int], bot: Bot) -> None:
     for resource_id in resource_ids:
-        await _download_and_process(resource_id, bot)
+        start_book_processing(resource_id, bot)
+        task = _tasks.get(resource_id)
+        if task:
+            await task
         await asyncio.sleep(1)
 
 
