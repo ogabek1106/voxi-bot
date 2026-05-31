@@ -1,9 +1,14 @@
+import asyncio
 import logging
 import os
 from pathlib import Path
 from typing import Optional
+from urllib.parse import unquote, urlparse
+from uuid import uuid4
 
+import aiohttp
 from aiogram import F, Router
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -20,6 +25,7 @@ router = Router()
 
 class ResourceUploadState(StatesGroup):
     waiting_file = State()
+    waiting_link = State()
     waiting_title = State()
 
 
@@ -68,6 +74,26 @@ def _parse_title_category(text: str) -> tuple[str, str]:
     return raw or "Untitled resource", ""
 
 
+def _max_resource_bytes() -> int:
+    try:
+        max_mb = int(os.getenv("CONTENT_RESOURCE_MAX_MB", "300"))
+    except ValueError:
+        max_mb = 300
+    return max(1, max_mb) * 1024 * 1024
+
+
+def _safe_file_name(name: str) -> str:
+    safe = (name or "").strip().replace("\\", "_").replace("/", "_")
+    safe = "".join(ch if ch.isalnum() or ch in "._- ()" else "_" for ch in safe)
+    return safe.strip("._ ") or f"resource_{uuid4().hex}"
+
+
+def _file_name_from_url(url: str) -> str:
+    parsed = urlparse(url)
+    name = unquote(Path(parsed.path).name or "")
+    return _safe_file_name(name or f"resource_{uuid4().hex}.bin")
+
+
 def _style_category_keyboard() -> ReplyKeyboardMarkup:
     rows = []
     for i in range(0, len(STYLE_CATEGORIES), 2):
@@ -98,23 +124,27 @@ def _message_html_content(message: Message) -> str:
     return message.text or message.caption or ""
 
 
+def _read_text_preview(local_path: Path, safe_name: str, mime: str) -> str:
+    if mime.startswith("text/") or safe_name.lower().endswith((".txt", ".md", ".csv")):
+        try:
+            return local_path.read_text(encoding="utf-8", errors="ignore")[:12000]
+        except Exception:
+            logger.exception("Could not read uploaded text resource")
+    return ""
+
+
 async def _save_document(message: Message, state: FSMContext) -> bool:
     doc = message.document
     if not doc:
         return False
-    safe_name = (doc.file_name or f"resource_{doc.file_unique_id}").replace("\\", "_").replace("/", "_")
+    safe_name = _safe_file_name(doc.file_name or f"resource_{doc.file_unique_id}")
     local_path = _resource_dir() / f"{doc.file_unique_id}_{safe_name}"
 
     file = await message.bot.get_file(doc.file_id)
     await message.bot.download_file(file.file_path, destination=local_path)
 
-    extracted_text = ""
     mime = doc.mime_type or ""
-    if mime.startswith("text/") or safe_name.lower().endswith((".txt", ".md", ".csv")):
-        try:
-            extracted_text = local_path.read_text(encoding="utf-8", errors="ignore")[:12000]
-        except Exception:
-            logger.exception("Could not read uploaded text resource")
+    extracted_text = _read_text_preview(local_path, safe_name, mime)
 
     await state.update_data(
         file_id=doc.file_id,
@@ -125,6 +155,75 @@ async def _save_document(message: Message, state: FSMContext) -> bool:
         extracted_text=extracted_text,
     )
     return True
+
+
+async def _download_resource_link(url: str, state: FSMContext) -> tuple[bool, str]:
+    parsed = urlparse(url)
+    if parsed.scheme not in {"http", "https"}:
+        return False, "Please send a direct download link that starts with http:// or https://."
+
+    max_bytes = _max_resource_bytes()
+    unique_id = f"link_{uuid4().hex}"
+    safe_name = _file_name_from_url(url)
+    local_path = _resource_dir() / f"{unique_id}_{safe_name}"
+    tmp_path = local_path.with_suffix(local_path.suffix + ".tmp")
+    timeout = aiohttp.ClientTimeout(total=None, connect=30, sock_connect=30, sock_read=120)
+
+    try:
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.get(url, allow_redirects=True) as response:
+                if response.status >= 400:
+                    return False, f"Download failed with HTTP status {response.status}."
+
+                content_length = response.headers.get("Content-Length")
+                if content_length:
+                    try:
+                        if int(content_length) > max_bytes:
+                            return False, (
+                                f"This file is larger than the configured limit "
+                                f"({max_bytes // 1024 // 1024} MB)."
+                            )
+                    except ValueError:
+                        pass
+
+                mime = (response.headers.get("Content-Type") or "").split(";", 1)[0].strip()
+                downloaded = 0
+                with tmp_path.open("wb") as handle:
+                    async for chunk in response.content.iter_chunked(1024 * 1024):
+                        if not chunk:
+                            continue
+                        downloaded += len(chunk)
+                        if downloaded > max_bytes:
+                            handle.close()
+                            tmp_path.unlink(missing_ok=True)
+                            return False, (
+                                f"This file is larger than the configured limit "
+                                f"({max_bytes // 1024 // 1024} MB)."
+                            )
+                        handle.write(chunk)
+    except aiohttp.ClientError as exc:
+        tmp_path.unlink(missing_ok=True)
+        logger.warning("Resource link download failed: %s", exc)
+        return False, "Could not download this link. Please check that it is publicly accessible."
+    except asyncio.TimeoutError:
+        tmp_path.unlink(missing_ok=True)
+        return False, "Download timed out. Please try another direct link."
+    except Exception:
+        tmp_path.unlink(missing_ok=True)
+        logger.exception("Unexpected resource link download failure")
+        return False, "Failed to download this resource link."
+
+    tmp_path.replace(local_path)
+    extracted_text = _read_text_preview(local_path, safe_name, mime)
+    await state.update_data(
+        file_id="",
+        file_unique_id=unique_id,
+        file_name=safe_name,
+        mime_type=mime,
+        local_path=str(local_path),
+        extracted_text=extracted_text,
+    )
+    return True, ""
 
 
 @router.message(Command("content_status"))
@@ -400,7 +499,22 @@ async def upload_resource(message: Message, state: FSMContext):
     )
 
 
+@router.message(Command("upload_resource_link"))
+async def upload_resource_link(message: Message, state: FSMContext):
+    if not is_admin(message.from_user.id if message.from_user else None):
+        await message.answer("Admins only.")
+        return
+    await state.clear()
+    await state.set_state(ResourceUploadState.waiting_link)
+    await message.answer(
+        "Send a direct download URL to a PDF/document/text file.\n"
+        f"Max size: {_max_resource_bytes() // 1024 // 1024} MB.\n"
+        "Send /cancel to abort."
+    )
+
+
 @router.message(Command("cancel"), ResourceUploadState.waiting_file)
+@router.message(Command("cancel"), ResourceUploadState.waiting_link)
 @router.message(Command("cancel"), ResourceUploadState.waiting_title)
 async def cancel_resource_upload(message: Message, state: FSMContext):
     if not is_admin(message.from_user.id if message.from_user else None):
@@ -415,6 +529,18 @@ async def receive_resource_file(message: Message, state: FSMContext):
         return
     try:
         ok = await _save_document(message, state)
+    except TelegramBadRequest as exc:
+        if "file is too big" in str(exc).lower():
+            await message.answer(
+                "This file is too large for normal Telegram Bot API download.\n\n"
+                "Send a smaller file OR use external link upload:\n"
+                "/upload_resource_link\n\n"
+                "Then send a direct download link."
+            )
+            return
+        logger.exception("Resource file save failed")
+        await message.answer("Failed to save this resource file.")
+        return
     except Exception:
         logger.exception("Resource file save failed")
         await message.answer("Failed to save this resource file.")
@@ -434,6 +560,30 @@ async def receive_resource_wrong_file(message: Message):
     if not is_admin(message.from_user.id if message.from_user else None):
         return
     await message.answer("Please send a document/PDF/text file, or /cancel.")
+
+
+@router.message(ResourceUploadState.waiting_link, F.text)
+async def receive_resource_link(message: Message, state: FSMContext):
+    if not is_admin(message.from_user.id if message.from_user else None):
+        return
+    url = (message.text or "").strip()
+    await message.answer("Downloading resource link...")
+    ok, error = await _download_resource_link(url, state)
+    if not ok:
+        await message.answer(f"{error}\n\nSend another direct link, or /cancel.")
+        return
+    await state.set_state(ResourceUploadState.waiting_title)
+    await message.answer(
+        "File downloaded. Send the resource title.\n"
+        "Optional format: Title | category"
+    )
+
+
+@router.message(ResourceUploadState.waiting_link)
+async def receive_resource_wrong_link(message: Message):
+    if not is_admin(message.from_user.id if message.from_user else None):
+        return
+    await message.answer("Please send a direct download URL, or /cancel.")
 
 
 @router.message(ResourceUploadState.waiting_title, F.text)
