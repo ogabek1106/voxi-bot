@@ -4,7 +4,7 @@ import time
 from datetime import datetime, timezone
 
 from aiogram import F, Router
-from aiogram.filters import Command
+from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, Message, ReplyKeyboardMarkup
@@ -483,7 +483,7 @@ async def receipt_mode_command_escape(message: Message, state: FSMContext):
     )
 
 
-@router.message(F.photo | F.document)
+@router.message(StateFilter(None), F.photo | F.document)
 async def receipt_without_package(message: Message):
     await message.answer("Please create a V-Coin payment from the website wallet first.")
 
