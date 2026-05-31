@@ -297,6 +297,8 @@ async def content_status(message: Message):
     lines = [
         "Voxi Content Engine status",
         f"Date: {now.date().isoformat()} ({scheduler.TIMEZONE})",
+        f"Current time: {now.strftime('%H:%M')}",
+        f"Quiet hours: {'yes' if scheduler.quiet_hours(now) else 'no'}",
         f"Automatic generation: {'paused' if paused else 'active'}",
         "",
         "Today's slots:",

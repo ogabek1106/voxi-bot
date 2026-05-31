@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import math
 import os
 import random
 from datetime import datetime, time as dtime
@@ -27,6 +28,10 @@ WINDOWS = {
 }
 
 
+def _check_interval_minutes() -> int:
+    return max(1, math.ceil(CHECK_INTERVAL_SECONDS / 60))
+
+
 def tz() -> ZoneInfo:
     try:
         return ZoneInfo(TIMEZONE)
@@ -44,17 +49,49 @@ def quiet_hours(now: Optional[datetime] = None) -> bool:
     return now.time() >= dtime(19, 0)
 
 
-def _random_time(start: dtime, end: dtime) -> str:
-    start_minutes = start.hour * 60 + start.minute
+def _minutes_to_hhmm(minutes: int) -> str:
+    return f"{minutes // 60:02d}:{minutes % 60:02d}"
+
+
+def _hhmm_to_minutes(value: str) -> Optional[int]:
+    try:
+        hour, minute = str(value).split(":", 1)
+        return int(hour) * 60 + int(minute)
+    except (TypeError, ValueError):
+        return None
+
+
+def _latest_due_minute(slot: str, end: dtime) -> int:
     end_minutes = end.hour * 60 + end.minute
+    if slot == "evening":
+        return end_minutes - (_check_interval_minutes() + 1)
+    return end_minutes - 1
+
+
+def _effective_scheduled_time(slot: str, scheduled: str) -> str:
+    window = WINDOWS.get(slot)
+    scheduled_minutes = _hhmm_to_minutes(scheduled)
+    if not window or scheduled_minutes is None:
+        return scheduled
+    latest = _latest_due_minute(slot, window[1])
+    if scheduled_minutes > latest:
+        return _minutes_to_hhmm(latest)
+    return scheduled
+
+
+def _random_time(slot: str, start: dtime, end: dtime) -> str:
+    start_minutes = start.hour * 60 + start.minute
+    end_minutes = _latest_due_minute(slot, end)
+    if end_minutes < start_minutes:
+        end_minutes = start_minutes
     minute = random.randint(start_minutes, end_minutes)
-    return f"{minute // 60:02d}:{minute % 60:02d}"
+    return _minutes_to_hhmm(minute)
 
 
 def ensure_today_schedule(now: Optional[datetime] = None) -> None:
     now = now or local_now()
     schedule: Dict[str, str] = {
-        slot: _random_time(start, end)
+        slot: _random_time(slot, start, end)
         for slot, (start, end) in WINDOWS.items()
     }
     storage.upsert_daily_slots(now.date().isoformat(), schedule)
@@ -174,7 +211,8 @@ async def _maybe_generate_due_slot(bot: Bot) -> None:
         if slot_row.get("status") != "scheduled":
             continue
         scheduled = str(slot_row.get("scheduled_time") or "")
-        if scheduled and scheduled <= current_hhmm:
+        effective_scheduled = _effective_scheduled_time(str(slot_row["slot"]), scheduled)
+        if effective_scheduled and effective_scheduled <= current_hhmm:
             draft_id = await generate_one_draft(bot, slot=str(slot_row["slot"]), notify=True)
             if draft_id:
                 storage.mark_slot_generated(today, str(slot_row["slot"]), draft_id)
