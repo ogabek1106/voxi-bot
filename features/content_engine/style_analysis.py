@@ -45,6 +45,26 @@ FOOTER_HINTS = (
 )
 
 
+def count_tag(text: str, tag_names: tuple[str, ...]) -> int:
+    names = "|".join(re.escape(name) for name in tag_names)
+    return len(re.findall(rf"<\s*({names})(\s+[^>]*)?>", text or "", flags=re.IGNORECASE))
+
+
+def detect_formatting_pattern(text: str) -> str:
+    lines = [line.strip() for line in (text or "").splitlines() if line.strip()]
+    patterns = []
+    for index, line in enumerate(lines[:12], start=1):
+        tags = []
+        if re.search(r"<\s*(b|strong)(\s+[^>]*)?>", line, flags=re.IGNORECASE):
+            tags.append("bold")
+        if re.search(r"<\s*(i|em)(\s+[^>]*)?>", line, flags=re.IGNORECASE):
+            tags.append("italic")
+        if tags:
+            clean = re.sub(r"<[^>]+>", "", line)
+            patterns.append(f"line {index}: {','.join(tags)} -> {clean[:80]}")
+    return "\n".join(patterns)[-700:]
+
+
 def extract_hashtags(text: str) -> List[str]:
     seen = set()
     out = []
@@ -105,6 +125,9 @@ def analyze_style(text: str) -> Dict[str, object]:
     return {
         "hashtags": extract_hashtags(text),
         "emoji_count": count_emoji(text),
+        "bold_count": count_tag(text, ("b", "strong")),
+        "italic_count": count_tag(text, ("i", "em")),
+        "formatting_pattern": detect_formatting_pattern(text),
         "footer_pattern": detect_footer_pattern(text),
         "cta_pattern": detect_cta_pattern(text),
         "language_ratio": estimate_language_ratio(text),

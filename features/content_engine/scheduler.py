@@ -16,7 +16,7 @@ from .html_format import sanitize_telegram_html
 
 logger = logging.getLogger(__name__)
 
-TIMEZONE = os.getenv("CONTENT_ENGINE_TZ", os.getenv("TZ", "Asia/Tashkent"))
+TIMEZONE = os.getenv("CONTENT_ENGINE_TZ", "Europe/Moscow")
 CHECK_INTERVAL_SECONDS = int(os.getenv("CONTENT_ENGINE_CHECK_INTERVAL", "60"))
 _task: Optional[asyncio.Task] = None
 
@@ -31,8 +31,8 @@ def tz() -> ZoneInfo:
     try:
         return ZoneInfo(TIMEZONE)
     except Exception:
-        logger.warning("Invalid CONTENT_ENGINE_TZ=%s; falling back to Asia/Tashkent", TIMEZONE)
-        return ZoneInfo("Asia/Tashkent")
+        logger.warning("Invalid CONTENT_ENGINE_TZ=%s; falling back to Europe/Moscow", TIMEZONE)
+        return ZoneInfo("Europe/Moscow")
 
 
 def local_now() -> datetime:

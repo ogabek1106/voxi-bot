@@ -162,6 +162,9 @@ def ensure_content_engine_tables() -> None:
                     "original_draft": "TEXT",
                     "hashtags": "TEXT",
                     "emoji_count": "INTEGER DEFAULT 0",
+                    "bold_count": "INTEGER DEFAULT 0",
+                    "italic_count": "INTEGER DEFAULT 0",
+                    "formatting_pattern": "TEXT",
                     "footer_pattern": "TEXT",
                     "cta_pattern": "TEXT",
                     "language_ratio": "TEXT",
@@ -707,8 +710,9 @@ def add_style_example(
                 """
                 INSERT INTO content_engine_style_examples
                 (text, category, source, created_at, original_draft,
-                 hashtags, emoji_count, footer_pattern, cta_pattern, language_ratio)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                 hashtags, emoji_count, bold_count, italic_count,
+                 formatting_pattern, footer_pattern, cta_pattern, language_ratio)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
                 """,
                 (
                     text.strip()[:4000],
@@ -718,6 +722,9 @@ def add_style_example(
                     original_draft,
                     json.dumps(hashtags, ensure_ascii=False),
                     int(metadata["emoji_count"]),
+                    int(metadata["bold_count"]),
+                    int(metadata["italic_count"]),
+                    metadata["formatting_pattern"],
                     metadata["footer_pattern"],
                     metadata["cta_pattern"],
                     metadata["language_ratio"],
@@ -742,8 +749,8 @@ def list_style_examples(limit: int = 20) -> List[Dict[str, Any]]:
         cur = conn.execute(
             """
             SELECT id, text, category, source, created_at, hashtags,
-                   emoji_count, footer_pattern, cta_pattern, language_ratio,
-                   original_draft
+                   emoji_count, bold_count, italic_count, formatting_pattern,
+                   footer_pattern, cta_pattern, language_ratio, original_draft
             FROM content_engine_style_examples
             ORDER BY created_at DESC
             LIMIT ?;
@@ -822,8 +829,9 @@ def choose_style_examples(category: str, limit: int = 5) -> List[Dict[str, Any]]
                 break
             cur = conn.execute(
                 """
-                SELECT id, text, category, source, created_at
-                , hashtags, emoji_count, footer_pattern, cta_pattern, language_ratio
+                SELECT id, text, category, source, created_at,
+                       hashtags, emoji_count, bold_count, italic_count,
+                       formatting_pattern, footer_pattern, cta_pattern, language_ratio
                 FROM content_engine_style_examples
                 WHERE lower(category) = lower(?)
                 ORDER BY created_at DESC

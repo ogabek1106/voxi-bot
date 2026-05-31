@@ -81,6 +81,23 @@ def _preview(text: str, limit: int = 80) -> str:
     return text[:limit] + ("..." if len(text) > limit else "")
 
 
+def _message_html_text(message: Message) -> str:
+    html_text = getattr(message, "html_text", None)
+    if html_text:
+        return html_text
+    return message.text or ""
+
+
+def _message_html_content(message: Message) -> str:
+    html_text = getattr(message, "html_text", None)
+    if html_text:
+        return html_text
+    html_caption = getattr(message, "html_caption", None)
+    if html_caption:
+        return html_caption
+    return message.text or message.caption or ""
+
+
 async def _save_document(message: Message, state: FSMContext) -> bool:
     doc = message.document
     if not doc:
@@ -274,7 +291,7 @@ async def cancel_style_example(message: Message, state: FSMContext):
 async def receive_style_example_text(message: Message, state: FSMContext):
     if not is_admin(message.from_user.id if message.from_user else None):
         return
-    text = (message.text or "").strip()
+    text = _message_html_text(message).strip()
     if len(text) < 20:
         await message.answer("Please send a full post example, not a short note.")
         return
@@ -316,7 +333,7 @@ async def receive_style_example_category(message: Message, state: FSMContext):
 async def receive_corrected_draft(message: Message, state: FSMContext):
     if not is_admin(message.from_user.id if message.from_user else None):
         return
-    corrected = (message.text or "").strip()
+    corrected = _message_html_text(message).strip()
     if len(corrected) < 20:
         await message.answer("Please send the full corrected version, or /cancel.")
         return
@@ -492,6 +509,6 @@ async def content_callback(callback: CallbackQuery, state: FSMContext):
 
 @router.channel_post()
 async def store_channel_post(message: Message):
-    text = message.text or message.caption or ""
+    text = _message_html_content(message)
     if text:
         storage.save_channel_post(message.chat.id, message.message_id, text)

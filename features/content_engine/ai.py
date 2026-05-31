@@ -108,6 +108,12 @@ def _style_block(examples: List[Dict]) -> str:
             meta.append(f"hashtags={example['hashtags']}")
         if example.get("emoji_count") is not None:
             meta.append(f"emoji_count={example['emoji_count']}")
+        if example.get("bold_count") is not None:
+            meta.append(f"bold_count={example['bold_count']}")
+        if example.get("italic_count") is not None:
+            meta.append(f"italic_count={example['italic_count']}")
+        if example.get("formatting_pattern"):
+            meta.append(f"formatting={_clip(example['formatting_pattern'], 260)}")
         if example.get("language_ratio"):
             meta.append(f"language_ratio={example['language_ratio']}")
         if example.get("cta_pattern"):
@@ -152,12 +158,36 @@ def _remove_unapproved_hashtags(text: str, allowed: List[str]) -> str:
 def _normalize_result(raw_text: str, allowed_hashtags: List[str]) -> tuple[str, List[str]]:
     text = normalize_ai_output_html(raw_text.strip())
     text = _remove_unapproved_hashtags(text, allowed_hashtags)
+    text = _ensure_mandatory_formatting(text)
     used_hashtags = [
         tag
         for tag in extract_hashtags(text)
         if tag.lower() in {allowed.lower() for allowed in allowed_hashtags}
     ]
     return text.strip(), used_hashtags
+
+
+def _ensure_mandatory_formatting(text: str) -> str:
+    text = text or ""
+    if not re.search(r"<\s*b(\s+[^>]*)?>", text, flags=re.IGNORECASE):
+        lines = text.splitlines()
+        for index, line in enumerate(lines):
+            clean = line.strip()
+            if clean and not clean.startswith("#") and "http" not in clean.lower():
+                lines[index] = line.replace(clean, f"<b>{clean}</b>", 1)
+                text = "\n".join(lines)
+                break
+    if not re.search(r"<\s*i(\s+[^>]*)?>", text, flags=re.IGNORECASE):
+        lines = text.splitlines()
+        for index, line in enumerate(lines):
+            clean = line.strip()
+            if clean and "<b>" not in clean.lower() and not clean.startswith("#") and "http" not in clean.lower():
+                lines[index] = line.replace(clean, f"<i>{clean}</i>", 1)
+                text = "\n".join(lines)
+                break
+        else:
+            text = text + "\n\n<i>Review before posting.</i>"
+    return text
 
 
 async def generate_draft_text(
@@ -230,6 +260,9 @@ Requirements:
 - Uzbek should be limited to translation and short clarification only.
 - Sound like a real channel post ready for admin review.
 - Use Telegram-safe HTML formatting only: <b>, <i>, <u>, <s>, <code>, <pre>, and valid <a href="https://..."> links.
+- Every post MUST include both <b>bold</b> and <i>italic</i> formatting.
+- Learn where to place bold/italic from FORMAT EXAMPLES and Style metadata. Usually bold the main title, target word/phrase, section labels, or key IELTS note; italicize pronunciation, Uzbek translation, short clarification, or subtle emphasis where examples do so.
+- Do not make the whole post bold or italic. Use formatting in relevant places only.
 - Do NOT use Markdown formatting. Never use **bold**, __underline__, or [text](url).
 - Strongly follow the structure, tone, emoji rhythm, branding, hook style, CTA, separator, and footer pattern from FORMAT EXAMPLES when present.
 - Do NOT copy the exact example wording. Generate fresh content.
@@ -338,6 +371,8 @@ Requirements:
 - Uzbek only for translation and short clarification.
 - Strongly follow learned tone, emoji rhythm, CTA, footer, and formatting patterns.
 - Use Telegram-safe HTML only.
+- Every post MUST include both <b>bold</b> and <i>italic</i> formatting, placed according to learned FORMAT EXAMPLES.
+- Do not make the whole post bold or italic. Use formatting for relevant titles, target phrase, labels, translation, or emphasis only.
 - Use only approved hashtags from HASHTAG RULE. If none are approved, include no hashtags.
 - Return only the improved draft text.
 """.strip()
