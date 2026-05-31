@@ -79,6 +79,9 @@ async def main():
             BotCommand(command="resume_content", description="Resume content drafts"),
             BotCommand(command="upload_resource", description="Upload content resource"),
             BotCommand(command="resources", description="List content resources"),
+            BotCommand(command="learn_post", description="Save a post style example"),
+            BotCommand(command="style_examples", description="List saved style examples"),
+            BotCommand(command="delete_style_example", description="Delete a style example"),
         ])
     except Exception:
         pass

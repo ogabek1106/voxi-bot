@@ -7,7 +7,7 @@ from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, KeyboardButton, Message, ReplyKeyboardMarkup, ReplyKeyboardRemove
 
 from admins import ADMIN_IDS
 from database import DB_PATH
@@ -21,6 +21,24 @@ router = Router()
 class ResourceUploadState(StatesGroup):
     waiting_file = State()
     waiting_title = State()
+
+
+class StyleExampleState(StatesGroup):
+    waiting_post = State()
+    waiting_category = State()
+
+
+STYLE_CATEGORIES = [
+    "Word of the Day",
+    "Phrase",
+    "Grammar Tip",
+    "Collocations",
+    "Resource",
+    "Quiz/Poll",
+    "Quote/Music",
+    "Mistakes",
+    "General",
+]
 
 
 def is_admin(user_id: Optional[int]) -> bool:
@@ -44,6 +62,19 @@ def _parse_title_category(text: str) -> tuple[str, str]:
         title, category = raw.split("|", 1)
         return title.strip() or "Untitled resource", category.strip()
     return raw or "Untitled resource", ""
+
+
+def _style_category_keyboard() -> ReplyKeyboardMarkup:
+    rows = []
+    for i in range(0, len(STYLE_CATEGORIES), 2):
+        rows.append([KeyboardButton(text=name) for name in STYLE_CATEGORIES[i:i + 2]])
+    rows.append([KeyboardButton(text="/cancel")])
+    return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True, one_time_keyboard=True)
+
+
+def _preview(text: str, limit: int = 80) -> str:
+    text = " ".join((text or "").split())
+    return text[:limit] + ("..." if len(text) > limit else "")
 
 
 async def _save_document(message: Message, state: FSMContext) -> bool:
@@ -182,6 +213,98 @@ async def resources(message: Message):
             f"{row.get('file_name') or 'file'}"
         )
     await message.answer("\n".join(lines), parse_mode=None)
+
+
+@router.message(Command("learn_post"))
+async def learn_post(message: Message, state: FSMContext):
+    if not is_admin(message.from_user.id if message.from_user else None):
+        await message.answer("Admins only.")
+        return
+    await state.clear()
+    await state.set_state(StyleExampleState.waiting_post)
+    await message.answer("Send me one post example.\nSend /cancel to abort.", reply_markup=ReplyKeyboardRemove())
+
+
+@router.message(Command("style_examples"))
+async def style_examples(message: Message):
+    if not is_admin(message.from_user.id if message.from_user else None):
+        await message.answer("Admins only.")
+        return
+    examples = storage.list_style_examples(20)
+    if not examples:
+        await message.answer("No manual style examples saved yet. Use /learn_post.")
+        return
+    lines = ["Saved style examples:"]
+    for example in examples:
+        lines.append(f"#{example['id']} | {example['category']} | {_preview(example['text'])}")
+    await message.answer("\n".join(lines), parse_mode=None)
+
+
+@router.message(Command("delete_style_example"))
+async def delete_style_example(message: Message):
+    if not is_admin(message.from_user.id if message.from_user else None):
+        await message.answer("Admins only.")
+        return
+    parts = (message.text or "").split(maxsplit=1)
+    if len(parts) != 2 or not parts[1].strip().isdigit():
+        await message.answer("Usage: /delete_style_example <id>")
+        return
+    example_id = int(parts[1].strip())
+    if storage.delete_style_example(example_id):
+        await message.answer(f"Style example #{example_id} deleted.")
+    else:
+        await message.answer(f"Style example #{example_id} was not found.")
+
+
+@router.message(Command("cancel"), StyleExampleState.waiting_post)
+@router.message(Command("cancel"), StyleExampleState.waiting_category)
+async def cancel_style_example(message: Message, state: FSMContext):
+    if not is_admin(message.from_user.id if message.from_user else None):
+        return
+    await state.clear()
+    await message.answer("Style learning cancelled.", reply_markup=ReplyKeyboardRemove())
+
+
+@router.message(StyleExampleState.waiting_post, F.text)
+async def receive_style_example_text(message: Message, state: FSMContext):
+    if not is_admin(message.from_user.id if message.from_user else None):
+        return
+    text = (message.text or "").strip()
+    if len(text) < 20:
+        await message.answer("Please send a full post example, not a short note.")
+        return
+    await state.update_data(style_text=text)
+    await state.set_state(StyleExampleState.waiting_category)
+    await message.answer(
+        "Choose optional category for this example:",
+        reply_markup=_style_category_keyboard(),
+    )
+
+
+@router.message(StyleExampleState.waiting_post)
+async def receive_style_example_wrong(message: Message):
+    if not is_admin(message.from_user.id if message.from_user else None):
+        return
+    await message.answer("Please send the post example as text, or /cancel.")
+
+
+@router.message(StyleExampleState.waiting_category, F.text)
+async def receive_style_example_category(message: Message, state: FSMContext):
+    if not is_admin(message.from_user.id if message.from_user else None):
+        return
+    category = (message.text or "General").strip()
+    if category not in STYLE_CATEGORIES:
+        category = "General"
+    data = await state.get_data()
+    example_id = storage.add_style_example(data.get("style_text", ""), category)
+    await state.clear()
+    if example_id:
+        await message.answer(
+            f"Style example #{example_id} saved as {category}.",
+            reply_markup=ReplyKeyboardRemove(),
+        )
+    else:
+        await message.answer("Failed to save style example.", reply_markup=ReplyKeyboardRemove())
 
 
 @router.message(Command("upload_resource"))

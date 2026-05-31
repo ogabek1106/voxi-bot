@@ -12,6 +12,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from admins import ADMIN_IDS
 
 from . import ai, storage
+from .html_format import sanitize_telegram_html
 
 logger = logging.getLogger(__name__)
 
@@ -76,9 +77,9 @@ def review_keyboard(draft_id: int) -> InlineKeyboardMarkup:
 
 async def send_draft_to_admins(bot: Bot, draft_id: int, draft_text: str) -> None:
     text = (
-        "Voxi Content Engine draft\n"
+        "<b>Voxi Content Engine draft</b>\n"
         f"Draft ID: {draft_id}\n\n"
-        f"{draft_text}"
+        f"{sanitize_telegram_html(draft_text)}"
     )
     for admin_id in ADMIN_IDS:
         try:
@@ -86,7 +87,7 @@ async def send_draft_to_admins(bot: Bot, draft_id: int, draft_text: str) -> None
                 chat_id=int(admin_id),
                 text=text[:4000],
                 reply_markup=review_keyboard(draft_id),
-                parse_mode=None,
+                parse_mode="HTML",
             )
         except Exception:
             logger.exception("Failed to send content draft to admin %s", admin_id)

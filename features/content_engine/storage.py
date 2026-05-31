@@ -3,10 +3,9 @@ import logging
 import os
 import sqlite3
 import time
-from datetime import datetime
 from typing import Any, Dict, Iterable, List, Optional
 
-from database import _connect, _table_columns
+from database import _connect
 
 logger = logging.getLogger(__name__)
 
@@ -98,6 +97,17 @@ def ensure_content_engine_tables() -> None:
                     text TEXT,
                     received_at INTEGER NOT NULL,
                     UNIQUE(chat_id, message_id)
+                );
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS content_engine_style_examples (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    text TEXT NOT NULL,
+                    category TEXT NOT NULL DEFAULT 'General',
+                    source TEXT NOT NULL DEFAULT 'manual_admin_example',
+                    created_at INTEGER NOT NULL
                 );
                 """
             )
@@ -518,6 +528,113 @@ def recent_channel_examples(limit: int = 5) -> List[str]:
         return [row[0] for row in cur.fetchall() if row and row[0]]
     except Exception:
         logger.exception("recent_channel_examples failed")
+        return []
+    finally:
+        if conn:
+            conn.close()
+
+
+def add_style_example(text: str, category: str = "General") -> Optional[int]:
+    ensure_content_engine_tables()
+    if not text or not text.strip():
+        return None
+    conn = None
+    try:
+        conn = _connect()
+        with conn:
+            cur = conn.execute(
+                """
+                INSERT INTO content_engine_style_examples
+                (text, category, source, created_at)
+                VALUES (?, ?, 'manual_admin_example', ?);
+                """,
+                (text.strip()[:4000], category or "General", _now_ts()),
+            )
+            return int(cur.lastrowid)
+    except Exception:
+        logger.exception("add_style_example failed")
+        return None
+    finally:
+        if conn:
+            conn.close()
+
+
+def list_style_examples(limit: int = 20) -> List[Dict[str, Any]]:
+    ensure_content_engine_tables()
+    conn = None
+    try:
+        conn = _connect_rows()
+        cur = conn.execute(
+            """
+            SELECT id, text, category, source, created_at
+            FROM content_engine_style_examples
+            ORDER BY created_at DESC
+            LIMIT ?;
+            """,
+            (int(limit),),
+        )
+        return [_row_to_dict(row) for row in cur.fetchall()]
+    except Exception:
+        logger.exception("list_style_examples failed")
+        return []
+    finally:
+        if conn:
+            conn.close()
+
+
+def delete_style_example(example_id: int) -> bool:
+    ensure_content_engine_tables()
+    conn = None
+    try:
+        conn = _connect()
+        with conn:
+            cur = conn.execute(
+                "DELETE FROM content_engine_style_examples WHERE id = ?;",
+                (int(example_id),),
+            )
+        return cur.rowcount > 0
+    except Exception:
+        logger.exception("delete_style_example failed")
+        return False
+    finally:
+        if conn:
+            conn.close()
+
+
+def choose_style_examples(category: str, limit: int = 5) -> List[Dict[str, Any]]:
+    ensure_content_engine_tables()
+    wanted = (category or "General").strip() or "General"
+    conn = None
+    try:
+        conn = _connect_rows()
+        rows = []
+        cur = conn.execute(
+            """
+            SELECT id, text, category, source, created_at
+            FROM content_engine_style_examples
+            WHERE lower(category) = lower(?)
+            ORDER BY created_at DESC
+            LIMIT ?;
+            """,
+            (wanted, int(limit)),
+        )
+        rows.extend(_row_to_dict(row) for row in cur.fetchall())
+        if len(rows) < limit:
+            cur = conn.execute(
+                """
+                SELECT id, text, category, source, created_at
+                FROM content_engine_style_examples
+                WHERE lower(category) = 'general'
+                  AND id NOT IN ({})
+                ORDER BY created_at DESC
+                LIMIT ?;
+                """.format(",".join("?" for _ in rows) or "0"),
+                [*(row["id"] for row in rows), int(limit - len(rows))],
+            )
+            rows.extend(_row_to_dict(row) for row in cur.fetchall())
+        return rows[:limit]
+    except Exception:
+        logger.exception("choose_style_examples failed")
         return []
     finally:
         if conn:
