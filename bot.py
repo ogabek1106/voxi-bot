@@ -49,9 +49,14 @@ CONTENT_ENGINE_BACKGROUND_START_DELAY = int(
 
 
 async def _start_content_engine_background(bot: Bot):
-    await asyncio.sleep(CONTENT_ENGINE_BACKGROUND_START_DELAY)
-    start_scheduler(bot)
-    start_pending_processing()
+    try:
+        await asyncio.sleep(CONTENT_ENGINE_BACKGROUND_START_DELAY)
+        start_scheduler(bot)
+        start_pending_processing()
+    except asyncio.CancelledError:
+        raise
+    except Exception as e:
+        logger.exception("Content Engine background startup failed: %s", e)
 
 
 async def _start_content_engine_api():
@@ -59,11 +64,14 @@ async def _start_content_engine_api():
     try:
         runner = await start_api_server()
         await asyncio.Event().wait()
+    except asyncio.CancelledError:
+        raise
     except Exception as e:
         logger.exception("Content Engine API server failed to start: %s", e)
     finally:
         if runner:
             await runner.cleanup()
+            logger.info("Content Engine API stopped")
 
 
 # ─────────────────────────────
@@ -122,23 +130,30 @@ async def main():
     except Exception as e:
         logger.warning("Could not set bot commands during startup: %s", e)
 
-    asyncio.create_task(_start_content_engine_background(bot))
-    asyncio.create_task(_start_content_engine_api())
+    content_engine_tasks = [
+        asyncio.create_task(_start_content_engine_background(bot), name="content-engine-background"),
+        asyncio.create_task(_start_content_engine_api(), name="content-engine-api"),
+    ]
 
-    while True:
-        try:
-            logger.info("Bot starting polling...")
-            await dp.start_polling(bot)
-            return
-        except TelegramNetworkError as e:
-            logger.warning(
-                "Telegram network error during polling: %s. Retrying in %s seconds.",
-                e,
-                POLLING_RETRY_SECONDS,
-            )
-            await asyncio.sleep(POLLING_RETRY_SECONDS)
-        except asyncio.CancelledError:
-            raise
+    try:
+        while True:
+            try:
+                logger.info("Bot starting polling...")
+                await dp.start_polling(bot)
+                return
+            except TelegramNetworkError as e:
+                logger.warning(
+                    "Telegram network error during polling: %s. Retrying in %s seconds.",
+                    e,
+                    POLLING_RETRY_SECONDS,
+                )
+                await asyncio.sleep(POLLING_RETRY_SECONDS)
+            except asyncio.CancelledError:
+                raise
+    finally:
+        for task in content_engine_tasks:
+            task.cancel()
+        await asyncio.gather(*content_engine_tasks, return_exceptions=True)
 
 
 if __name__ == "__main__":

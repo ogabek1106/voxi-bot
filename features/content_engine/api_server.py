@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 
 API_BASE = "/api/content-engine/v1"
 ALLOWED_EXTENSIONS = {".pdf", ".txt", ".md", ".csv"}
+DEFAULT_API_PORT = 8080
 
 
 def _json(data: Dict[str, Any], status: int = 200, request: Optional[web.Request] = None) -> web.Response:
@@ -67,6 +68,33 @@ def _allowed_origins() -> set[str]:
     if not raw:
         return set()
     return {part.strip() for part in raw.split(",") if part.strip()}
+
+
+def _resolved_bind() -> tuple[str, int, str]:
+    host = os.getenv("CONTENT_ENGINE_API_HOST", "0.0.0.0").strip() or "0.0.0.0"
+    port_source = "default"
+    raw_port = os.getenv("PORT", "").strip()
+    if raw_port:
+        port_source = "PORT"
+    else:
+        raw_port = os.getenv("CONTENT_ENGINE_API_PORT", "").strip()
+        if raw_port:
+            port_source = "CONTENT_ENGINE_API_PORT"
+        else:
+            raw_port = str(DEFAULT_API_PORT)
+
+    try:
+        port = int(raw_port)
+    except ValueError:
+        logger.warning(
+            "Invalid Content Engine API port %r from %s; falling back to %s",
+            raw_port,
+            port_source,
+            DEFAULT_API_PORT,
+        )
+        port = DEFAULT_API_PORT
+        port_source = "default"
+    return host, port, port_source
 
 
 def _apply_cors(request: web.Request, response: web.Response) -> None:
@@ -297,11 +325,30 @@ async def start_api_server() -> web.AppRunner:
 
     runner = web.AppRunner(app)
     await runner.setup()
-    host = os.getenv("CONTENT_ENGINE_API_HOST", "0.0.0.0")
-    port = int(os.getenv("PORT", os.getenv("CONTENT_ENGINE_API_PORT", "8080")))
+    host, port, port_source = _resolved_bind()
+    logger.info(
+        "Content Engine API starting on host=%s port=%s source=%s",
+        host,
+        port,
+        port_source,
+    )
     site = web.TCPSite(runner, host=host, port=port)
-    await site.start()
+    try:
+        await site.start()
+    except OSError:
+        logger.exception(
+            "Content Engine API failed to bind host=%s port=%s source=%s",
+            host,
+            port,
+            port_source,
+        )
+        await runner.cleanup()
+        raise
+    except Exception:
+        logger.exception("Content Engine API failed during startup")
+        await runner.cleanup()
+        raise
     if not _api_key():
         logger.warning("Content Engine API started without CONTENT_ENGINE_API_KEY; protected endpoints return 503")
-    logger.info("Content Engine API listening on %s:%s", host, port)
+    logger.info("Content Engine API listening on host=%s port=%s source=%s", host, port, port_source)
     return runner
