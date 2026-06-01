@@ -326,9 +326,6 @@ async def generate_content_now(message: Message):
     if storage.is_paused():
         await message.answer("Content Engine is paused. Use /resume_content first.")
         return
-    if storage.get_pending_drafts(1):
-        await message.answer("A draft is still pending review. Resolve it before generating another one.")
-        return
 
     await message.answer("Generating one draft for review...")
     draft_id = await scheduler.generate_one_draft(message.bot, slot="manual", notify=True)

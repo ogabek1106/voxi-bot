@@ -202,8 +202,6 @@ async def _maybe_generate_due_slot(bot: Bot) -> None:
     ensure_today_schedule(now)
     if storage.is_paused() or quiet_hours(now):
         return
-    if storage.get_pending_drafts(1):
-        return
 
     current_hhmm = now.strftime("%H:%M")
     today = now.date().isoformat()
