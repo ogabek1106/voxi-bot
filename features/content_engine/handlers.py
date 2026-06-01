@@ -19,6 +19,7 @@ from admins import ADMIN_IDS
 from database import DB_PATH
 
 from . import ai, book_resources, resource_processor, scheduler, storage
+from .html_format import sanitize_telegram_html
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -119,18 +120,18 @@ def _preview(text: str, limit: int = 80) -> str:
 def _message_html_text(message: Message) -> str:
     html_text = getattr(message, "html_text", None)
     if html_text:
-        return html_text
-    return message.text or ""
+        return sanitize_telegram_html(html_text)
+    return sanitize_telegram_html(message.text or "")
 
 
 def _message_html_content(message: Message) -> str:
     html_text = getattr(message, "html_text", None)
     if html_text:
-        return html_text
+        return sanitize_telegram_html(html_text)
     html_caption = getattr(message, "html_caption", None)
     if html_caption:
-        return html_caption
-    return message.text or message.caption or ""
+        return sanitize_telegram_html(html_caption)
+    return sanitize_telegram_html(message.text or message.caption or "")
 
 
 def _read_text_preview(local_path: Path, safe_name: str, mime: str) -> str:

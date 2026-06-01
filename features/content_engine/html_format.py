@@ -27,6 +27,8 @@ class TelegramHTMLSanitizer(HTMLParser):
 
     def handle_starttag(self, tag, attrs):
         tag = tag.lower()
+        if tag == "tg-emoji":
+            return
         if tag in ALLOWED_SIMPLE_TAGS:
             self.parts.append(f"<{tag}>")
             self.stack.append(tag)
@@ -45,6 +47,8 @@ class TelegramHTMLSanitizer(HTMLParser):
 
     def handle_endtag(self, tag):
         tag = tag.lower()
+        if tag == "tg-emoji":
+            return
         if tag in self.stack:
             while self.stack:
                 open_tag = self.stack.pop()
@@ -70,6 +74,7 @@ class TelegramHTMLSanitizer(HTMLParser):
 
 
 def sanitize_telegram_html(text: str) -> str:
+    text = re.sub(r"</?\s*tg-emoji\b[^>]*>", "", text or "", flags=re.IGNORECASE)
     parser = TelegramHTMLSanitizer()
     try:
         parser.feed(text or "")

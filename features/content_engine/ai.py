@@ -25,6 +25,44 @@ WEEKLY_PLAN = {
     6: "Useful English Tip + Weekly Revision",
 }
 
+SLOT_WEEKLY_PLAN = {
+    0: {
+        "morning": "Word of the Day",
+        "afternoon": "5 Underrated IELTS Collocations",
+        "evening": "Light engagement/revision task based on Monday content",
+    },
+    1: {
+        "morning": "Grammar Tip",
+        "afternoon": "5 High-Band Words/Phrases",
+        "evening": "Light quiz/task based on Tuesday content",
+    },
+    2: {
+        "morning": "Idiom/Phrase",
+        "afternoon": "5 Useful Academic Phrases",
+        "evening": "Light practice/question based on Wednesday content",
+    },
+    3: {
+        "morning": "PDF/Video Resource",
+        "afternoon": "5 Powerful IELTS Verbs",
+        "evening": "Light resource/practice task",
+    },
+    4: {
+        "morning": "Quiz/Poll",
+        "afternoon": "Weekly Review",
+        "evening": "5 Common IELTS Mistakes",
+    },
+    5: {
+        "morning": "Music/Quote",
+        "afternoon": "5 Advanced Synonyms",
+        "evening": "Light reflection/question",
+    },
+    6: {
+        "morning": "Useful English Tip",
+        "afternoon": "Weekly Revision",
+        "evening": "Light weekly task/challenge",
+    },
+}
+
 WEEKDAY_NAMES = {
     0: "Monday",
     1: "Tuesday",
@@ -38,6 +76,13 @@ WEEKDAY_NAMES = {
 
 def category_for_weekday(weekday_index: int) -> str:
     return WEEKLY_PLAN.get(weekday_index, WEEKLY_PLAN[0])
+
+
+def category_for_slot(weekday_index: int, slot: str) -> str:
+    clean_slot = (slot or "").strip().lower()
+    if clean_slot in SLOT_WEEKLY_PLAN.get(weekday_index, {}):
+        return SLOT_WEEKLY_PLAN[weekday_index][clean_slot]
+    return category_for_weekday(weekday_index)
 
 
 def weekday_name(weekday_index: int) -> str:
@@ -195,8 +240,9 @@ async def generate_draft_text(
     slot: str,
     source: Optional[Dict] = None,
     idea_card: Optional[Dict] = None,
+    category: Optional[str] = None,
 ) -> Dict[str, str]:
-    category = category_for_weekday(weekday_index)
+    category = category or category_for_slot(weekday_index, slot)
     recent = storage.get_recent_drafts(30)
     used_topics = [
         str(row.get("used_topic") or row.get("content_category") or "")
@@ -267,6 +313,8 @@ Requirements:
 - Short enough for Telegram.
 - Practical, concrete, and not generic.
 - Enforce the STRICT weekly content category. Do not switch to another content type.
+- Use normal Unicode emojis only.
+- Never use Telegram custom emoji tags such as <tg-emoji> or </tg-emoji>.
 - Language ratio target: about 80% English and 20% Uzbek.
 - English should carry the title, phrase/word, explanation, examples, synonyms, CTA, and most structure.
 - Uzbek should be limited to translation and short clarification only.
@@ -285,6 +333,7 @@ Requirements:
 - Do not mix multiple books/resources or unrelated ideas.
 - If an idea card is provided, base the whole post on that one idea card only.
 - Avoid repeating any used idea/topic above.
+- Do not include other same-day main categories unless the strict category explicitly asks for revision/engagement based on them.
 - Include 5 items when the weekly plan asks for 5 items.
 - Fallback channel pattern if examples are weak: emoji header, clear title, English word/phrase with transcription when relevant, Uzbek meaning, usage explanation, examples, synonyms, IELTS band note, question/CTA, separator line, hashtags, "Sharing is caring ⭐", and Telegram | Vocabulary | Voxi | Web-Site footer links.
 
@@ -298,7 +347,8 @@ Return only the draft post text. No JSON. No commentary.
                 "role": "system",
                 "content": (
                     "You are Voxi Content Engine, an assistant for a Telegram "
-                    "channel teaching IELTS and English to Uzbek learners."
+                    "channel teaching IELTS and English to Uzbek learners. "
+                    "Use normal Unicode emojis only; never use Telegram custom emoji tags."
                 ),
             },
             {"role": "user", "content": prompt},
@@ -380,6 +430,8 @@ Requirements:
 - Do not replace the topic/idea with a new one.
 - If the original topic is a phrase/word, keep the same phrase/word.
 - Enforce the same weekly category: {category}.
+- Use normal Unicode emojis only.
+- Never use Telegram custom emoji tags such as <tg-emoji> or </tg-emoji>.
 - Language ratio target: about 80% English and 20% Uzbek.
 - Uzbek only for translation and short clarification.
 - Strongly follow learned tone, emoji rhythm, CTA, footer, and formatting patterns.
@@ -395,7 +447,10 @@ Requirements:
         messages=[
             {
                 "role": "system",
-                "content": "You improve Voxi Telegram drafts while preserving the exact idea.",
+                "content": (
+                    "You improve Voxi Telegram drafts while preserving the exact idea. "
+                    "Use normal Unicode emojis only; never use Telegram custom emoji tags."
+                ),
             },
             {"role": "user", "content": prompt},
         ],

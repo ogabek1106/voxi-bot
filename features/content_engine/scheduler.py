@@ -136,13 +136,14 @@ async def send_draft_to_admins(bot: Bot, draft_id: int, draft_text: str) -> None
 async def generate_one_draft(bot: Bot, slot: str = "manual", notify: bool = True) -> Optional[int]:
     now = local_now()
     weekday = ai.weekday_name(now.weekday())
-    category = ai.category_for_weekday(now.weekday())
+    category = ai.category_for_slot(now.weekday(), slot)
     style_category = ai.style_category_for_plan(category)
     idea_card = storage.choose_resource_idea(style_category)
     source = None if idea_card else storage.choose_resource()
-    result = await ai.generate_draft_text(now.weekday(), slot, source, idea_card)
+    result = await ai.generate_draft_text(now.weekday(), slot, source, idea_card, category=category)
+    draft_text = sanitize_telegram_html(str(result["text"]))
     draft_id = storage.create_draft(
-        draft_text=result["text"],
+        draft_text=draft_text,
         generated_date=now.date().isoformat(),
         weekday=weekday,
         slot=slot,
@@ -164,7 +165,7 @@ async def generate_one_draft(bot: Bot, slot: str = "manual", notify: bool = True
     if idea_card:
         storage.mark_resource_idea_used(int(idea_card["id"]))
     if notify:
-        await send_draft_to_admins(bot, draft_id, result["text"])
+        await send_draft_to_admins(bot, draft_id, draft_text)
     return draft_id
 
 
@@ -174,8 +175,9 @@ async def regenerate_existing_draft(bot: Bot, draft: dict, notify: bool = True) 
     if draft.get("source_resource_id"):
         source = storage.get_resource(int(draft["source_resource_id"]))
     result = await ai.regenerate_draft_text(draft, source)
+    draft_text = sanitize_telegram_html(str(result["text"]))
     draft_id = storage.create_draft(
-        draft_text=str(result["text"]),
+        draft_text=draft_text,
         generated_date=now.date().isoformat(),
         weekday=draft.get("weekday") or ai.weekday_name(now.weekday()),
         slot=draft.get("slot") or "manual",
@@ -193,7 +195,7 @@ async def regenerate_existing_draft(bot: Bot, draft: dict, notify: bool = True) 
     if not draft_id:
         return None
     if notify:
-        await send_draft_to_admins(bot, draft_id, str(result["text"]))
+        await send_draft_to_admins(bot, draft_id, draft_text)
     return draft_id
 
 
