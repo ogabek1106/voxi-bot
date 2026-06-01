@@ -137,9 +137,10 @@ async def generate_one_draft(bot: Bot, slot: str = "manual", notify: bool = True
     now = local_now()
     weekday = ai.weekday_name(now.weekday())
     category = ai.category_for_slot(now.weekday(), slot)
-    style_category = ai.style_category_for_plan(category)
-    idea_card = storage.choose_resource_idea(style_category)
-    source = None if idea_card else storage.choose_resource()
+    contract = ai.generation_contract_for_category(category)
+    allowed_idea_types = contract.get("allowed_idea_types") or []
+    idea_card = storage.choose_resource_idea_by_types(allowed_idea_types, allow_fallback=False)
+    source = None if (idea_card or allowed_idea_types) else storage.choose_resource()
     result = await ai.generate_draft_text(now.weekday(), slot, source, idea_card, category=category)
     draft_text = sanitize_telegram_html(str(result["text"]))
     draft_id = storage.create_draft(
@@ -160,6 +161,16 @@ async def generate_one_draft(bot: Bot, slot: str = "manual", notify: bool = True
     )
     if not draft_id:
         return None
+    if result.get("failed"):
+        storage.update_draft_status(int(draft_id), "failed")
+        logger.warning(
+            "Content draft generation failed validation for draft %s (%s/%s): %s",
+            draft_id,
+            slot,
+            category,
+            result.get("error") or "validation failed",
+        )
+        return draft_id
     if source:
         storage.mark_resource_used(int(source["id"]))
     if idea_card:

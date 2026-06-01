@@ -328,10 +328,25 @@ async def generate_content_now(message: Message):
         await message.answer("Content Engine is paused. Use /resume_content first.")
         return
 
-    await message.answer("Generating one draft for review...")
-    draft_id = await scheduler.generate_one_draft(message.bot, slot="manual", notify=True)
+    parts = (message.text or "").split()
+    slot = "manual"
+    if len(parts) > 1:
+        requested_slot = parts[1].strip().lower()
+        if requested_slot not in {"morning", "afternoon", "evening"}:
+            await message.answer("Usage: /generate_content_now [morning|afternoon|evening]")
+            return
+        slot = requested_slot
+
+    await message.answer(f"Generating one {slot} draft for review...")
+    draft_id = await scheduler.generate_one_draft(message.bot, slot=slot, notify=True)
     if draft_id:
-        await message.answer(f"Draft #{draft_id} generated and sent for review.")
+        draft = storage.get_draft(int(draft_id))
+        if draft and draft.get("status") == "failed":
+            await message.answer(
+                f"Draft #{draft_id} failed category validation and was not sent for review."
+            )
+        else:
+            await message.answer(f"Draft #{draft_id} generated and sent for review.")
     else:
         await message.answer("Failed to generate draft. Check logs/OpenAI configuration.")
 

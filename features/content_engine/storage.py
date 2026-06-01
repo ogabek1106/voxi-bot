@@ -898,19 +898,12 @@ def count_resource_ideas(resource_id: int) -> int:
             conn.close()
 
 
-def choose_resource_idea(style_category: str = "General") -> Optional[Dict[str, Any]]:
+def choose_resource_idea_by_types(
+    idea_types: Iterable[str],
+    allow_fallback: bool = False,
+) -> Optional[Dict[str, Any]]:
     ensure_content_engine_tables()
-    type_map = {
-        "Word of the Day": ["word"],
-        "Phrase": ["phrase", "phrasal_verb", "academic_phrase"],
-        "Grammar Tip": ["grammar_tip", "common_mistake"],
-        "Collocations": ["collocation"],
-        "Resource": ["resource_tip", "ielts_verb"],
-        "Quiz/Poll": ["common_mistake", "resource_tip"],
-        "Quote/Music": ["quote"],
-        "Mistakes": ["common_mistake"],
-    }
-    wanted = type_map.get(style_category, [])
+    wanted = [str(item).strip() for item in idea_types if str(item).strip()]
     conn = None
     try:
         conn = _connect_rows()
@@ -934,7 +927,7 @@ def choose_resource_idea(style_category: str = "General") -> Optional[Dict[str, 
         row = cur.fetchone()
         if row:
             return _row_to_dict(row)
-        if wanted:
+        if wanted and allow_fallback:
             cur = conn.execute(
                 """
                 SELECT i.*, r.title AS resource_title, r.category AS resource_category
@@ -949,11 +942,25 @@ def choose_resource_idea(style_category: str = "General") -> Optional[Dict[str, 
             return _row_to_dict(row) if row else None
         return None
     except Exception:
-        logger.exception("choose_resource_idea failed")
+        logger.exception("choose_resource_idea_by_types failed")
         return None
     finally:
         if conn:
             conn.close()
+
+
+def choose_resource_idea(style_category: str = "General") -> Optional[Dict[str, Any]]:
+    type_map = {
+        "Word of the Day": ["word"],
+        "Phrase": ["phrase", "phrasal_verb", "academic_phrase"],
+        "Grammar Tip": ["grammar_tip", "common_mistake"],
+        "Collocations": ["collocation"],
+        "Resource": ["resource_tip", "ielts_verb"],
+        "Quiz/Poll": ["common_mistake", "resource_tip"],
+        "Quote/Music": ["quote"],
+        "Mistakes": ["common_mistake"],
+    }
+    return choose_resource_idea_by_types(type_map.get(style_category, []), allow_fallback=True)
 
 
 def mark_resource_idea_used(idea_id: int) -> None:
@@ -1215,15 +1222,21 @@ def rebuild_learned_hashtags() -> None:
             conn.close()
 
 
-def choose_style_examples(category: str, limit: int = 5) -> List[Dict[str, Any]]:
+def choose_style_examples_from_categories(categories: Iterable[str], limit: int = 5) -> List[Dict[str, Any]]:
     ensure_content_engine_tables()
-    wanted = (category or "General").strip() or "General"
+    wanted_categories = []
+    for category in categories:
+        clean = str(category or "").strip()
+        if clean and clean not in wanted_categories:
+            wanted_categories.append(clean)
+    if not wanted_categories:
+        wanted_categories.append("General")
     conn = None
     try:
         conn = _connect_rows()
         rows: List[Dict[str, Any]] = []
         seen = set()
-        for wanted_category in (wanted, "General"):
+        for wanted_category in wanted_categories:
             if len(rows) >= limit:
                 break
             cur = conn.execute(
@@ -1264,6 +1277,14 @@ def choose_style_examples(category: str, limit: int = 5) -> List[Dict[str, Any]]
     finally:
         if conn:
             conn.close()
+
+
+def choose_style_examples(category: str, limit: int = 5) -> List[Dict[str, Any]]:
+    wanted = (category or "General").strip() or "General"
+    categories = [wanted]
+    if wanted.lower() != "general":
+        categories.append("General")
+    return choose_style_examples_from_categories(categories, limit)
 
 
 ensure_content_engine_tables()

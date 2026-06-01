@@ -110,6 +110,125 @@ def style_category_for_plan(category: str) -> str:
     return "General"
 
 
+GENERIC_CONTRACT = {
+    "allowed_sections": ["hook/title", "main lesson/task", "examples or practice", "CTA", "hashtags", "footer"],
+    "forbidden_sections": [],
+    "required_output_shape": "One focused Telegram post matching the strict slot category.",
+    "allowed_idea_types": [],
+    "preferred_style_example_categories": ["General"],
+}
+
+
+CATEGORY_CONTRACTS = {
+    "Word of the Day": {
+        "allowed_sections": ["emoji header/title", "target word", "pronunciation", "meaning", "usage", "examples", "synonyms", "IELTS note", "CTA", "hashtags", "footer"],
+        "forbidden_sections": ["5 collocations", "5 high-band words/phrases", "weekly review", "common mistakes list"],
+        "required_output_shape": "One Word of the Day post about exactly one word.",
+        "allowed_idea_types": ["word"],
+        "preferred_style_example_categories": ["Word of the Day", "General"],
+    },
+    "5 Underrated IELTS Collocations": {
+        "allowed_sections": ["emoji/list title", "exactly five numbered collocations", "short Uzbek meanings/use notes", "CTA", "hashtags", "footer"],
+        "forbidden_sections": ["Word of the Day", "pronunciation", "single word meaning", "usage section", "synonyms section", "IELTS level section", "Grammar Tip"],
+        "required_output_shape": "A focused five-item collocations post only: title, five numbered collocations with short notes, CTA, separator/hashtags/footer if learned.",
+        "allowed_idea_types": ["collocation"],
+        "preferred_style_example_categories": ["Collocations", "General"],
+    },
+    "Grammar Tip": {
+        "allowed_sections": ["emoji/title", "grammar rule", "brief Uzbek clarification", "examples", "mini task", "CTA", "footer"],
+        "forbidden_sections": ["Word of the Day", "5 high-band words/phrases", "collocations list"],
+        "required_output_shape": "One practical grammar tip only.",
+        "allowed_idea_types": ["grammar_tip"],
+        "preferred_style_example_categories": ["Grammar Tip", "General"],
+    },
+    "5 High-Band Words/Phrases": {
+        "allowed_sections": ["emoji/list title", "exactly five numbered words/phrases", "short meanings", "example/use note", "CTA", "footer"],
+        "forbidden_sections": ["Grammar Tip", "Word of the Day", "long single-word lesson"],
+        "required_output_shape": "A focused five-item high-band words/phrases post only.",
+        "allowed_idea_types": ["word", "phrase"],
+        "preferred_style_example_categories": ["Phrase", "Word of the Day", "General"],
+    },
+    "Idiom/Phrase": {
+        "allowed_sections": ["emoji/title", "target idiom/phrase", "meaning", "examples", "practice question", "footer"],
+        "forbidden_sections": ["5 academic phrases", "Word of the Day"],
+        "required_output_shape": "One idiom or phrase post only.",
+        "allowed_idea_types": ["phrase", "phrasal_verb"],
+        "preferred_style_example_categories": ["Phrase", "General"],
+    },
+    "5 Useful Academic Phrases": {
+        "allowed_sections": ["emoji/list title", "exactly five numbered academic phrases", "short use notes", "CTA", "footer"],
+        "forbidden_sections": ["Idiom/Phrase", "Word of the Day", "long single phrase lesson"],
+        "required_output_shape": "A focused five-item academic phrases post only.",
+        "allowed_idea_types": ["academic_phrase", "phrase"],
+        "preferred_style_example_categories": ["Phrase", "General"],
+    },
+    "PDF/Video Resource": {
+        "allowed_sections": ["resource title", "why useful", "how to use", "mini task", "footer"],
+        "forbidden_sections": ["5 verbs", "Word of the Day"],
+        "required_output_shape": "One resource recommendation/tip only.",
+        "allowed_idea_types": ["resource_tip"],
+        "preferred_style_example_categories": ["Resource", "General"],
+    },
+    "5 Powerful IELTS Verbs": {
+        "allowed_sections": ["emoji/list title", "exactly five numbered verbs", "meaning/use note", "example", "CTA", "footer"],
+        "forbidden_sections": ["PDF/Video Resource", "Word of the Day"],
+        "required_output_shape": "A focused five-item IELTS verbs post only.",
+        "allowed_idea_types": ["ielts_verb", "word"],
+        "preferred_style_example_categories": ["Word of the Day", "General"],
+    },
+    "Quiz/Poll": {
+        "allowed_sections": ["quiz question", "answer options", "CTA", "footer"],
+        "forbidden_sections": ["Weekly Review", "5 common mistakes"],
+        "required_output_shape": "One quiz/poll post only.",
+        "allowed_idea_types": ["common_mistake", "resource_tip"],
+        "preferred_style_example_categories": ["Quiz/Poll", "General"],
+    },
+    "Weekly Review": {
+        "allowed_sections": ["weekly review title", "short review points", "practice task", "CTA", "footer"],
+        "forbidden_sections": ["Quiz/Poll", "5 common mistakes list"],
+        "required_output_shape": "One weekly review post only.",
+        "allowed_idea_types": ["resource_tip", "academic_phrase", "collocation"],
+        "preferred_style_example_categories": ["General"],
+    },
+    "5 Common IELTS Mistakes": {
+        "allowed_sections": ["emoji/list title", "exactly five numbered mistakes", "correction", "CTA", "footer"],
+        "forbidden_sections": ["Quiz/Poll", "Weekly Review", "Word of the Day"],
+        "required_output_shape": "A focused five-item common mistakes post only.",
+        "allowed_idea_types": ["common_mistake"],
+        "preferred_style_example_categories": ["Mistakes", "General"],
+    },
+    "Music/Quote": {
+        "allowed_sections": ["quote/song line", "meaning", "short reflection", "question", "footer"],
+        "forbidden_sections": ["5 advanced synonyms", "Word of the Day"],
+        "required_output_shape": "One music/quote post only.",
+        "allowed_idea_types": ["quote"],
+        "preferred_style_example_categories": ["Quote/Music", "General"],
+    },
+    "5 Advanced Synonyms": {
+        "allowed_sections": ["emoji/list title", "exactly five numbered synonyms", "basic word comparison", "example/use note", "CTA", "footer"],
+        "forbidden_sections": ["Music/Quote", "Word of the Day"],
+        "required_output_shape": "A focused five-item advanced synonyms post only.",
+        "allowed_idea_types": ["word"],
+        "preferred_style_example_categories": ["Word of the Day", "General"],
+    },
+}
+
+
+def generation_contract_for_category(category: str) -> Dict[str, object]:
+    category = category or "General"
+    if category in CATEGORY_CONTRACTS:
+        return CATEGORY_CONTRACTS[category]
+    if category.startswith("Light "):
+        return {
+            "allowed_sections": ["short task/challenge", "one question or prompt", "CTA", "footer"],
+            "forbidden_sections": ["new full lesson", "Word of the Day", "five-item list"],
+            "required_output_shape": "A short light engagement/practice task only.",
+            "allowed_idea_types": ["resource_tip", "collocation", "phrase", "common_mistake"],
+            "preferred_style_example_categories": ["General"],
+        }
+    return GENERIC_CONTRACT
+
+
 def _fallback_draft(category: str, source: Optional[Dict], used_topics: List[str]) -> str:
     source_line = f"\nSource: {source['title']}" if source else ""
     return (
@@ -213,9 +332,13 @@ def _normalize_result(raw_text: str, allowed_hashtags: List[str]) -> tuple[str, 
 
 
 def _category_boundary_rules(category: str, slot: str) -> str:
+    contract = generation_contract_for_category(category)
     text = (category or "").lower()
     base = [
         f"This post is ONLY for the {slot} slot category: {category}.",
+        f"Required output shape: {contract.get('required_output_shape')}",
+        "Allowed sections: " + ", ".join(contract.get("allowed_sections") or []),
+        "Forbidden sections: " + (", ".join(contract.get("forbidden_sections") or []) or "none"),
         "Use FORMAT EXAMPLES only for visual style, CTA, footer, emoji rhythm, and tone.",
         "Do not copy extra content sections from examples when they belong to another slot.",
     ]
@@ -267,6 +390,11 @@ def _category_boundary_rules(category: str, slot: str) -> str:
 def _category_violation(category: str, text: str) -> Optional[str]:
     category_lower = (category or "").lower()
     plain = _strip_html(text).lower()
+    contract = generation_contract_for_category(category)
+    for marker in contract.get("forbidden_sections") or []:
+        clean_marker = str(marker).lower()
+        if clean_marker and clean_marker in plain:
+            return f"contains forbidden section: {marker}"
     if "collocation" in category_lower:
         forbidden = [
             "word of the day",
@@ -295,6 +423,22 @@ def _category_violation(category: str, text: str) -> Optional[str]:
             if marker in plain and marker not in category_lower:
                 return f"contains another slot category: {marker}"
     return None
+
+
+def _contract_failed_payload(category: str, slot: str, reason: str, prompt: str) -> Dict[str, object]:
+    return {
+        "text": (
+            f"Content generation failed validation for {slot} / {category}.\n"
+            f"Reason: {reason}"
+        ),
+        "topic": category,
+        "vocabulary": "",
+        "generation_prompt": prompt,
+        "style_examples_used": [],
+        "hashtags_used": [],
+        "failed": True,
+        "error": reason,
+    }
 
 
 def _ensure_mandatory_formatting(text: str) -> str:
@@ -328,6 +472,7 @@ async def generate_draft_text(
     category: Optional[str] = None,
 ) -> Dict[str, str]:
     category = category or category_for_slot(weekday_index, slot)
+    contract = generation_contract_for_category(category)
     recent = storage.get_recent_drafts(30)
     used_topics = [
         str(row.get("used_topic") or row.get("content_category") or "")
@@ -335,7 +480,8 @@ async def generate_draft_text(
         if row.get("status") in {"approved", "posted_used", "pending_review"}
     ][:20]
     style_category = style_category_for_plan(category)
-    style_examples = storage.choose_style_examples(style_category, 5)
+    preferred_categories = contract.get("preferred_style_example_categories") or [style_category, "General"]
+    style_examples = storage.choose_style_examples_from_categories(preferred_categories, 5)
     hashtag_rule, allowed_hashtags = _allowed_hashtag_block(style_category)
 
     if not openai.api_key:
@@ -453,6 +599,8 @@ Return only the draft post text. No JSON. No commentary.
     violation = _category_violation(category, text)
     if violation:
         logger.warning("Content draft violated category boundary for %s: %s", category, violation)
+        retry_style_examples = storage.choose_style_examples_from_categories(["General"], 3)
+        retry_style_block = _style_block(retry_style_examples)
         retry_prompt = f"""
 The previous draft was rejected because it {violation}.
 
@@ -470,9 +618,12 @@ CATEGORY BOUNDARY RULES:
 Hard requirements:
 - Generate ONLY this strict category.
 - Do not include Word of the Day or any other daily section unless it is the strict category.
-- Use examples only for footer/tone/emoji rhythm, not content sections.
+- Use the limited FORMAT EXAMPLES below only for footer/tone/emoji rhythm, not content sections.
 - Keep Telegram HTML with both <b> and <i>.
 - Return only the corrected post.
+
+LIMITED FORMAT EXAMPLES:
+{retry_style_block}
 
 Original full instructions:
 {prompt}
@@ -497,6 +648,11 @@ Original full instructions:
             allowed_hashtags,
         )
         prompt = retry_prompt
+        style_examples = retry_style_examples
+        violation = _category_violation(category, text)
+        if violation:
+            logger.warning("Content draft failed validation after retry for %s: %s", category, violation)
+            return _contract_failed_payload(category, slot, violation, retry_prompt)
     topic = _infer_topic(text, f"{category} / {slot}")
     return {
         "text": text,
