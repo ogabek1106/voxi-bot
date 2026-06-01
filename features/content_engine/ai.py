@@ -212,6 +212,91 @@ def _normalize_result(raw_text: str, allowed_hashtags: List[str]) -> tuple[str, 
     return text.strip(), used_hashtags
 
 
+def _category_boundary_rules(category: str, slot: str) -> str:
+    text = (category or "").lower()
+    base = [
+        f"This post is ONLY for the {slot} slot category: {category}.",
+        "Use FORMAT EXAMPLES only for visual style, CTA, footer, emoji rhythm, and tone.",
+        "Do not copy extra content sections from examples when they belong to another slot.",
+    ]
+    other_main_sections = (
+        "Word of the Day, Grammar Tip, Idiom/Phrase, PDF/Video Resource, "
+        "Quiz/Poll, Weekly Review, Music/Quote, Useful English Tip"
+    )
+    if text.startswith("5 ") or "5 " in text:
+        base.extend(
+            [
+                "Generate a focused 5-item post only.",
+                "Use exactly five numbered learning items.",
+                f"Do not include these other main sections unless the strict category literally asks for them: {other_main_sections}.",
+                "Do not include a separate target word lesson, pronunciation line, long meaning section, usage section, synonyms section, or IELTS level section.",
+            ]
+        )
+    if "collocation" in text:
+        base.extend(
+            [
+                "The whole post must be about five underrated IELTS collocations only.",
+                "Do not write 'Word of the Day'.",
+                "Do not teach one vocabulary word first.",
+                "Each numbered item must be a collocation with a short Uzbek meaning or use note.",
+            ]
+        )
+    elif "high-band words" in text or "words/phrases" in text:
+        base.append("The whole post must be a five-item list of high-band words/phrases only.")
+    elif "academic phrases" in text:
+        base.append("The whole post must be a five-item list of useful academic phrases only.")
+    elif "powerful ielts verbs" in text:
+        base.append("The whole post must be a five-item list of powerful IELTS verbs only.")
+    elif "common ielts mistakes" in text:
+        base.append("The whole post must be a five-item list of common IELTS mistakes only.")
+    elif "advanced synonyms" in text:
+        base.append("The whole post must be a five-item list of advanced synonyms only.")
+    elif text.startswith("word of the day"):
+        base.append("Generate one Word of the Day post only. Do not add a separate five-item afternoon list.")
+    elif text.startswith("grammar tip"):
+        base.append("Generate one Grammar Tip post only. Do not add high-band words/phrases.")
+    elif "idiom" in text or text == "phrase":
+        base.append("Generate one Idiom/Phrase post only. Do not add academic phrases.")
+    elif text.startswith("weekly review"):
+        base.append("Generate a Weekly Review post only. Do not add common mistakes unless used briefly inside the review.")
+    elif text.startswith("light "):
+        base.append("Generate a short engagement/practice task only. Do not introduce a new full lesson.")
+    return "\n".join(f"- {line}" for line in base)
+
+
+def _category_violation(category: str, text: str) -> Optional[str]:
+    category_lower = (category or "").lower()
+    plain = _strip_html(text).lower()
+    if "collocation" in category_lower:
+        forbidden = [
+            "word of the day",
+            "pronunciation",
+            "synonyms:",
+            "ielts level",
+            " ma’nosi:",
+            " ma'nosi:",
+            " qo‘llanilishi:",
+            " qo'llanilishi:",
+        ]
+        for marker in forbidden:
+            if marker in plain:
+                return f"contains forbidden non-collocation section: {marker.strip()}"
+    if category_lower.startswith("5 ") or "5 " in category_lower:
+        forbidden_main_sections = [
+            "word of the day",
+            "grammar tip",
+            "idiom of the day",
+            "phrase of the day",
+            "pdf/video resource",
+            "music/quote",
+            "useful english tip",
+        ]
+        for marker in forbidden_main_sections:
+            if marker in plain and marker not in category_lower:
+                return f"contains another slot category: {marker}"
+    return None
+
+
 def _ensure_mandatory_formatting(text: str) -> str:
     text = text or ""
     if not re.search(r"<\s*b(\s+[^>]*)?>", text, flags=re.IGNORECASE):
@@ -287,6 +372,7 @@ async def generate_draft_text(
         )
 
     style_block = _style_block(style_examples)
+    boundary_rules = _category_boundary_rules(category, slot)
 
     prompt = f"""
 Create ONE Telegram channel post draft for Uzbek IELTS/English learners.
@@ -296,6 +382,9 @@ STRICT weekly content category for this draft:
 
 Draft slot:
 {slot}
+
+CATEGORY BOUNDARY RULES:
+{boundary_rules}
 
 Source rule:
 {source_block}
@@ -325,6 +414,7 @@ Requirements:
 - Do not make the whole post bold or italic. Use formatting in relevant places only.
 - Do NOT use Markdown formatting. Never use **bold**, __underline__, or [text](url).
 - Strongly follow the structure, tone, emoji rhythm, branding, hook style, CTA, separator, and footer pattern from FORMAT EXAMPLES when present.
+- FORMAT EXAMPLES are style examples only. If an example combines multiple daily categories, do not copy the extra categories. Follow CATEGORY BOUNDARY RULES instead.
 - Do NOT copy the exact example wording. Generate fresh content.
 - If examples include branding/footer links such as Telegram | Vocabulary | Voxi | Web-Site, include a similar footer.
 - Use only approved hashtags from HASHTAG RULE. If none are approved, include no hashtags.
@@ -360,6 +450,53 @@ Return only the draft post text. No JSON. No commentary.
         response["choices"][0]["message"]["content"],
         allowed_hashtags,
     )
+    violation = _category_violation(category, text)
+    if violation:
+        logger.warning("Content draft violated category boundary for %s: %s", category, violation)
+        retry_prompt = f"""
+The previous draft was rejected because it {violation}.
+
+Regenerate from scratch.
+
+STRICT CATEGORY:
+{category}
+
+SLOT:
+{slot}
+
+CATEGORY BOUNDARY RULES:
+{boundary_rules}
+
+Hard requirements:
+- Generate ONLY this strict category.
+- Do not include Word of the Day or any other daily section unless it is the strict category.
+- Use examples only for footer/tone/emoji rhythm, not content sections.
+- Keep Telegram HTML with both <b> and <i>.
+- Return only the corrected post.
+
+Original full instructions:
+{prompt}
+""".strip()
+        response = await openai.ChatCompletion.acreate(
+            model=MODEL,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You are Voxi Content Engine. Strictly obey the requested slot category. "
+                        "Never include unrelated daily sections."
+                    ),
+                },
+                {"role": "user", "content": retry_prompt},
+            ],
+            max_tokens=650,
+            temperature=0.55,
+        )
+        text, used_hashtags = _normalize_result(
+            response["choices"][0]["message"]["content"],
+            allowed_hashtags,
+        )
+        prompt = retry_prompt
     topic = _infer_topic(text, f"{category} / {slot}")
     return {
         "text": text,
