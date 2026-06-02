@@ -135,9 +135,9 @@ CATEGORY_CONTRACTS = {
         "preferred_style_example_categories": ["Collocations", "General"],
     },
     "Grammar Tip": {
-        "allowed_sections": ["emoji/title", "grammar rule", "brief Uzbek clarification", "examples", "mini task", "CTA", "footer"],
-        "forbidden_sections": ["Word of the Day", "5 high-band words/phrases", "collocations list"],
-        "required_output_shape": "One practical grammar tip only.",
+        "allowed_sections": ["emoji/title", "one grammar concept", "short grammar explanation", "at least 2 correct example sentences", "short common mistake or mini task", "CTA", "footer"],
+        "forbidden_sections": ["Word of the Day", "5 high-band words/phrases", "collocations list", "vocabulary learning advice", "study methods", "motivation", "resource recommendations", "generic English-learning tips"],
+        "required_output_shape": "One actual grammar concept only: name the concept, explain the rule/structure briefly, give at least 2 correct example sentences, then add a short common mistake or mini task.",
         "allowed_idea_types": ["grammar_tip"],
         "preferred_style_example_categories": ["Grammar Tip", "General"],
     },
@@ -377,7 +377,16 @@ def _category_boundary_rules(category: str, slot: str) -> str:
     elif text.startswith("word of the day"):
         base.append("Generate one Word of the Day post only. Do not add a separate five-item afternoon list.")
     elif text.startswith("grammar tip"):
-        base.append("Generate one Grammar Tip post only. Do not add high-band words/phrases.")
+        base.extend(
+            [
+                "Generate one actual grammar concept only.",
+                "The topic must be a grammar rule, grammar structure, tense usage, articles, prepositions, conditionals, passive voice, reported speech, linking words, sentence structure, common grammar mistake, grammar comparison, or punctuation when relevant.",
+                "Do not generate vocabulary-learning advice, study methods, motivation, resource recommendations, or generic English-learning tips.",
+                "Include at least 2 correct example sentences.",
+                "Include a short common mistake or mini task.",
+                "Do not add high-band words/phrases.",
+            ]
+        )
     elif "idiom" in text or text == "phrase":
         base.append("Generate one Idiom/Phrase post only. Do not add academic phrases.")
     elif text.startswith("weekly review"):
@@ -409,6 +418,73 @@ def _category_violation(category: str, text: str) -> Optional[str]:
         for marker in forbidden:
             if marker in plain:
                 return f"contains forbidden non-collocation section: {marker.strip()}"
+    if category_lower == "grammar tip":
+        advice_markers = [
+            "learn words",
+            "learn vocabulary",
+            "improve your vocabulary",
+            "vocabulary learning",
+            "use flashcards",
+            "flashcards",
+            "read more books",
+            "sample sentences",
+            "write sample sentences",
+            "study advice",
+            "study method",
+            "study methods",
+            "motivation",
+            "stay motivated",
+            "resource recommendation",
+            "resources to use",
+        ]
+        for marker in advice_markers:
+            if marker in plain:
+                return f"Grammar Tip is study/vocabulary advice, not grammar: {marker}"
+
+        grammar_markers = [
+            "tense",
+            "article",
+            "preposition",
+            "conditional",
+            "passive voice",
+            "reported speech",
+            "linking word",
+            "sentence structure",
+            "punctuation",
+            "subject-verb",
+            "subject verb",
+            "modal",
+            "comparative",
+            "superlative",
+            "clause",
+            "relative clause",
+            "pronoun",
+            "gerund",
+            "infinitive",
+            "countable",
+            "uncountable",
+            "singular",
+            "plural",
+            "used to",
+            "be used to",
+            "although",
+            "despite",
+            "present perfect",
+            "past simple",
+            "much vs many",
+            "fewer vs less",
+            "say vs tell",
+            "a / an / the",
+            "if i were",
+            "if i was",
+            "since vs for",
+            "grammar rule",
+            "common mistake",
+            "correct:",
+            "incorrect:",
+        ]
+        if not any(marker in plain for marker in grammar_markers):
+            return "Grammar Tip does not clearly teach a grammar concept"
     if category_lower.startswith("5 ") or "5 " in category_lower:
         forbidden_main_sections = [
             "word of the day",
