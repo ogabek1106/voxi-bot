@@ -299,6 +299,7 @@ def _clean_topic_label(text: str) -> str:
     clean = unescape(_strip_html(text or ""))
     clean = re.sub(r"https?://\S+", " ", clean, flags=re.IGNORECASE)
     clean = re.sub(r"/[^/\n]{1,40}/", " ", clean)
+    clean = re.sub(r"^\s*(?:\d+[\ufe0f\u20e3]*|[①-⑳➊-➓])\s*", "", clean)
     clean = re.sub(r"^[\W_]+", "", clean, flags=re.UNICODE)
     clean = re.sub(r"^\d+[\).:-]\s*", "", clean)
     clean = re.sub(r"^[-•*]\s*", "", clean)
@@ -434,7 +435,13 @@ def _topic_duplication_reason(text: str, topic: str, used_records: List[Dict[str
             continue
         for record in used_records:
             if _topics_overlap(new_key, record["key"]):
-                suffix = f" in draft #{record['draft_id']}" if record.get("draft_id") else ""
+                record_id = str(record.get("draft_id") or "")
+                if record_id.isdigit():
+                    suffix = f" in draft #{record_id}"
+                elif record_id:
+                    suffix = f" in {record_id}"
+                else:
+                    suffix = ""
                 return f"topic duplicates previously used idea '{record['label']}'{suffix}"
     return None
 

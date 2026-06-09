@@ -516,7 +516,38 @@ def get_topic_history() -> List[Dict[str, Any]]:
             ORDER BY created_at DESC;
             """
         )
-        return [_row_to_dict(row) for row in cur.fetchall()]
+        rows = [_row_to_dict(row) for row in cur.fetchall()]
+        cur = conn.execute(
+            """
+            SELECT
+                'style:' || id AS id,
+                text AS draft_text,
+                category AS content_category,
+                source AS status,
+                NULL AS used_topic,
+                NULL AS topic,
+                created_at
+            FROM content_engine_style_examples
+            ORDER BY created_at DESC;
+            """
+        )
+        rows.extend(_row_to_dict(row) for row in cur.fetchall())
+        cur = conn.execute(
+            """
+            SELECT
+                'channel:' || id AS id,
+                text AS draft_text,
+                'General' AS content_category,
+                'captured_channel_post' AS status,
+                NULL AS used_topic,
+                NULL AS topic,
+                received_at AS created_at
+            FROM content_engine_channel_posts
+            ORDER BY received_at DESC;
+            """
+        )
+        rows.extend(_row_to_dict(row) for row in cur.fetchall())
+        return rows
     except Exception:
         logger.exception("get_topic_history failed")
         return []
