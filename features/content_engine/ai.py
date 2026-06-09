@@ -259,12 +259,25 @@ def _strip_html(text: str) -> str:
 _GENERIC_TOPIC_LINES = {
     "examples",
     "example",
+    "misol",
+    "misollar",
     "synonyms",
+    "synonym",
     "meaning",
+    "ma'nosi",
+    "ma’nosi",
+    "manosi",
     "usage",
+    "qo'llanilishi",
+    "qo‘llanilishi",
+    "qollanilishi",
+    "izoh",
+    "explanation",
     "quiz",
     "task",
     "mini task",
+    "savol",
+    "question",
     "cta",
     "hashtags",
     "footer",
@@ -273,6 +286,31 @@ _GENERIC_TOPIC_LINES = {
     "vocabulary",
     "voxi",
     "web-site",
+    "ielts level",
+    "ielts note",
+    "o'rganishni davom ettiring",
+    "o‘rganishni davom ettiring",
+}
+
+_SECTION_LABEL_PREFIXES = {
+    "example",
+    "examples",
+    "misol",
+    "misollar",
+    "meaning",
+    "ma'nosi",
+    "ma’nosi",
+    "manosi",
+    "usage",
+    "qo'llanilishi",
+    "qo‘llanilishi",
+    "qollanilishi",
+    "izoh",
+    "explanation",
+    "synonym",
+    "synonyms",
+    "savol",
+    "question",
     "ielts level",
     "ielts note",
 }
@@ -293,6 +331,17 @@ _GENERIC_TOPIC_PREFIXES = (
     "music/quote",
     "quiz/poll",
 )
+
+
+def _ascii_topic_label(text: str) -> str:
+    return (
+        (text or "")
+        .lower()
+        .replace("’", "'")
+        .replace("‘", "'")
+        .replace("`", "'")
+        .strip()
+    )
 
 
 def _clean_topic_label(text: str) -> str:
@@ -325,8 +374,22 @@ def _clean_topic_label(text: str) -> str:
     return clean[:140].strip()
 
 
+def _is_section_label_line(text: str) -> bool:
+    clean = _ascii_topic_label(_clean_topic_label(text)).strip(" .:-")
+    if not clean:
+        return True
+    if clean in _GENERIC_TOPIC_LINES:
+        return True
+    before_colon = clean.split(":", 1)[0].strip()
+    if before_colon in _SECTION_LABEL_PREFIXES:
+        return True
+    return any(clean.startswith(f"{prefix}:") for prefix in _SECTION_LABEL_PREFIXES)
+
+
 def _normalize_topic_key(topic: str) -> str:
     clean = _clean_topic_label(topic).lower()
+    if _is_section_label_line(clean):
+        return ""
     if any(clean.startswith(prefix) for prefix in _GENERIC_TOPIC_PREFIXES):
         return ""
     clean = re.sub(r"#\d+\b", " ", clean)
@@ -342,17 +405,34 @@ def _normalize_topic_key(topic: str) -> str:
     return clean
 
 
+def _numbered_topic_candidate(line: str) -> Optional[str]:
+    plain = unescape(_strip_html(line or "")).strip()
+    if not re.match(r"^\s*(?:\d+[\ufe0f\u20e3]*|[①-⑳➊-➓]|\d+[\).:-])", plain):
+        return None
+    candidate = _clean_topic_label(plain)
+    if not candidate or _is_section_label_line(candidate):
+        return None
+    key = _normalize_topic_key(candidate)
+    return candidate if key else None
+
+
 def _topic_candidates_from_text(text: str, fallback: str = "") -> List[str]:
     candidates: List[str] = []
     if fallback:
         candidates.append(fallback)
     plain = unescape(_strip_html(text or ""))
+    numbered_candidates = []
     for line in plain.splitlines():
+        numbered = _numbered_topic_candidate(line)
+        if numbered:
+            numbered_candidates.append(numbered)
         candidate = _clean_topic_label(line)
         lower = candidate.lower().strip(" .:-")
         if not candidate or len(candidate) < 3:
             continue
         if lower.startswith("#") or "http" in lower:
+            continue
+        if _is_section_label_line(candidate):
             continue
         if lower in _GENERIC_TOPIC_LINES:
             continue
@@ -361,6 +441,9 @@ def _topic_candidates_from_text(text: str, fallback: str = "") -> List[str]:
         if any(lower.startswith(f"{generic}:") for generic in _GENERIC_TOPIC_LINES):
             continue
         candidates.append(candidate)
+
+    if len(numbered_candidates) >= 2:
+        candidates = ([fallback] if fallback else []) + numbered_candidates
 
     seen = set()
     unique = []
