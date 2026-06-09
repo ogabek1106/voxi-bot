@@ -377,15 +377,60 @@ def _category_boundary_rules(category: str, slot: str) -> str:
     elif text.startswith("word of the day"):
         base.append("Generate one Word of the Day post only. Do not add a separate five-item afternoon list.")
     elif text.startswith("grammar tip"):
-        base.extend(
-            [
-                "Generate one actual grammar concept only.",
-                "The topic must be a grammar rule, grammar structure, tense usage, articles, prepositions, conditionals, passive voice, reported speech, linking words, sentence structure, common grammar mistake, grammar comparison, or punctuation when relevant.",
-                "Do not generate vocabulary-learning advice, study methods, motivation, resource recommendations, or generic English-learning tips.",
-                "Include at least 2 correct example sentences.",
-                "Include a short common mistake or mini task.",
-                "Do not add high-band words/phrases.",
-            ]
+        base.append(
+            """Generate ONE Grammar Tip only.
+
+A Grammar Tip must teach ONE formal English grammar concept.
+
+Allowed topics:
+
+* Present Perfect
+* Past Simple
+* Present Continuous
+* Past Continuous
+* Future Forms
+* Articles (a/an/the)
+* Prepositions
+* Conditionals
+* Passive Voice
+* Reported Speech
+* Relative Clauses
+* Subject-Verb Agreement
+* Gerunds vs Infinitives
+* Countable vs Uncountable Nouns
+* Comparatives and Superlatives
+* Modal Verbs
+* Linking Words
+* Since vs For
+* Used to vs Be Used to
+* Much vs Many
+* Fewer vs Less
+
+Required structure:
+
+1. Grammar Tip title
+2. Short explanation of the rule
+3. At least 2 correct example sentences
+4. One common mistake OR one mini task
+
+Forbidden topics:
+
+* word meanings
+* vocabulary lessons
+* synonyms
+* antonyms
+* collocations
+* phrases
+* phrasal verbs
+* pronunciation
+* word comparisons
+* noun vs verb lessons
+* adjective vs adverb lessons
+* parts of speech
+* words with multiple meanings
+* words with multiple parts of speech
+
+Do not teach vocabulary. Teach grammar only."""
         )
     elif "idiom" in text or text == "phrase":
         base.append("Generate one Idiom/Phrase post only. Do not add academic phrases.")
@@ -419,6 +464,31 @@ def _category_violation(category: str, text: str) -> Optional[str]:
             if marker in plain:
                 return f"contains forbidden non-collocation section: {marker.strip()}"
     if category_lower == "grammar tip":
+        vocabulary_markers = [
+            "synonym",
+            "synonyms",
+            "antonym",
+            "antonyms",
+            "vocabulary",
+            "word meaning",
+            "word meanings",
+            "pronunciation",
+            "collocation",
+            "collocations",
+            "phrasal verb",
+            "phrasal verbs",
+            "part of speech",
+            "parts of speech",
+            "noun vs verb",
+            "noun and verb",
+            "adjective vs adverb",
+            "multiple parts of speech",
+            "multiple meanings",
+        ]
+        for marker in vocabulary_markers:
+            if marker in plain:
+                return "Grammar Tip is vocabulary-focused, not grammar-focused"
+
         advice_markers = [
             "learn words",
             "learn vocabulary",
@@ -442,46 +512,41 @@ def _category_violation(category: str, text: str) -> Optional[str]:
                 return f"Grammar Tip is study/vocabulary advice, not grammar: {marker}"
 
         grammar_markers = [
-            "tense",
-            "article",
-            "preposition",
-            "conditional",
-            "passive voice",
-            "reported speech",
-            "linking word",
-            "sentence structure",
-            "punctuation",
-            "subject-verb",
-            "subject verb",
-            "modal",
-            "comparative",
-            "superlative",
-            "clause",
-            "relative clause",
-            "pronoun",
-            "gerund",
-            "infinitive",
-            "countable",
-            "uncountable",
-            "singular",
-            "plural",
-            "used to",
-            "be used to",
-            "although",
-            "despite",
             "present perfect",
             "past simple",
+            "present continuous",
+            "past continuous",
+            "future",
+            "article",
+            "articles",
+            "preposition",
+            "prepositions",
+            "conditional",
+            "conditionals",
+            "passive voice",
+            "reported speech",
+            "relative clause",
+            "relative clauses",
+            "subject-verb agreement",
+            "subject verb agreement",
+            "gerund",
+            "gerunds",
+            "infinitive",
+            "infinitives",
+            "modal verb",
+            "modal verbs",
+            "countable",
+            "uncountable",
+            "comparative",
+            "comparatives",
+            "superlative",
+            "superlatives",
+            "linking words",
+            "since vs for",
+            "used to",
+            "be used to",
             "much vs many",
             "fewer vs less",
-            "say vs tell",
-            "a / an / the",
-            "if i were",
-            "if i was",
-            "since vs for",
-            "grammar rule",
-            "common mistake",
-            "correct:",
-            "incorrect:",
         ]
         if not any(marker in plain for marker in grammar_markers):
             return "Grammar Tip does not clearly teach a grammar concept"
