@@ -342,8 +342,19 @@ async def generate_content_now(message: Message):
     if draft_id:
         draft = storage.get_draft(int(draft_id))
         if draft and draft.get("status") == "failed":
+            category = draft.get("content_category") or "Unknown"
+            draft_slot = draft.get("slot") or "Unknown"
+            reason = "Unknown"
+            draft_text = str(draft.get("draft_text") or "")
+            for line in draft_text.splitlines():
+                if line.strip().lower().startswith("reason:"):
+                    reason = line.split(":", 1)[1].strip() or "Unknown"
+                    break
             await message.answer(
-                f"Draft #{draft_id} failed category validation and was not sent for review."
+                f"Draft #{draft_id} failed category validation.\n\n"
+                f"Category: {category}\n"
+                f"Slot: {draft_slot}\n"
+                f"Reason: {reason}"
             )
         else:
             await message.answer(f"Draft #{draft_id} generated and sent for review.")
