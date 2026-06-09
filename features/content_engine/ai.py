@@ -216,6 +216,139 @@ CATEGORY_CONTRACTS = {
 }
 
 
+CONTENT_TYPE_PROCESSES = {
+    "Word of the Day": """Locked content type: Word of the Day.
+Think: I need ONE advanced IELTS-usable word.
+Process before writing:
+1. Pick exactly 1 word.
+2. Validate it is really a word.
+3. Validate it is IELTS-useful/high-band.
+4. Validate it is not repeated or substantially overlapping with forbidden used topics.
+5. Only after the word passes validation, write the Telegram post.
+Never generate collocations, grammar tips, quotes, general advice, or lists.""",
+    "5 Underrated IELTS Collocations": """Locked content type: 5 Underrated IELTS Collocations.
+Think: I need exactly 5 IELTS-usable collocations.
+Process before writing:
+1. Pick collocation #1, validate it, and replace #1 only if it is bad or repeated.
+2. Repeat the same process for #2, #3, #4, and #5.
+3. Do not move to the next item until the current collocation is valid.
+4. Only after all 5 collocations are valid, write the Telegram post.
+Each item must be 2+ words. No single words.
+Never generate single words, grammar tips, idioms, phrasal verbs, quotes, or general useful vocabulary.""",
+    "Grammar Tip": """Locked content type: Grammar Tip.
+Think: I need ONE real grammar rule.
+Process before writing:
+1. Choose exactly 1 grammar concept.
+2. Validate it is grammar, not vocabulary.
+3. Validate it is not repeated or substantially overlapping with forbidden used topics.
+4. Only after the concept passes validation, write the Telegram post.
+Allowed concept families: tenses, articles, prepositions, conditionals, passive voice, reported speech, relative clauses, subject-verb agreement, gerunds/infinitives, countable/uncountable nouns, comparatives/superlatives, modal verbs, linking words.
+Never generate word meanings, synonyms, collocations, phrases, phrasal verbs, pronunciation, or parts-of-speech vocabulary lessons.""",
+    "5 High-Band Words/Phrases": """Locked content type: 5 High-Band Words/Phrases.
+Think: I need exactly 5 high-band IELTS vocabulary items.
+Process before writing:
+1. Pick item #1, validate it, and replace #1 only if it is bad or repeated.
+2. Repeat the same process for #2, #3, #4, and #5.
+3. Do not move to the next item until the current word/phrase is valid.
+4. Only after all 5 items are valid, write the Telegram post.
+Each item may be one advanced word OR one short academic phrase.
+Never generate productivity words, afternoon-themed words, motivational phrases, grammar tips, a collocations post, or idioms.""",
+    "Idiom/Phrase": """Locked content type: Idiom/Phrase.
+Think: I need ONE idiom or useful phrase.
+Process before writing:
+1. Choose exactly 1 idiom or useful phrase.
+2. Validate it is really an idiom or phrase.
+3. Validate it is not repeated or substantially overlapping with forbidden used topics.
+4. Only after the item passes validation, write the Telegram post.
+Never generate a single advanced word, grammar tip, collocation list, quote, or resource.""",
+    "5 Useful Academic Phrases": """Locked content type: 5 Useful Academic Phrases.
+Think: I need exactly 5 academic phrases.
+Process before writing:
+1. Pick phrase #1, validate it, and replace #1 only if it is bad or repeated.
+2. Repeat the same process for #2, #3, #4, and #5.
+3. Do not move to the next item until the current phrase is valid.
+4. Only after all 5 phrases are valid, write the Telegram post.
+Each item must be a phrase, not a single word.
+Never generate single words, idioms, grammar rules, collocations posts, or quotes.""",
+    "PDF/Video Resource": """Locked content type: PDF/Video Resource.
+Think: I need ONE useful English/IELTS resource.
+Process before writing:
+1. Choose exactly 1 resource or resource-based learning idea.
+2. Validate it is truly a resource.
+3. Validate it is not repeated or substantially overlapping with forbidden used topics.
+4. Only after the resource idea passes validation, write the Telegram post.
+Never generate Word of the Day, Grammar Tip, phrase post, quote, or vocabulary list.""",
+    "5 Powerful IELTS Verbs": """Locked content type: 5 Powerful IELTS Verbs.
+Think: I need exactly 5 powerful IELTS verbs.
+Process before writing:
+1. Pick verb #1, validate it, and replace #1 only if it is bad or repeated.
+2. Repeat the same process for #2, #3, #4, and #5.
+3. Do not move to the next item until the current verb is valid.
+4. Only after all 5 verbs are valid, write the Telegram post.
+Each item must be a verb or verb phrase used as a verb.
+Never generate nouns, adjectives, collocations, grammar tips, idioms, or general vocabulary.""",
+    "Quiz/Poll": """Locked content type: Quiz/Poll.
+Think: I need ONE quiz, poll, or short review activity.
+Process before writing:
+1. Choose exactly 1 quiz/poll/review idea.
+2. Validate it fits the locked category.
+3. Validate it is not repeated or substantially overlapping with forbidden used topics.
+4. Only after the activity passes validation, write the Telegram post.
+Never generate a word list, grammar lesson, resource recommendation, or quote.""",
+    "Weekly Review": """Locked content type: Weekly Review.
+Think: I need ONE short review activity based on recent content.
+Process before writing:
+1. Choose exactly 1 review format.
+2. Validate it is a review, not a new unrelated lesson.
+3. Validate it is not repeated or substantially overlapping with forbidden used topics.
+4. Only after the review idea passes validation, write the Telegram post.
+Never generate a fresh word list, full grammar lesson, quote, or resource recommendation.""",
+    "5 Common IELTS Mistakes": """Locked content type: 5 Common IELTS Mistakes.
+Think: I need exactly 5 common IELTS learner mistakes.
+Process before writing:
+1. Pick mistake #1, validate it, and replace #1 only if it is bad or repeated.
+2. Repeat the same process for #2, #3, #4, and #5.
+3. Do not move to the next item until the current mistake is valid.
+4. Only after all 5 mistakes are valid, write the Telegram post.
+Each item must include a wrong form + corrected form OR a mistake + correction.
+Never generate a plain vocabulary list, collocations list, grammar topic only, synonyms, or quotes.""",
+    "Music/Quote": """Locked content type: Music/Quote.
+Think: I need ONE quote, music-based English post, or meaningful line.
+Process before writing:
+1. Choose exactly 1 quote/music idea.
+2. Validate it fits the locked category.
+3. Validate it is not repeated or substantially overlapping with forbidden used topics.
+4. Only after the idea passes validation, write the Telegram post.
+Never generate a grammar tip, vocabulary list, collocation list, or resource recommendation.""",
+    "5 Advanced Synonyms": """Locked content type: 5 Advanced Synonyms.
+Think: I need exactly 5 advanced synonym upgrades.
+Process before writing:
+1. Pick synonym set #1, validate it, and replace #1 only if it is bad or repeated.
+2. Repeat the same process for #2, #3, #4, and #5.
+3. Do not move to the next item until the current synonym set is valid.
+4. Only after all 5 synonym sets are valid, write the Telegram post.
+Each item must show: basic word -> advanced synonym.
+Never generate collocations, idioms, grammar tips, or random phrases.""",
+    "Useful English Tip": """Locked content type: Useful English Tip.
+Think: I need ONE practical English-learning tip.
+Process before writing:
+1. Choose exactly 1 practical English tip.
+2. Validate it is practical and not another category.
+3. Validate it is not repeated or substantially overlapping with forbidden used topics.
+4. Only after the tip passes validation, write the Telegram post.
+Never generate Word of the Day, Grammar Tip, resource-only post, quote, or collocation list.""",
+    "Weekly Revision": """Locked content type: Weekly Revision.
+Think: I need to revise this week's content.
+Process before writing:
+1. Use current week's posted/reviewed content when available.
+2. Choose exactly 1 revision format.
+3. Validate it is revision, not new unrelated content.
+4. Validate it is not repeated or substantially overlapping with forbidden used topics.
+5. Only after the revision idea passes validation, write the Telegram post.
+Never generate a new unrelated word list, new grammar lesson, new quote, or unrelated resource.""",
+}
+
+
 def generation_contract_for_category(category: str) -> Dict[str, object]:
     category = category or "General"
     if category in CATEGORY_CONTRACTS:
@@ -609,13 +742,22 @@ def _normalize_result(raw_text: str, allowed_hashtags: List[str]) -> tuple[str, 
 def _category_boundary_rules(category: str, slot: str) -> str:
     contract = generation_contract_for_category(category)
     text = (category or "").lower()
+    process = CONTENT_TYPE_PROCESSES.get(category or "")
     base = [
         f"This post is ONLY for the {slot} slot category: {category}.",
+        "The selected weekly category is locked before generation starts.",
+        "First identify the exact content type, then select the correct item/items, validate them, and only then write the Telegram post.",
         f"Required output shape: {contract.get('required_output_shape')}",
         "Allowed sections: " + ", ".join(contract.get("allowed_sections") or []),
         "Forbidden sections: " + (", ".join(contract.get("forbidden_sections") or []) or "none"),
+        process or "Locked content type: match the strict category exactly. Validate the chosen idea before writing the post.",
+        "For list categories, validate each item before writing the post. If one item is invalid or repeated, replace only that item before continuing.",
+        "For single-item categories, validate the chosen item before writing the post. If it is invalid or repeated, choose another item.",
+        "Never switch category during retry or regeneration.",
         "Use FORMAT EXAMPLES only for visual style, CTA, footer, emoji rhythm, and tone.",
         "Do not copy extra content sections from examples when they belong to another slot.",
+        "Learned style must not override the locked weekly content type.",
+        "References/resources may help item selection, but they must not override the locked category.",
     ]
     other_main_sections = (
         "Word of the Day, Grammar Tip, Idiom/Phrase, PDF/Video Resource, "
@@ -1046,6 +1188,8 @@ CATEGORY BOUNDARY RULES:
 
 Hard requirements:
 - Generate ONLY this strict category.
+- Keep the selected category locked. Do not switch content type during retry.
+- Follow CATEGORY BOUNDARY RULES as the thinking process before writing.
 - Do not include Word of the Day or any other daily section unless it is the strict category.
 - Use the limited FORMAT EXAMPLES below only for footer/tone/emoji rhythm, not content sections.
 - Keep Telegram HTML with both <b> and <i>.
@@ -1108,6 +1252,8 @@ Forbidden used topics:
 
 Hard requirements:
 - Generate ONLY this strict category.
+- Keep the selected category locked. Do not switch content type during retry.
+- Follow CATEGORY BOUNDARY RULES as the thinking process before writing.
 - Choose a fresh topic that does not duplicate, reword, compare, or substantially overlap with any forbidden used topic.
 - Preserve category first, but prefer a weaker new topic over an excellent repeated topic.
 - Keep Telegram HTML with both <b> and <i>.
