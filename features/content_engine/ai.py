@@ -1,6 +1,8 @@
 import logging
 import os
 import re
+from difflib import SequenceMatcher
+from html import unescape
 from typing import Dict, List, Optional
 
 import openai
@@ -252,6 +254,189 @@ def _clip(text: str, limit: int = 1600) -> str:
 
 def _strip_html(text: str) -> str:
     return re.sub(r"<[^>]+>", "", text or "")
+
+
+_GENERIC_TOPIC_LINES = {
+    "examples",
+    "example",
+    "synonyms",
+    "meaning",
+    "usage",
+    "quiz",
+    "task",
+    "mini task",
+    "cta",
+    "hashtags",
+    "footer",
+    "sharing is caring",
+    "telegram",
+    "vocabulary",
+    "voxi",
+    "web-site",
+    "ielts level",
+    "ielts note",
+}
+
+_GENERIC_TOPIC_PREFIXES = (
+    "word of the day",
+    "grammar tip",
+    "5 underrated ielts collocations",
+    "5 high-band words",
+    "5 useful academic phrases",
+    "5 powerful ielts verbs",
+    "5 common ielts mistakes",
+    "5 advanced synonyms",
+    "weekly review",
+    "weekly revision",
+    "useful english tip",
+    "pdf/video resource",
+    "music/quote",
+    "quiz/poll",
+)
+
+
+def _clean_topic_label(text: str) -> str:
+    clean = unescape(_strip_html(text or ""))
+    clean = re.sub(r"https?://\S+", " ", clean, flags=re.IGNORECASE)
+    clean = re.sub(r"/[^/\n]{1,40}/", " ", clean)
+    clean = re.sub(r"^[\W_]+", "", clean, flags=re.UNICODE)
+    clean = re.sub(r"^\d+[\).:-]\s*", "", clean)
+    clean = re.sub(r"^[-•*]\s*", "", clean)
+    clean = re.sub(r"\s+", " ", clean).strip()
+    if ":" in clean:
+        before, after = clean.split(":", 1)
+        if before.strip().lower() in {
+            "grammar tip",
+            "word of the day",
+            "phrase",
+            "idiom",
+            "collocation",
+            "collocations",
+            "quote",
+            "mistake",
+            "common mistake",
+        } and after.strip():
+            clean = after.strip()
+    for separator in (" — ", " – ", " - "):
+        if separator in clean:
+            clean = clean.split(separator, 1)[0].strip()
+            break
+    return clean[:140].strip()
+
+
+def _normalize_topic_key(topic: str) -> str:
+    clean = _clean_topic_label(topic).lower()
+    if any(clean.startswith(prefix) for prefix in _GENERIC_TOPIC_PREFIXES):
+        return ""
+    clean = re.sub(r"#\d+\b", " ", clean)
+    clean = re.sub(r"\b(day|daily|lesson|tip|post)\b", " ", clean)
+    clean = re.sub(r"[^\w\s]+", " ", clean, flags=re.UNICODE)
+    clean = re.sub(r"\s+", " ", clean).strip()
+    if any(clean.startswith(prefix) for prefix in _GENERIC_TOPIC_PREFIXES):
+        return ""
+    comparison = re.split(r"\b(?:vs|versus)\b", clean)
+    if len(comparison) > 1:
+        parts = sorted(part.strip() for part in comparison if part.strip())
+        clean = " vs ".join(parts)
+    return clean
+
+
+def _topic_candidates_from_text(text: str, fallback: str = "") -> List[str]:
+    candidates: List[str] = []
+    if fallback:
+        candidates.append(fallback)
+    plain = unescape(_strip_html(text or ""))
+    for line in plain.splitlines():
+        candidate = _clean_topic_label(line)
+        lower = candidate.lower().strip(" .:-")
+        if not candidate or len(candidate) < 3:
+            continue
+        if lower.startswith("#") or "http" in lower:
+            continue
+        if lower in _GENERIC_TOPIC_LINES:
+            continue
+        if any(lower.startswith(prefix) for prefix in _GENERIC_TOPIC_PREFIXES):
+            continue
+        if any(lower.startswith(f"{generic}:") for generic in _GENERIC_TOPIC_LINES):
+            continue
+        candidates.append(candidate)
+
+    seen = set()
+    unique = []
+    for candidate in candidates:
+        key = _normalize_topic_key(candidate)
+        if key and key not in seen:
+            seen.add(key)
+            unique.append(candidate)
+    return unique[:12]
+
+
+def _topics_overlap(new_key: str, old_key: str) -> bool:
+    if not new_key or not old_key:
+        return False
+    if new_key == old_key:
+        return True
+    shorter, longer = sorted((new_key, old_key), key=len)
+    if len(shorter) >= 8 and re.search(rf"\b{re.escape(shorter)}\b", longer):
+        return True
+    new_tokens = set(new_key.split())
+    old_tokens = set(old_key.split())
+    if new_tokens and old_tokens:
+        overlap = len(new_tokens & old_tokens) / max(1, min(len(new_tokens), len(old_tokens)))
+        if overlap >= 0.8 and min(len(new_tokens), len(old_tokens)) >= 2:
+            return True
+    return SequenceMatcher(None, new_key, old_key).ratio() >= 0.88
+
+
+def _used_topic_records() -> List[Dict[str, str]]:
+    records: List[Dict[str, str]] = []
+    for row in storage.get_topic_history():
+        raw_candidates = []
+        if row.get("used_topic"):
+            raw_candidates.append(str(row.get("used_topic")))
+        if row.get("topic"):
+            raw_candidates.append(str(row.get("topic")))
+        raw_candidates.extend(_topic_candidates_from_text(str(row.get("draft_text") or "")))
+        seen = set()
+        for candidate in raw_candidates:
+            key = _normalize_topic_key(candidate)
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            records.append(
+                {
+                    "key": key,
+                    "label": _clean_topic_label(candidate) or key,
+                    "draft_id": str(row.get("id") or ""),
+                }
+            )
+    return records
+
+
+def _used_topic_labels(records: List[Dict[str, str]], limit: int = 80) -> List[str]:
+    labels = []
+    seen = set()
+    for record in records:
+        key = record["key"]
+        if key in seen:
+            continue
+        seen.add(key)
+        labels.append(record["label"])
+        if len(labels) >= limit:
+            break
+    return labels
+
+
+def _topic_duplication_reason(text: str, topic: str, used_records: List[Dict[str, str]]) -> Optional[str]:
+    for candidate in _topic_candidates_from_text(text, topic):
+        new_key = _normalize_topic_key(candidate)
+        if not new_key:
+            continue
+        for record in used_records:
+            if _topics_overlap(new_key, record["key"]):
+                suffix = f" in draft #{record['draft_id']}" if record.get("draft_id") else ""
+                return f"topic duplicates previously used idea '{record['label']}'{suffix}"
+    return None
 
 
 def _infer_topic(text: str, fallback: str) -> str:
@@ -626,12 +811,8 @@ async def generate_draft_text(
 ) -> Dict[str, str]:
     category = category or category_for_slot(weekday_index, slot)
     contract = generation_contract_for_category(category)
-    recent = storage.get_recent_drafts(30)
-    used_topics = [
-        str(row.get("used_topic") or row.get("content_category") or "")
-        for row in recent
-        if row.get("status") in {"approved", "posted_used", "pending_review"}
-    ][:20]
+    used_topic_records = _used_topic_records()
+    used_topics = _used_topic_labels(used_topic_records)
     style_category = style_category_for_plan(category)
     preferred_categories = contract.get("preferred_style_example_categories") or [style_category, "General"]
     style_examples = storage.choose_style_examples_from_categories(preferred_categories, 5)
@@ -640,9 +821,13 @@ async def generate_draft_text(
     if not openai.api_key:
         logger.warning("OPENAI_API_KEY missing; using content engine fallback draft")
         text, used_hashtags = _normalize_result(_fallback_draft(category, source, used_topics), allowed_hashtags)
+        topic = _infer_topic(text, f"{category} / {slot}")
+        duplicate = _topic_duplication_reason(text, topic, used_topic_records)
+        if duplicate:
+            return _contract_failed_payload(category, slot, duplicate, "fallback")
         return {
             "text": text,
-            "topic": category,
+            "topic": topic,
             "vocabulary": "",
             "generation_prompt": "fallback",
             "style_examples_used": [],
@@ -722,6 +907,7 @@ Requirements:
 - Do not mix multiple books/resources or unrelated ideas.
 - If an idea card is provided, base the whole post on that one idea card only.
 - Avoid repeating any used idea/topic above.
+- Treat every used idea/topic above as permanently consumed. A weaker but new topic is better than a strong repeated topic.
 - Do not include other same-day main categories unless the strict category explicitly asks for revision/engagement based on them.
 - Include 5 items when the weekly plan asks for 5 items.
 - Fallback channel pattern if examples are weak: emoji header, clear title, English word/phrase with transcription when relevant, Uzbek meaning, usage explanation, examples, synonyms, IELTS band note, question/CTA, separator line, hashtags, "Sharing is caring ⭐", and Telegram | Vocabulary | Voxi | Web-Site footer links.
@@ -807,6 +993,72 @@ Original full instructions:
             logger.warning("Content draft failed validation after retry for %s: %s", category, violation)
             return _contract_failed_payload(category, slot, violation, retry_prompt)
     topic = _infer_topic(text, f"{category} / {slot}")
+    duplicate = _topic_duplication_reason(text, topic, used_topic_records)
+    if duplicate:
+        logger.warning("Content draft duplicated a used topic for %s: %s", category, duplicate)
+        retry_style_examples = storage.choose_style_examples_from_categories(["General"], 3)
+        retry_style_block = _style_block(retry_style_examples)
+        retry_prompt = f"""
+The previous draft was rejected because it repeated a permanently consumed topic:
+{duplicate}
+
+Regenerate from scratch with a completely different main learning idea.
+
+STRICT CATEGORY:
+{category}
+
+SLOT:
+{slot}
+
+CATEGORY BOUNDARY RULES:
+{boundary_rules}
+
+Forbidden used topics:
+{used_topics or 'None yet'}
+
+Hard requirements:
+- Generate ONLY this strict category.
+- Choose a fresh topic that does not duplicate, reword, compare, or substantially overlap with any forbidden used topic.
+- Preserve category first, but prefer a weaker new topic over an excellent repeated topic.
+- Keep Telegram HTML with both <b> and <i>.
+- Return only the corrected post.
+
+LIMITED FORMAT EXAMPLES:
+{retry_style_block}
+
+Original full instructions:
+{prompt}
+""".strip()
+        response = await openai.ChatCompletion.acreate(
+            model=MODEL,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You are Voxi Content Engine. Never repeat a permanently consumed topic. "
+                        "Strictly obey the requested slot category."
+                    ),
+                },
+                {"role": "user", "content": retry_prompt},
+            ],
+            max_tokens=650,
+            temperature=0.7,
+        )
+        text, used_hashtags = _normalize_result(
+            response["choices"][0]["message"]["content"],
+            allowed_hashtags,
+        )
+        prompt = retry_prompt
+        style_examples = retry_style_examples
+        violation = _category_violation(category, text)
+        if violation:
+            logger.warning("Content draft failed validation after uniqueness retry for %s: %s", category, violation)
+            return _contract_failed_payload(category, slot, violation, retry_prompt)
+        topic = _infer_topic(text, f"{category} / {slot}")
+        duplicate = _topic_duplication_reason(text, topic, used_topic_records)
+        if duplicate:
+            logger.warning("Content draft failed uniqueness after retry for %s: %s", category, duplicate)
+            return _contract_failed_payload(category, slot, duplicate, retry_prompt)
     return {
         "text": text,
         "topic": topic,

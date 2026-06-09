@@ -503,6 +503,28 @@ def get_recent_drafts(limit: int = 20) -> List[Dict[str, Any]]:
             conn.close()
 
 
+def get_topic_history() -> List[Dict[str, Any]]:
+    ensure_content_engine_tables()
+    conn = None
+    try:
+        conn = _connect_rows()
+        cur = conn.execute(
+            """
+            SELECT id, draft_text, content_category, status, used_topic, topic, created_at
+            FROM content_engine_drafts
+            WHERE status IN ('pending_review', 'approved', 'posted_used', 'regenerated')
+            ORDER BY created_at DESC;
+            """
+        )
+        return [_row_to_dict(row) for row in cur.fetchall()]
+    except Exception:
+        logger.exception("get_topic_history failed")
+        return []
+    finally:
+        if conn:
+            conn.close()
+
+
 def add_resource(
     title: str,
     category: str,
