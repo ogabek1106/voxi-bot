@@ -1,6 +1,7 @@
 import logging
 import os
 import re
+import json
 from difflib import SequenceMatcher
 from html import unescape
 from typing import Dict, List, Optional
@@ -538,56 +539,6 @@ def _normalize_topic_key(topic: str) -> str:
     return clean
 
 
-def _numbered_topic_candidate(line: str) -> Optional[str]:
-    plain = unescape(_strip_html(line or "")).strip()
-    if not re.match(r"^\s*(?:\d+[\ufe0f\u20e3]*|[①-⑳➊-➓]|\d+[\).:-])", plain):
-        return None
-    candidate = _clean_topic_label(plain)
-    if not candidate or _is_section_label_line(candidate):
-        return None
-    key = _normalize_topic_key(candidate)
-    return candidate if key else None
-
-
-def _topic_candidates_from_text(text: str, fallback: str = "") -> List[str]:
-    candidates: List[str] = []
-    if fallback:
-        candidates.append(fallback)
-    plain = unescape(_strip_html(text or ""))
-    numbered_candidates = []
-    for line in plain.splitlines():
-        numbered = _numbered_topic_candidate(line)
-        if numbered:
-            numbered_candidates.append(numbered)
-        candidate = _clean_topic_label(line)
-        lower = candidate.lower().strip(" .:-")
-        if not candidate or len(candidate) < 3:
-            continue
-        if lower.startswith("#") or "http" in lower:
-            continue
-        if _is_section_label_line(candidate):
-            continue
-        if lower in _GENERIC_TOPIC_LINES:
-            continue
-        if any(lower.startswith(prefix) for prefix in _GENERIC_TOPIC_PREFIXES):
-            continue
-        if any(lower.startswith(f"{generic}:") for generic in _GENERIC_TOPIC_LINES):
-            continue
-        candidates.append(candidate)
-
-    if len(numbered_candidates) >= 2:
-        candidates = ([fallback] if fallback else []) + numbered_candidates
-
-    seen = set()
-    unique = []
-    for candidate in candidates:
-        key = _normalize_topic_key(candidate)
-        if key and key not in seen:
-            seen.add(key)
-            unique.append(candidate)
-    return unique[:12]
-
-
 def _topics_overlap(new_key: str, old_key: str) -> bool:
     if not new_key or not old_key:
         return False
@@ -613,7 +564,10 @@ def _used_topic_records() -> List[Dict[str, str]]:
             raw_candidates.append(str(row.get("used_topic")))
         if row.get("topic"):
             raw_candidates.append(str(row.get("topic")))
-        raw_candidates.extend(_topic_candidates_from_text(str(row.get("draft_text") or "")))
+        try:
+            raw_candidates.extend(json.loads(row.get("used_vocabulary") or "[]"))
+        except Exception:
+            pass
         seen = set()
         for candidate in raw_candidates:
             key = _normalize_topic_key(candidate)
@@ -644,22 +598,216 @@ def _used_topic_labels(records: List[Dict[str, str]], limit: int = 80) -> List[s
     return labels
 
 
-def _topic_duplication_reason(text: str, topic: str, used_records: List[Dict[str, str]]) -> Optional[str]:
-    for candidate in _topic_candidates_from_text(text, topic):
-        new_key = _normalize_topic_key(candidate)
-        if not new_key:
-            continue
-        for record in used_records:
-            if _topics_overlap(new_key, record["key"]):
-                record_id = str(record.get("draft_id") or "")
-                if record_id.isdigit():
-                    suffix = f" in draft #{record_id}"
-                elif record_id:
-                    suffix = f" in {record_id}"
-                else:
-                    suffix = ""
-                return f"topic duplicates previously used idea '{record['label']}'{suffix}"
+def _topic_count_for_category(category: str) -> int:
+    return 5 if (category or "").strip().lower().startswith("5 ") else 1
+
+
+def _raw_topics_block(topics: List[str]) -> str:
+    if not topics:
+        return "None selected."
+    return "\n".join(f"{index}. {topic}" for index, topic in enumerate(topics, 1))
+
+
+def _parse_raw_topics(raw_text: str) -> List[str]:
+    text = (raw_text or "").strip()
+    text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"\s*```$", "", text)
+    try:
+        payload = json.loads(text)
+        if isinstance(payload, dict):
+            values = payload.get("topics") or payload.get("items") or []
+        else:
+            values = payload
+        if isinstance(values, list):
+            return [str(item).strip() for item in values if str(item).strip()]
+    except Exception:
+        pass
+
+    topics = []
+    for line in text.splitlines():
+        clean = _clean_topic_label(line)
+        if clean and not _is_section_label_line(clean):
+            topics.append(clean)
+    return topics
+
+
+def _raw_topic_violation(category: str, topic: str) -> Optional[str]:
+    clean = _clean_topic_label(topic)
+    key = _normalize_topic_key(clean)
+    if not key:
+        return "selected topic is empty or metadata, not a learning item"
+
+    category_lower = (category or "").lower()
+    words = key.split()
+    if "collocation" in category_lower and len(words) < 2:
+        return "collocation item must contain 2+ words"
+    if "academic phrases" in category_lower and len(words) < 2:
+        return "academic phrase item must contain 2+ words"
+    if "advanced synonyms" in category_lower and not re.search(r"\s(?:->|to|=>)\s", clean.lower()):
+        return "advanced synonym item must show a basic word and an upgraded synonym"
+    if "common ielts mistakes" in category_lower and not re.search(r"(->|=>|correct|incorrect|wrong|mistake)", clean.lower()):
+        return "common mistake item must include a mistake and correction"
     return None
+
+
+def _raw_topic_duplicate_reason(topic: str, used_records: List[Dict[str, str]]) -> Optional[str]:
+    new_key = _normalize_topic_key(topic)
+    if not new_key:
+        return "selected topic is empty or metadata, not a learning item"
+    for record in used_records:
+        if _topics_overlap(new_key, record["key"]):
+            record_id = str(record.get("draft_id") or "")
+            if record_id.isdigit():
+                suffix = f" in draft #{record_id}"
+            elif record_id:
+                suffix = f" in {record_id}"
+            else:
+                suffix = ""
+            return f"topic duplicates previously used idea '{record['label']}'{suffix}"
+    return None
+
+
+def _selected_topic_duplicate_reason(topic: str, topics: List[str], index: int) -> Optional[str]:
+    new_key = _normalize_topic_key(topic)
+    if not new_key:
+        return None
+    for other_index, other_topic in enumerate(topics):
+        if other_index == index:
+            continue
+        other_key = _normalize_topic_key(other_topic)
+        if other_key and _topics_overlap(new_key, other_key):
+            return f"selected item #{index + 1} duplicates selected item #{other_index + 1}"
+    return None
+
+
+def _topic_selection_rules(category: str) -> str:
+    process = CONTENT_TYPE_PROCESSES.get(category or "")
+    return process or "Select the raw learning topic/items that match the locked category only."
+
+
+async def _select_raw_topics(
+    category: str,
+    slot: str,
+    source_block: str,
+    used_topics: List[str],
+    used_records: List[Dict[str, str]],
+) -> tuple[List[str], str, Optional[str]]:
+    expected_count = _topic_count_for_category(category)
+    forbidden = used_topics or ["None yet"]
+    prompt = f"""
+Select the raw learning topic/items for a Voxi Content Engine draft.
+
+Locked category:
+{category}
+
+Slot:
+{slot}
+
+CONTENT TYPE PROCESS:
+{_topic_selection_rules(category)}
+
+Source/reference context:
+{source_block}
+
+Forbidden previously used raw topics:
+{forbidden}
+
+Rules:
+- Return ONLY JSON.
+- JSON shape: {{"topics": ["..."]}}
+- Select exactly {expected_count} topic(s).
+- These are raw learning items only, not post text.
+- Do not include section labels, titles, explanations, translations, examples, CTA text, hashtags, links, footer text, or branding.
+- Check each selected item against forbidden topics before returning it.
+- If an item is duplicate or wrong type, replace only that raw item before returning the final JSON.
+""".strip()
+
+    response = await openai.ChatCompletion.acreate(
+        model=MODEL,
+        messages=[
+            {
+                "role": "system",
+                "content": "Select raw learning topics only. Do not write the Telegram post yet.",
+            },
+            {"role": "user", "content": prompt},
+        ],
+        max_tokens=350,
+        temperature=0.75,
+    )
+    topics = _parse_raw_topics(response["choices"][0]["message"]["content"])[:expected_count]
+
+    repair_prompt = prompt
+    for _ in range(5):
+        while len(topics) < expected_count:
+            topics.append("")
+        changed = False
+        for index, topic in enumerate(list(topics[:expected_count])):
+            reason = (
+                _raw_topic_violation(category, topic)
+                or _raw_topic_duplicate_reason(topic, used_records)
+                or _selected_topic_duplicate_reason(topic, topics[:expected_count], index)
+            )
+            if not reason:
+                continue
+            changed = True
+            replacement_prompt = f"""
+Replace only item #{index + 1} for this locked category.
+
+Locked category:
+{category}
+
+Current selected raw topics:
+{_raw_topics_block(topics[:expected_count])}
+
+Item #{index + 1} was rejected:
+{reason}
+
+Forbidden previously used raw topics:
+{forbidden}
+
+Return ONLY JSON:
+{{"topic": "replacement item"}}
+
+Rules:
+- Replace only item #{index + 1}.
+- Keep all other items unchanged.
+- The replacement must be the same content type as the locked category.
+- Do not return post text, labels, translations, examples, CTA, hashtags, links, or footer.
+""".strip()
+            repair_prompt = replacement_prompt
+            response = await openai.ChatCompletion.acreate(
+                model=MODEL,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "Replace one rejected raw learning topic only.",
+                    },
+                    {"role": "user", "content": replacement_prompt},
+                ],
+                max_tokens=180,
+                temperature=0.8,
+            )
+            raw = response["choices"][0]["message"]["content"]
+            try:
+                payload = json.loads(raw)
+                replacement = str(payload.get("topic") or "").strip()
+            except Exception:
+                replacement_topics = _parse_raw_topics(raw)
+                replacement = replacement_topics[0] if replacement_topics else ""
+            topics[index] = replacement
+        if not changed:
+            final_topics = [_clean_topic_label(topic) for topic in topics[:expected_count]]
+            return final_topics, prompt, None
+
+    for index, topic in enumerate(topics[:expected_count]):
+        reason = (
+            _raw_topic_violation(category, topic)
+            or _raw_topic_duplicate_reason(topic, used_records)
+            or _selected_topic_duplicate_reason(topic, topics[:expected_count], index)
+        )
+        if reason:
+            return topics[:expected_count], repair_prompt, reason
+    return topics[:expected_count], prompt, None
 
 
 def _infer_topic(text: str, fallback: str) -> str:
@@ -1053,13 +1201,15 @@ async def generate_draft_text(
     if not openai.api_key:
         logger.warning("OPENAI_API_KEY missing; using content engine fallback draft")
         text, used_hashtags = _normalize_result(_fallback_draft(category, source, used_topics), allowed_hashtags)
-        topic = _infer_topic(text, f"{category} / {slot}")
-        duplicate = _topic_duplication_reason(text, topic, used_topic_records)
+        raw_topics = [category]
+        topic = "; ".join(raw_topics)
+        duplicate = _raw_topic_duplicate_reason(topic, used_topic_records)
         if duplicate:
             return _contract_failed_payload(category, slot, duplicate, "fallback")
         return {
             "text": text,
             "topic": topic,
+            "topics": raw_topics,
             "vocabulary": "",
             "generation_prompt": "fallback",
             "style_examples_used": [],
@@ -1089,6 +1239,16 @@ async def generate_draft_text(
 
     style_block = _style_block(style_examples)
     boundary_rules = _category_boundary_rules(category, slot)
+    raw_topics, selection_prompt, selection_error = await _select_raw_topics(
+        category,
+        slot,
+        source_block,
+        used_topics,
+        used_topic_records,
+    )
+    if selection_error:
+        return _contract_failed_payload(category, slot, selection_error, selection_prompt)
+    topic = "; ".join(raw_topics)
 
     prompt = f"""
 Create ONE Telegram channel post draft for Uzbek IELTS/English learners.
@@ -1104,6 +1264,15 @@ CATEGORY BOUNDARY RULES:
 
 Source rule:
 {source_block}
+
+RAW SELECTED LEARNING TOPIC(S):
+{_raw_topics_block(raw_topics)}
+
+Raw topic rule:
+- Build the post only around the raw selected learning topic(s) above.
+- Do not add extra learning topics that were not selected.
+- Do not replace these raw topic(s) while writing the post.
+- Duplicate checking has already been done on the raw topic(s), not on rendered post text.
 
 Recent/used ideas to avoid:
 {used_topics or 'None yet'}
@@ -1190,6 +1359,8 @@ Hard requirements:
 - Generate ONLY this strict category.
 - Keep the selected category locked. Do not switch content type during retry.
 - Follow CATEGORY BOUNDARY RULES as the thinking process before writing.
+- Build the post only around these raw selected learning topic(s):
+{_raw_topics_block(raw_topics)}
 - Do not include Word of the Day or any other daily section unless it is the strict category.
 - Use the limited FORMAT EXAMPLES below only for footer/tone/emoji rhythm, not content sections.
 - Keep Telegram HTML with both <b> and <i>.
@@ -1226,78 +1397,10 @@ Original full instructions:
         if violation:
             logger.warning("Content draft failed validation after retry for %s: %s", category, violation)
             return _contract_failed_payload(category, slot, violation, retry_prompt)
-    topic = _infer_topic(text, f"{category} / {slot}")
-    duplicate = _topic_duplication_reason(text, topic, used_topic_records)
-    if duplicate:
-        logger.warning("Content draft duplicated a used topic for %s: %s", category, duplicate)
-        retry_style_examples = storage.choose_style_examples_from_categories(["General"], 3)
-        retry_style_block = _style_block(retry_style_examples)
-        retry_prompt = f"""
-The previous draft was rejected because it repeated a permanently consumed topic:
-{duplicate}
-
-Regenerate from scratch with a completely different main learning idea.
-
-STRICT CATEGORY:
-{category}
-
-SLOT:
-{slot}
-
-CATEGORY BOUNDARY RULES:
-{boundary_rules}
-
-Forbidden used topics:
-{used_topics or 'None yet'}
-
-Hard requirements:
-- Generate ONLY this strict category.
-- Keep the selected category locked. Do not switch content type during retry.
-- Follow CATEGORY BOUNDARY RULES as the thinking process before writing.
-- Choose a fresh topic that does not duplicate, reword, compare, or substantially overlap with any forbidden used topic.
-- Preserve category first, but prefer a weaker new topic over an excellent repeated topic.
-- Keep Telegram HTML with both <b> and <i>.
-- Return only the corrected post.
-
-LIMITED FORMAT EXAMPLES:
-{retry_style_block}
-
-Original full instructions:
-{prompt}
-""".strip()
-        response = await openai.ChatCompletion.acreate(
-            model=MODEL,
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "You are Voxi Content Engine. Never repeat a permanently consumed topic. "
-                        "Strictly obey the requested slot category."
-                    ),
-                },
-                {"role": "user", "content": retry_prompt},
-            ],
-            max_tokens=650,
-            temperature=0.7,
-        )
-        text, used_hashtags = _normalize_result(
-            response["choices"][0]["message"]["content"],
-            allowed_hashtags,
-        )
-        prompt = retry_prompt
-        style_examples = retry_style_examples
-        violation = _category_violation(category, text)
-        if violation:
-            logger.warning("Content draft failed validation after uniqueness retry for %s: %s", category, violation)
-            return _contract_failed_payload(category, slot, violation, retry_prompt)
-        topic = _infer_topic(text, f"{category} / {slot}")
-        duplicate = _topic_duplication_reason(text, topic, used_topic_records)
-        if duplicate:
-            logger.warning("Content draft failed uniqueness after retry for %s: %s", category, duplicate)
-            return _contract_failed_payload(category, slot, duplicate, retry_prompt)
     return {
         "text": text,
         "topic": topic,
+        "topics": raw_topics,
         "vocabulary": "",
         "generation_prompt": prompt,
         "style_examples_used": [int(row["id"]) for row in style_examples],

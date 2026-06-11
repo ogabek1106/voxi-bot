@@ -139,10 +139,13 @@ async def generate_one_draft(bot: Bot, slot: str = "manual", notify: bool = True
     category = ai.category_for_slot(now.weekday(), slot)
     contract = ai.generation_contract_for_category(category)
     allowed_idea_types = contract.get("allowed_idea_types") or []
-    idea_card = storage.choose_resource_idea_by_types(allowed_idea_types, allow_fallback=False)
+    is_list_category = category.strip().lower().startswith("5 ")
+    idea_card = None if is_list_category else storage.choose_resource_idea_by_types(allowed_idea_types, allow_fallback=False)
     source = None if (idea_card or allowed_idea_types) else storage.choose_resource()
     result = await ai.generate_draft_text(now.weekday(), slot, source, idea_card, category=category)
     draft_text = sanitize_telegram_html(str(result["text"]))
+    raw_topics = [str(topic).strip() for topic in (result.get("topics") or []) if str(topic).strip()]
+    used_topic = "; ".join(raw_topics) if raw_topics else result.get("topic")
     draft_id = storage.create_draft(
         draft_text=draft_text,
         generated_date=now.date().isoformat(),
@@ -151,9 +154,9 @@ async def generate_one_draft(bot: Bot, slot: str = "manual", notify: bool = True
         content_category=category,
         source_resource_id=(idea_card.get("resource_id") if idea_card else source.get("id") if source else None),
         source_title=(idea_card.get("resource_title") if idea_card else source.get("title") if source else None),
-        used_topic=result.get("topic"),
-        used_vocabulary=[result.get("vocabulary")] if result.get("vocabulary") else [],
-        topic=result.get("topic"),
+        used_topic=used_topic,
+        used_vocabulary=raw_topics or ([result.get("vocabulary")] if result.get("vocabulary") else []),
+        topic=used_topic,
         source_chunk_id=str(idea_card.get("id")) if idea_card else None,
         generation_prompt=result.get("generation_prompt"),
         style_examples_used=result.get("style_examples_used") or [],
