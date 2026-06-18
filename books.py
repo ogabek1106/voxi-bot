@@ -369,6 +369,11 @@ else:
             "file_id": "BQACAgIAAxkBAAEChGVqGS1FgIKLzpicpVo3g5akY-bkowACupkAAvr4yUg6LO2zgZZ8xDsE",
             "filename": "📘 Longman Dictionary of Common Errors.pdf",
             "caption": "📘 *Longman Dictionary of Common Errors.pdf*\n\n⏰ File will be deleted in 15 minutes.\n\nMore 👉 @IELTSforeverybody"
+        },
+        "73": {
+            "file_id": "BQACAgIAAxkBAAECoJtqM5ICZwEF9TWVxXab6TnAkn3vcwACs6EAAliDmEm2KW8ttEM-njwE",
+            "filename": "📘 Advanced Reading Power.pdf",
+            "caption": "📘 *Advanced Reading Power.pdf*\n\n⏰ File will be deleted in 15 minutes.\n\nMore 👉 @IELTSforeverybody"
         }
     }
 
