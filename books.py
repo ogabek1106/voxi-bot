@@ -374,6 +374,11 @@ else:
             "file_id": "BQACAgIAAxkBAAECoJtqM5ICZwEF9TWVxXab6TnAkn3vcwACs6EAAliDmEm2KW8ttEM-njwE",
             "filename": "📘 Advanced Reading Power.pdf",
             "caption": "📘 *Advanced Reading Power.pdf*\n\n⏰ File will be deleted in 15 minutes.\n\nMore 👉 @IELTSforeverybody"
+        },
+        "74": {
+            "file_id": "BQACAgIAAxkBAAECsPhqT4tWYWay7NI_xqIgIZgNa6PCVgACfZgAAjTZeErGVd2fqWBycTwE",
+            "filename": "📘 IELTS Interactive Self-Study 200 Advanced Vocabulary Questions.pdf",
+            "caption": "📘 *IELTS Interactive Self-Study 200 Advanced Vocabulary Questions.pdf*\n\n⏰ File will be deleted in 15 minutes.\n\nMore 👉 @IELTSforeverybody"
         }
     }
 
