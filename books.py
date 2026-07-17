@@ -379,6 +379,11 @@ else:
             "file_id": "BQACAgIAAxkBAAECsPhqT4tWYWay7NI_xqIgIZgNa6PCVgACfZgAAjTZeErGVd2fqWBycTwE",
             "filename": "📘 IELTS Interactive Self-Study 200 Advanced Vocabulary Questions.pdf",
             "caption": "📘 *IELTS Interactive Self-Study 200 Advanced Vocabulary Questions.pdf*\n\n⏰ File will be deleted in 15 minutes.\n\nMore 👉 @IELTSforeverybody"
+        },
+        "75": {
+            "file_id": "BQACAgIAAxkBAAECslFqWekuJ2ZVaZAEr-WnJOyjBNpaJwACo58AApUQ0EoxMNH5DmIS5j0E",
+            "filename": "📘 Collins easy Learning English Vocabulary.pdf",
+            "caption": "📘 *Collins easy Learning English Vocabulary.pdf*\n\n⏰ File will be deleted in 15 minutes.\n\nMore 👉 @IELTSforeverybody"
         }
     }
 
